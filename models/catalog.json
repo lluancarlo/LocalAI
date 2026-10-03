@@ -1,0 +1,96 @@
+{
+  "$comment": "Describes downloadable local models. Used by scripts/setup.ps1 (download) and by the app (model info / auto-selection). Model files are never committed.",
+  "llm": [
+    {
+      "id": "gemma-4-26b-a4b-qat-q4kxl",
+      "displayName": "Gemma 4 26B-A4B Instruct (QAT)",
+      "file": "llm/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "sizeBytes": 14250000000,
+      "quantization": "UD-Q4_K_XL (QAT)",
+      "parametersB": 26,
+      "minVramMb": 22000,
+      "defaultContext": 16384,
+      "chatTemplateKwargs": { "enable_thinking": false }
+    },
+    {
+      "id": "gemma-4-12b-qat-q4_0",
+      "displayName": "Gemma 4 12B Instruct (QAT)",
+      "file": "llm/gemma-4-12b-it-qat-q4_0.gguf",
+      "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
+      "sizeBytes": 6975879296,
+      "quantization": "Q4_0 (QAT)",
+      "parametersB": 12,
+      "minVramMb": 11000,
+      "defaultContext": 16384,
+      "chatTemplateKwargs": { "enable_thinking": false }
+    },
+    {
+      "id": "gemma-4-e4b-qat-q4_0",
+      "displayName": "Gemma 4 E4B Instruct (QAT)",
+      "file": "llm/gemma-4-E4B_q4_0-it.gguf",
+      "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf",
+      "sizeBytes": 5154941280,
+      "quantization": "Q4_0 (QAT)",
+      "parametersB": 4,
+      "minVramMb": 0,
+      "defaultContext": 8192,
+      "chatTemplateKwargs": { "enable_thinking": false }
+    }
+  ],
+  "embedding": [
+    {
+      "id": "embeddinggemma-300m-q8_0",
+      "displayName": "EmbeddingGemma 300M",
+      "file": "embedding/embeddinggemma-300M-Q8_0.gguf",
+      "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf",
+      "sizeBytes": 333590944
+    }
+  ],
+  "whisper": [
+    {
+      "id": "large-v3-turbo-q8_0",
+      "displayName": "Whisper large-v3-turbo (q8_0)",
+      "file": "whisper/ggml-large-v3-turbo-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+      "sizeBytes": 874188075
+    }
+  ],
+  "vad": [
+    {
+      "id": "silero-vad-v5",
+      "displayName": "Silero VAD v5",
+      "file": "vad/silero_vad_v5.onnx",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx"
+    }
+  ],
+  "tts": [
+    {
+      "id": "pt_BR-faber-medium",
+      "language": "pt",
+      "displayName": "Faber (pt-BR)",
+      "dir": "tts/vits-piper-pt_BR-faber-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2"
+    },
+    {
+      "id": "it_IT-paola-medium",
+      "language": "it",
+      "displayName": "Paola (it-IT)",
+      "dir": "tts/vits-piper-it_IT-paola-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-paola-medium.tar.bz2"
+    },
+    {
+      "id": "en_US-lessac-medium",
+      "language": "en",
+      "displayName": "Lessac (en-US)",
+      "dir": "tts/vits-piper-en_US-lessac-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2"
+    }
+  ],
+  "runtime": {
+    "llamaCppBuild": "b11381",
+    "llamaCppUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cuda-13.4-x64.zip",
+    "cudartUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/cudart-llama-bin-win-cuda-13.4-x64.zip",
+    "llamaCppCpuUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cpu-x64.zip"
+  }
+}
