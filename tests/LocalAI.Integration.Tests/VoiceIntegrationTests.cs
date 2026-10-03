@@ -55,10 +55,10 @@ public sealed class VoiceIntegrationTests(LocalAiFixture fx, ITestOutputHelper o
         await voice.StartContinuousAsync();
         try
         {
-            fx.Room.SaySilence(TimeSpan.FromMilliseconds(500));
             sw.Restart();
+            fx.Room.SaySilence(TimeSpan.FromMilliseconds(500));
             fx.Room.Say(question);
-            var speechEndMs = question.Length * 1000L / ISpeechToText.SampleRate;
+            var speechEndMs = 500 + question.Length * 1000L / ISpeechToText.SampleRate; // queued after the silence
 
             await WaitUntilAsync(() => turn != null, TimeSpan.FromSeconds(60), "assistant turn");
             await WaitUntilAsync(() => voice.State == VoiceState.Listening, TimeSpan.FromSeconds(30), "back to listening");

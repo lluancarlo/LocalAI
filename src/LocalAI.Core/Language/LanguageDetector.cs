@@ -31,6 +31,7 @@ public sealed partial class HeuristicLanguageDetector : ILanguageDetector
             "porque", "qual", "quais", "ser", "estar", "está", "estou", "tem", "têm", "tenho", "foi", "vai",
             "então", "entao", "já", "aqui", "ao", "aos", "pelo", "pela", "sobre", "explique", "obrigado", "sim",
             "olá", "oi", "bom", "dia", "fazer", "faz", "posso", "pode", "preciso", "quero", "seria", "agora",
+            "dois", "duas", "três", "responda", "explica", "diga", "me", "te", "lhe", "nós", "isso", "coisa",
         },
         ["it"] = new(StringComparer.Ordinal)
         {
@@ -40,7 +41,8 @@ public sealed partial class HeuristicLanguageDetector : ILanguageDetector
             "questa", "quello", "quella", "anche", "molto", "quando", "dove", "perché", "perche", "quale",
             "essere", "stare", "sto", "ho", "hai", "ha", "abbiamo", "fatto", "fare", "va", "allora", "già",
             "qui", "al", "allo", "alla", "ai", "sul", "sulla", "spiegami", "grazie", "sì", "ciao", "buongiorno",
-            "posso", "puoi", "voglio", "vorrei", "adesso", "ora", "cosa", "c'è", "gli", "ne", "ci", "mi", "ti",
+            "posso", "puoi", "voglio", "vorrei", "adesso", "ora", "cosa", "c'è", "ne", "ci", "mi", "ti",
+            "in", "due", "tre", "cos'è", "dell'", "nell'", "sei", "siamo", "dimmi", "rispondi", "spiega", "grazie",
         },
         ["en"] = new(StringComparer.Ordinal)
         {

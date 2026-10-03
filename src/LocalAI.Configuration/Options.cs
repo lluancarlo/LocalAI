@@ -115,7 +115,7 @@ public sealed class VoiceOptions
     /// <summary>Minimum speech length for an utterance to count.</summary>
     public int MinSpeechMs { get; set; } = 250;
     /// <summary>Silence that ends an utterance.</summary>
-    public int EndOfSpeechSilenceMs { get; set; } = 700;
+    public int EndOfSpeechSilenceMs { get; set; } = 600;
     public int MaxUtteranceSeconds { get; set; } = 30;
     public bool BargeInEnabled { get; set; } = true;
     /// <summary>Sustained speech needed to interrupt the assistant.</summary>

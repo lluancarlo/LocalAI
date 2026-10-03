@@ -114,6 +114,10 @@ public sealed class LlamaServerProcess : IAsyncDisposable
             "--fit", "off", // explicit, predictable placement; the app decides layers/context
         };
         if (info.ParallelSlots > 1) args.Add("--kv-unified");
+        // Fully offloaded: read the weights once and upload them, instead of keeping the file memory-mapped.
+        // Measured on Gemma 4 12B: 2.4 s vs 3.8 s load, 1.4 GB vs 7.2 GB resident RAM, same tok/s.
+        // Partial/CPU inference keeps mmap (weights are used from host memory anyway).
+        if (info.GpuLayers < 0) args.AddRange(["--load-mode", "none"]);
         if (info.Embedding) args.Add("--embedding");
         else if (info.DisableReasoning) args.AddRange(["--reasoning", "off"]);
         return args;
