@@ -131,7 +131,7 @@
           </Grid>
           <WrapPanel Orientation="Horizontal">
             <Button x:Name="PushToTalkButton" Classes="flat" Classes.record="{Binding IsRecording}" Margin="0,0,8,6"
-                    IsEnabled="{Binding VoiceAvailable}" Content="🎤  Hold to talk" ToolTip.Tip="Hold the button (or Ctrl+Space) while speaking" />
+                    IsEnabled="{Binding VoiceAvailable}" Content="●  Hold to talk" ToolTip.Tip="Hold the button (or Ctrl+Space) while speaking" />
             <ToggleButton Classes="flat" Margin="0,0,8,6" IsChecked="{Binding IsContinuous}" IsEnabled="{Binding VoiceAvailable}"
                           Content="Conversation mode" ToolTip.Tip="Hands-free: speak naturally, interrupt the assistant at any time" />
             <CheckBox Margin="0,0,16,6" IsChecked="{Binding SpeakReplies}" Content="Speak typed replies" />

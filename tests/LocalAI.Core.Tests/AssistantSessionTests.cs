@@ -143,6 +143,18 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
+    public async Task Uncertain_language_does_not_inherit_previous_language_hint()
+    {
+        using var session = CreateSession();
+        await session.SubmitAsync(new TurnRequest("Explique o que é uma variável, por favor.", InputSource.Text));
+        Assert.Contains("Reply in Brazilian Portuguese", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+
+        // Ambiguous follow-up: no explicit hint rather than a possibly wrong one.
+        await session.SubmitAsync(new TurnRequest("C# vs F#?", InputSource.Text));
+        Assert.DoesNotContain("Reply in", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Titles_are_trimmed_to_first_line()
     {
         Assert.Equal("Hello", AssistantSession.MakeTitle("Hello\nsecond line"));

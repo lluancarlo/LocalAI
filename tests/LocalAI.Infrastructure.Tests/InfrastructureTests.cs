@@ -221,6 +221,7 @@ public sealed class LlamaServerTests
         Assert.Contains("--n-gpu-layers 999", joined, StringComparison.Ordinal);
         Assert.Contains("--kv-unified", args);
         Assert.Contains("--reasoning off", joined, StringComparison.Ordinal);
+        Assert.Contains("--load-mode none", joined, StringComparison.Ordinal);
         Assert.DoesNotContain(args, a => a.Contains("api-key", StringComparison.Ordinal)); // key goes via environment
     }
 
@@ -233,6 +234,7 @@ public sealed class LlamaServerTests
         }, 1);
         Assert.Contains("--embedding", args);
         Assert.DoesNotContain("--reasoning", args);
+        Assert.DoesNotContain("--load-mode", args); // CPU: keep mmap
         Assert.Contains("--n-gpu-layers 0", string.Join(' ', args), StringComparison.Ordinal);
     }
 

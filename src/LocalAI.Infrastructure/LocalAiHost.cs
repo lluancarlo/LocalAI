@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using LocalAI.Audio;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
@@ -71,11 +72,7 @@ public static class LocalAiHost
         // Audio (Windows/WASAPI implementation; the Core only sees the interfaces)
         if (OperatingSystem.IsWindows())
         {
-            services.AddSingleton<IAudioDeviceProvider, WasapiAudioDeviceProvider>();
-            services.AddSingleton<IAudioCapture, WasapiAudioCapture>();
-            services.AddSingleton<IAudioPlayer>(sp => new WasapiAudioPlayer(
-                sp.GetRequiredService<ILogger<WasapiAudioPlayer>>(),
-                sp.GetRequiredService<IOptions<LocalAiOptions>>().Value.Audio.OutputDeviceId));
+            AddWindowsAudio(services);
         }
         else
         {
@@ -91,6 +88,16 @@ public static class LocalAiHost
         services.AddSingleton<VoiceConversationController>();
         services.AddSingleton<StartupService>();
         return services;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void AddWindowsAudio(IServiceCollection services)
+    {
+        services.AddSingleton<IAudioDeviceProvider, WasapiAudioDeviceProvider>();
+        services.AddSingleton<IAudioCapture, WasapiAudioCapture>();
+        services.AddSingleton<IAudioPlayer>(sp => new WasapiAudioPlayer(
+            sp.GetRequiredService<ILogger<WasapiAudioPlayer>>(),
+            sp.GetRequiredService<IOptions<LocalAiOptions>>().Value.Audio.OutputDeviceId));
     }
 
     /// <summary>Structured local file logging. Logs never leave the machine and never contain conversation text or audio.</summary>

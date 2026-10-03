@@ -13,6 +13,8 @@ public sealed class LanguageDetectorTests
     [InlineData("Spiegami come funziona async/await in C#, per favore.", "it")]
     [InlineData("Preferisco scrivere software in C#, ma uso anche Python.", "it")]
     [InlineData("Puoi aiutarmi con una domanda di programmazione?", "it")]
+    [InlineData("Che cos'è una variabile in programmazione? Rispondi in due frasi.", "it")]
+    [InlineData("O que é uma variável em programação? Responda em duas frases.", "pt")]
     [InlineData("Explain how async/await works in C#, please.", "en")]
     [InlineData("I prefer writing software in C#, but I also use Python.", "en")]
     [InlineData("Can you help me with a programming question?", "en")]

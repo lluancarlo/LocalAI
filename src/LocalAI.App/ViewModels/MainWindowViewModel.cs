@@ -41,7 +41,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly LocalAiPaths _paths;
     private readonly LocalAiOptions _options;
     private readonly ILogger<MainWindowViewModel> _logger;
-    private readonly Dictionary<string, SubsystemStatus> _subsystems = new();
     private MessageViewModel? _streaming;
     private bool _suppressSelection;
     private GenerationStats? _lastStats;
@@ -147,11 +146,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (_isContinuousPreferred && VoiceAvailable) IsContinuous = true;
     }
 
-    private void OnSubsystem(SubsystemStatus s)
-    {
-        _subsystems[s.Name] = s;
-        UpdateStatus();
-    }
+    private void OnSubsystem(SubsystemStatus s) => UpdateStatus();
 
     private void UpdateStatus()
     {
@@ -423,16 +418,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var mic = SelectedMicrophone?.Name ?? "no microphone";
         VoiceText = s switch
         {
-            VoiceState.Listening => "🎤 Listening",
+            VoiceState.Listening => "◉ Listening",
             VoiceState.Recording => "● Recording",
-            VoiceState.Transcribing => "✎ Transcribing",
-            VoiceState.Thinking => "🧠 Thinking",
-            VoiceState.Speaking => "🔊 Speaking",
+            VoiceState.Transcribing => "… Transcribing",
+            VoiceState.Thinking => "◌ Thinking",
+            VoiceState.Speaking => "♪ Speaking",
             VoiceState.Error => "Voice: " + (_voice.LastError ?? "error"),
             _ when _stt.State == ComponentState.Unavailable => "Voice: unavailable (" + (_stt.LastError ?? "speech recognition failed") + ")",
             _ when _stt.State != ComponentState.Ready => "Voice: loading…",
             _ when Microphones.Count == 0 => "Voice: no microphone found",
-            _ => IsContinuous ? "🎤 Listening" : $"Voice: push-to-talk · {mic}",
+            _ => IsContinuous ? "◉ Listening" : $"Voice: push-to-talk · {mic}",
         };
         if (s == VoiceState.Error && IsContinuous)
         {

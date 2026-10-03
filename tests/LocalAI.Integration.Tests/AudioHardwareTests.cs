@@ -13,6 +13,7 @@ namespace LocalAI.Integration.Tests;
 /// Real audio devices (WASAPI). The microphone test keeps audio in memory only; the playback test plays silence.
 /// </summary>
 [Trait("Category", "Hardware")]
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public sealed class AudioHardwareTests(ITestOutputHelper output)
 {
     private sealed class Monitor(LocalAiOptions value) : IOptionsMonitor<LocalAiOptions>

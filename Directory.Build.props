@@ -8,6 +8,7 @@
     <WarningsAsErrors>nullable</WarningsAsErrors>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
     <RuntimeIdentifier Condition="'$(OS)' == 'Windows_NT'">win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
