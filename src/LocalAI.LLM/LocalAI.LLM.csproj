@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LocalAI.Core\LocalAI.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="LocalAI.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="LocalAI.Integration.Tests" />
+  </ItemGroup>
+</Project>

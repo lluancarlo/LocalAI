@@ -1,0 +1,32 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+*.user
+.vs/
+.idea/
+*.suo
+TestResults/
+
+# Native runtime downloaded by scripts/setup.ps1
+runtime/
+
+# Model files (downloaded by scripts/setup.ps1) - only the catalog is tracked
+models/*
+!models/catalog.json
+!models/README.md
+
+# User data / local config / logs / audio
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+logs/
+*.log
+*.wav
+*.partial
+usersettings.json
+appsettings.Local.json
+.env
