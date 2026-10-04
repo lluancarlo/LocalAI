@@ -57,6 +57,7 @@ public sealed class App : Application
         var services = new ServiceCollection();
         services.AddLogging(b => LocalAiHost.ConfigureLogging(b, configuration, paths.LogsDirectory));
         services.AddLocalAi(configuration, paths);
+        services.AddSingleton<SettingsViewModel>();
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
     }
 

@@ -11,7 +11,9 @@
       "parametersB": 26,
       "minVramMb": 22000,
       "defaultContext": 16384,
-      "chatTemplateKwargs": { "enable_thinking": false }
+      "chatTemplateKwargs": {
+        "enable_thinking": false
+      }
     },
     {
       "id": "gemma-4-12b-qat-q4_0",
@@ -23,7 +25,9 @@
       "parametersB": 12,
       "minVramMb": 11000,
       "defaultContext": 16384,
-      "chatTemplateKwargs": { "enable_thinking": false }
+      "chatTemplateKwargs": {
+        "enable_thinking": false
+      }
     },
     {
       "id": "gemma-4-e4b-qat-q4_0",
@@ -35,7 +39,9 @@
       "parametersB": 4,
       "minVramMb": 0,
       "defaultContext": 8192,
-      "chatTemplateKwargs": { "enable_thinking": false }
+      "chatTemplateKwargs": {
+        "enable_thinking": false
+      }
     }
   ],
   "embedding": [
@@ -68,23 +74,117 @@
     {
       "id": "pt_BR-faber-medium",
       "language": "pt",
-      "displayName": "Faber (pt-BR)",
+      "displayName": "Faber (pt-BR, male)",
       "dir": "tts/vits-piper-pt_BR-faber-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2",
+      "default": true
+    },
+    {
+      "id": "pt_BR-cadu-medium",
+      "language": "pt",
+      "displayName": "Cadu (pt-BR, male)",
+      "dir": "tts/vits-piper-pt_BR-cadu-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-cadu-medium.tar.bz2"
+    },
+    {
+      "id": "pt_BR-jeff-medium",
+      "language": "pt",
+      "displayName": "Jeff (pt-BR, male)",
+      "dir": "tts/vits-piper-pt_BR-jeff-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-jeff-medium.tar.bz2"
+    },
+    {
+      "id": "pt_BR-edresson-low",
+      "language": "pt",
+      "displayName": "Edresson (pt-BR, male, low quality)",
+      "dir": "tts/vits-piper-pt_BR-edresson-low",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-edresson-low.tar.bz2"
+    },
+    {
+      "id": "pt_BR-miro-high",
+      "language": "pt",
+      "displayName": "Miro (pt-BR, male, high quality)",
+      "dir": "tts/vits-piper-pt_BR-miro-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-miro-high.tar.bz2"
+    },
+    {
+      "id": "pt_BR-dii-high",
+      "language": "pt",
+      "displayName": "Dii (pt-BR, female, high quality)",
+      "dir": "tts/vits-piper-pt_BR-dii-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-dii-high.tar.bz2"
     },
     {
       "id": "it_IT-paola-medium",
       "language": "it",
-      "displayName": "Paola (it-IT)",
+      "displayName": "Paola (it-IT, female)",
       "dir": "tts/vits-piper-it_IT-paola-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-paola-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-paola-medium.tar.bz2",
+      "default": true
+    },
+    {
+      "id": "it_IT-riccardo-x_low",
+      "language": "it",
+      "displayName": "Riccardo (it-IT, male, low quality)",
+      "dir": "tts/vits-piper-it_IT-riccardo-x_low",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-riccardo-x_low.tar.bz2"
+    },
+    {
+      "id": "it_IT-miro-high",
+      "language": "it",
+      "displayName": "Miro (it-IT, male, high quality)",
+      "dir": "tts/vits-piper-it_IT-miro-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-miro-high.tar.bz2"
+    },
+    {
+      "id": "it_IT-dii-high",
+      "language": "it",
+      "displayName": "Dii (it-IT, female, high quality)",
+      "dir": "tts/vits-piper-it_IT-dii-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-dii-high.tar.bz2"
     },
     {
       "id": "en_US-lessac-medium",
       "language": "en",
-      "displayName": "Lessac (en-US)",
+      "displayName": "Lessac (en-US, female)",
       "dir": "tts/vits-piper-en_US-lessac-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
+      "default": true
+    },
+    {
+      "id": "en_US-lessac-high",
+      "language": "en",
+      "displayName": "Lessac (en-US, female, high quality)",
+      "dir": "tts/vits-piper-en_US-lessac-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-high.tar.bz2"
+    },
+    {
+      "id": "en_US-amy-medium",
+      "language": "en",
+      "displayName": "Amy (en-US, female)",
+      "dir": "tts/vits-piper-en_US-amy-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2"
+    },
+    {
+      "id": "en_US-ryan-high",
+      "language": "en",
+      "displayName": "Ryan (en-US, male, high quality)",
+      "dir": "tts/vits-piper-en_US-ryan-high",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-high.tar.bz2"
+    },
+    {
+      "id": "en_US-hfc_female-medium",
+      "language": "en",
+      "displayName": "HFC (en-US, female)",
+      "dir": "tts/vits-piper-en_US-hfc_female-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_female-medium.tar.bz2"
+    },
+    {
+      "id": "en_US-hfc_male-medium",
+      "language": "en",
+      "displayName": "HFC (en-US, male)",
+      "dir": "tts/vits-piper-en_US-hfc_male-medium",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_male-medium.tar.bz2"
     }
   ],
   "runtime": {

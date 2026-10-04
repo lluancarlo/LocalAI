@@ -114,6 +114,37 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
     }
 
     [Fact]
+    public async Task Voices_can_be_switched_and_speed_changes_duration()
+    {
+        var tts = Get<ITextToSpeech>();
+        var installed = tts.AvailableVoices.Where(v => v.Language == "pt").ToList();
+        output.WriteLine("Installed pt voices: " + string.Join(", ", installed.Select(v => v.Id)));
+        Assert.Contains(installed, v => v.Id == "pt_BR-faber-medium");
+        var original = tts.GetVoice("pt")!.Id;
+        var other = installed.FirstOrDefault(v => v.Id != original);
+        try
+        {
+            if (other != null)
+            {
+                await tts.SetVoiceAsync("pt", other.Id);
+                Assert.Equal(other.Id, tts.GetVoice("pt")!.Id);
+            }
+            const string text = "Esta frase serve para medir a velocidade da fala.";
+            tts.Speed = 1.0f;
+            var normal = await tts.SynthesizeAsync(text, "pt");
+            tts.Speed = 1.4f;
+            var fast = await tts.SynthesizeAsync(text, "pt");
+            output.WriteLine($"{tts.GetVoice("pt")!.Id}: 1.0x {normal.Duration.TotalSeconds:F2}s, 1.4x {fast.Duration.TotalSeconds:F2}s");
+            Assert.True(fast.Duration < normal.Duration * 0.85);
+        }
+        finally
+        {
+            tts.Speed = 1.0f;
+            await tts.SetVoiceAsync("pt", original);
+        }
+    }
+
+    [Fact]
     public async Task Conversation_is_persisted_and_recovered_after_restart()
     {
         var session = Get<AssistantSession>();

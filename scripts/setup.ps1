@@ -12,12 +12,14 @@
   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Llm gemma-4-26b-a4b-qat-q4kxl
   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipLlm
+  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -AllVoices   # every voice in the catalog (~1 GB)
 #>
 [CmdletBinding()]
 param(
     [string]$Llm = "auto",
     [switch]$SkipLlm,
     [switch]$SkipRuntime,
+    [switch]$AllVoices,
     [switch]$Force
 )
 
@@ -108,7 +110,8 @@ Write-Host "VAD model:"
 foreach ($m in $catalog.vad) { Get-File $m.url (Join-Path $modelsDir $m.file) }
 
 Write-Host "TTS voices:"
-foreach ($v in $catalog.tts) {
+$voices = if ($AllVoices) { $catalog.tts } else { $catalog.tts | Where-Object { $_.default } }
+foreach ($v in $voices) {
     $dir = Join-Path $modelsDir $v.dir
     if ((Test-Path $dir) -and -not $Force) { Write-Host "  [skip] $($v.id) already present"; continue }
     $tmp = Join-Path $modelsDir "tts\_$($v.id).tar.bz2"
