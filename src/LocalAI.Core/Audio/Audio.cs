@@ -59,6 +59,12 @@ public interface IVoiceActivityDetectorFactory
 
 public static class AudioMath
 {
+    public const float SilenceDb = -120f;
+
+    /// <summary>RMS → dBFS (0 dB = full scale), floored at <see cref="SilenceDb"/>.</summary>
+    public static float ToDecibels(float rms) =>
+        rms <= 1e-6f ? SilenceDb : Math.Max(SilenceDb, 20f * MathF.Log10(rms));
+
     public static float Rms(ReadOnlySpan<float> samples)
     {
         if (samples.IsEmpty) return 0;

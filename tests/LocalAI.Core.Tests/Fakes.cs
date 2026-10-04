@@ -137,8 +137,11 @@ internal sealed class FakeTts : ITextToSpeech
     public ComponentState State { get; set; } = ComponentState.Ready;
     public string? LastError => null;
     public IReadOnlyList<VoiceInfo> Voices { get; } = [new("v", "en", "Voice")];
+    public IReadOnlyList<VoiceInfo> AvailableVoices => Voices;
+    public float Speed { get; set; } = 1f;
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public VoiceInfo? GetVoice(string? language) => Voices[0];
+    public Task SetVoiceAsync(string language, string voiceId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<AudioClip> SynthesizeAsync(string text, string? language, CancellationToken cancellationToken = default)
     {

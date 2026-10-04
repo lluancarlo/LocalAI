@@ -40,7 +40,13 @@ public static class LocalAiHost
 
     public static IServiceCollection AddLocalAi(this IServiceCollection services, IConfiguration configuration, LocalAiPaths? pathsOverride = null)
     {
-        services.AddOptions<LocalAiOptions>().Bind(configuration.GetSection(LocalAiOptions.SectionName));
+        // One options instance for the whole app: IOptions and IOptionsMonitor would otherwise hold separate copies,
+        // and settings changed at runtime (settings menu) must be seen by every component. Changes are persisted to
+        // usersettings.json by the UI.
+        var options = new LocalAiOptions();
+        configuration.GetSection(LocalAiOptions.SectionName).Bind(options);
+        services.AddSingleton<IOptions<LocalAiOptions>>(Options.Create(options));
+        services.AddSingleton<IOptionsMonitor<LocalAiOptions>>(new FixedOptionsMonitor<LocalAiOptions>(options));
 
         services.AddSingleton(sp => pathsOverride ?? new LocalAiPaths(sp.GetRequiredService<IOptions<LocalAiOptions>>().Value.Paths));
         services.AddSingleton(sp => ModelCatalog.Load(sp.GetRequiredService<LocalAiPaths>().CatalogPath));

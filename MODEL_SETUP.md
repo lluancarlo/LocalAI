@@ -14,6 +14,7 @@ Options:
 | `-Llm <id>` | Install a specific LLM from the catalog instead of the automatic choice |
 | `-SkipLlm` | Skip the LLM download (e.g. you bring your own GGUF) |
 | `-SkipRuntime` | Skip the llama.cpp runtime |
+| `-AllVoices` | Install all 16 catalog voices instead of the 3 defaults |
 | `-Force` | Re-download everything |
 
 Downloads resume if interrupted (`curl -C -`) and sizes are verified. Everything goes into `runtime\` and `models\`
@@ -70,8 +71,9 @@ The application decides the remaining parameters itself:
 
 ## Changing voices or the Whisper model
 
-- Voices: any `vits-piper-*` archive from the sherpa-onnx `tts-models` release works. Add it to the `tts` section of
-  the catalog, extract it into `models\tts\`, and map it in `TextToSpeech:Voices` (`"pt": "pt_BR-cadu-medium"`).
+- Voices: install them with `setup.ps1 -AllVoices` and pick them in **Settings → Voices**. Any other `vits-piper-*`
+  archive from the sherpa-onnx `tts-models` release also works: add it to the `tts` section of the catalog and run
+  `setup.ps1 -AllVoices` again.
 - Whisper: add an entry under `whisper` in the catalog (any ggml model from huggingface.co/ggerganov/whisper.cpp)
   and set `SpeechToText:Model`.
 

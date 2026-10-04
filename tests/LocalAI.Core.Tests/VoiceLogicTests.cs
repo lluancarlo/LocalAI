@@ -1,4 +1,5 @@
 using LocalAI.Configuration;
+using LocalAI.Core.Audio;
 using LocalAI.Core.Voice;
 
 namespace LocalAI.Core.Tests;
@@ -124,6 +125,21 @@ public sealed class BargeInDetectorTests
         var fired = Enumerable.Range(0, 20).Any(_ => d.Update(true));
         Assert.True(fired);
     }
+}
+
+public sealed class AudioMathTests
+{
+    [Theory]
+    [InlineData(1.0f, 0f)]
+    [InlineData(0.1f, -20f)]
+    [InlineData(0.01f, -40f)]
+    [InlineData(0.001f, -60f)]
+    public void Converts_rms_to_dbfs(float rms, float expectedDb) =>
+        Assert.Equal(expectedDb, AudioMath.ToDecibels(rms), 2);
+
+    [Fact]
+    public void Digital_silence_is_floored() =>
+        Assert.Equal(AudioMath.SilenceDb, AudioMath.ToDecibels(0f));
 }
 
 public sealed class TranscriptFilterTests

@@ -33,6 +33,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
     private Task? _loopTask;
     private bool _continuous;
     private bool _pttRecording;
+    private bool _monitoring;
     private readonly List<float> _pttBuffer = [];
     private int _turnGeneration;
     private string? _inputDeviceId;
@@ -63,10 +64,15 @@ public sealed class VoiceConversationController : IAsyncDisposable
     public bool IsContinuous => _continuous;
     public string? LastError { get; private set; }
     public string? ActiveInputDevice => _captureSession?.DeviceName;
+    public bool IsCapturing => _captureSession != null;
 
     public event EventHandler<VoiceState>? StateChanged;
     public event EventHandler<Transcription>? Transcribed;
     public event EventHandler? BargeIn;
+    /// <summary>Microphone level in dBFS (peak RMS over ~66 ms), raised ~15×/s while the microphone is open.</summary>
+    public event EventHandler<float>? InputLevel;
+    /// <summary>Raised when the microphone is opened (true) or closed (false).</summary>
+    public event EventHandler<bool>? CaptureChanged;
     /// <summary>Raised when the microphone delivers pure digital silence (typically a muted headset).</summary>
     public event EventHandler<string>? Warning;
 
@@ -74,7 +80,36 @@ public sealed class VoiceConversationController : IAsyncDisposable
 
     private VoiceOptions Voice => _options.CurrentValue.Voice;
 
-    public void SetInputDevice(string? deviceId) => _inputDeviceId = NullIfEmpty(deviceId);
+    /// <summary>Selects the microphone; an open capture is reopened on the new device.</summary>
+    public async Task SetInputDeviceAsync(string? deviceId)
+    {
+        var id = NullIfEmpty(deviceId);
+        if (id == _inputDeviceId) return;
+        _inputDeviceId = id;
+        await ReopenCaptureAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Reopens the microphone if it is open (device or capture settings changed).</summary>
+    public async Task ReopenCaptureAsync()
+    {
+        if (_captureSession == null) return;
+        await CloseCaptureAsync().ConfigureAwait(false);
+        await EnsureCaptureAsync().ConfigureAwait(false);
+    }
+
+    // ---------- Level monitor (settings: test the microphone without talking to the assistant) ----------
+
+    public async Task StartMonitorAsync()
+    {
+        _monitoring = true;
+        if (!await EnsureCaptureAsync().ConfigureAwait(false)) _monitoring = false;
+    }
+
+    public async Task StopMonitorAsync()
+    {
+        _monitoring = false;
+        if (!_continuous && !_pttRecording) await CloseCaptureAsync().ConfigureAwait(false);
+    }
 
     // ---------- Continuous mode ----------
 
@@ -94,7 +129,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         _continuous = false;
         Interlocked.Increment(ref _turnGeneration);
         _session.CancelCurrentTurn();
-        await CloseCaptureAsync().ConfigureAwait(false);
+        if (!_monitoring) await CloseCaptureAsync().ConfigureAwait(false);
         SetState(VoiceState.Ready);
         _logger.LogInformation("Continuous voice mode stopped");
     }
@@ -116,7 +151,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         if (!_pttRecording) return;
         float[] samples;
         lock (_gate) { _pttRecording = false; samples = _pttBuffer.ToArray(); _pttBuffer.Clear(); }
-        if (!_continuous) await CloseCaptureAsync().ConfigureAwait(false);
+        if (!_continuous && !_monitoring) await CloseCaptureAsync().ConfigureAwait(false);
 
         if (samples.Length < ISpeechToText.SampleRate * 3 / 10)
         {
@@ -171,6 +206,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         var session = _captureSession;
         var token = _loopCts.Token;
         _loopTask = Task.Run(() => CaptureLoopAsync(session, token), CancellationToken.None);
+        CaptureChanged?.Invoke(this, true);
         await Task.Yield();
         return true;
     }
@@ -188,6 +224,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         _loopCts?.Dispose();
         _loopCts = null;
         _loopTask = null;
+        if (session != null) CaptureChanged?.Invoke(this, false);
     }
 
     private async Task CaptureLoopAsync(IAudioCaptureSession session, CancellationToken ct)
@@ -202,11 +239,23 @@ public sealed class VoiceConversationController : IAsyncDisposable
         var wasBusy = false;
         var silentSamples = 0;
         var silenceWarned = false;
+        var levelPeak = 0f;
+        var levelSamples = 0;
+        const int levelWindow = ISpeechToText.SampleRate / 15;
 
         try
         {
             await foreach (var chunk in session.Frames.ReadAllAsync(ct).ConfigureAwait(false))
             {
+                levelPeak = Math.Max(levelPeak, AudioMath.Rms(chunk));
+                levelSamples += chunk.Length;
+                if (levelSamples >= levelWindow)
+                {
+                    InputLevel?.Invoke(this, AudioMath.ToDecibels(levelPeak));
+                    levelPeak = 0;
+                    levelSamples = 0;
+                }
+
                 lock (_gate)
                 {
                     if (_pttRecording)
@@ -333,6 +382,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
     {
         _continuous = false;
         _pttRecording = false;
+        _monitoring = false;
         await CloseCaptureAsync().ConfigureAwait(false);
     }
 }

@@ -25,14 +25,15 @@ The log contains the last llama-server output lines for the failed attempt.
 
 ## Voice buttons are disabled / "Voice: unavailable"
 
-- `Voice: no microphone found` — connect a microphone and click ↻ next to the device lists.
+- `Voice: no microphone found` — connect a microphone and click ↻ in **Settings → Audio devices**.
 - `Voice: unavailable (Speech recognition unavailable: …)` — the Whisper model is missing (`setup.ps1`) or failed to
   load; see the log. Whisper is configured to fall back to its CPU backend if the CUDA backend cannot be loaded
 (Diagnostics shows which backend is active).
 
 ## "No sound from the microphone … Is it muted?"
 
-The microphone delivers pure digital silence. Unmute it (many headsets mute when the boom is raised), check Windows
+The microphone delivers pure digital silence (the level meter shows "silence"). Use **Settings → Test microphone** to
+check it without talking to the assistant. Unmute it (many headsets mute when the boom is raised), check Windows
 Settings → Privacy → Microphone ("Let desktop apps access your microphone"), and pick the right device in the
 microphone list.
 

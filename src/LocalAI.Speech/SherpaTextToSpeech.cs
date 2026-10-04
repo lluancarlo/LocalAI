@@ -9,7 +9,8 @@ namespace LocalAI.Speech;
 
 /// <summary>
 /// Offline neural TTS: Piper (VITS) voices executed in-process by sherpa-onnx on the CPU.
-/// One voice per language; the voice is chosen from the detected language of the conversation.
+/// One active voice per language, chosen from the detected language of the conversation; voices can be switched at
+/// runtime (engines are loaded on demand and cached).
 /// </summary>
 public sealed class SherpaTextToSpeech : ITextToSpeech
 {
@@ -17,7 +18,11 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
     private readonly LocalAiPaths _paths;
     private readonly ModelCatalog _catalog;
     private readonly ILogger<SherpaTextToSpeech> _logger;
-    private readonly Dictionary<string, (VoiceInfo Info, OfflineTts Engine, SemaphoreSlim Gate)> _voices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Lock _gate = new();
+    private readonly Dictionary<string, Engine> _engines = new(StringComparer.OrdinalIgnoreCase);   // by voice id
+    private readonly Dictionary<string, string> _byLanguage = new(StringComparer.OrdinalIgnoreCase); // language → voice id
+
+    private sealed record Engine(VoiceInfo Info, OfflineTts Tts, SemaphoreSlim Gate);
 
     public SherpaTextToSpeech(IOptions<LocalAiOptions> options, LocalAiPaths paths, ModelCatalog catalog, ILogger<SherpaTextToSpeech> logger)
     {
@@ -29,7 +34,27 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
 
     public ComponentState State { get; private set; } = ComponentState.NotInitialized;
     public string? LastError { get; private set; }
-    public IReadOnlyList<VoiceInfo> Voices => _voices.Values.Select(v => v.Info).ToList();
+
+    public IReadOnlyList<VoiceInfo> Voices
+    {
+        get
+        {
+            lock (_gate)
+                return _byLanguage.OrderBy(kv => kv.Key).Select(kv => _engines[kv.Value].Info with { Language = kv.Key }).ToList();
+        }
+    }
+
+    public IReadOnlyList<VoiceInfo> AvailableVoices =>
+        _catalog.Tts
+            .Where(v => Directory.Exists(Path.Combine(_paths.ModelsDirectory, v.Dir)))
+            .Select(v => new VoiceInfo(v.Id, v.Language, string.IsNullOrEmpty(v.DisplayName) ? v.Id : v.DisplayName))
+            .ToList();
+
+    public float Speed
+    {
+        get => _options.Speed;
+        set => _options.Speed = Math.Clamp(value, 0.5f, 2.0f);
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -46,36 +71,63 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
         {
             foreach (var (language, voiceId) in _options.Voices)
             {
-                var entry = _catalog.Tts.FirstOrDefault(v => v.Id == voiceId);
-                if (entry == null) { _logger.LogWarning("TTS voice {Voice} not in catalog", voiceId); continue; }
-                try
-                {
-                    _voices[language] = (new VoiceInfo(entry.Id, language, entry.DisplayName), CreateEngine(entry), new SemaphoreSlim(1, 1));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to load TTS voice {Voice}", voiceId);
-                }
+                try { Activate(language, voiceId); }
+                catch (Exception ex) { _logger.LogError(ex, "Failed to load TTS voice {Voice}", voiceId); }
             }
         }, cancellationToken).ConfigureAwait(false);
 
-        if (_voices.Count == 0)
+        lock (_gate)
         {
-            State = ComponentState.Unavailable;
-            LastError = "No TTS voices installed (run scripts/setup.ps1).";
-            _logger.LogError("{Error}", LastError);
-            return;
+            if (_byLanguage.Count == 0)
+            {
+                State = ComponentState.Unavailable;
+                LastError = "No TTS voices installed (run scripts/setup.ps1).";
+                _logger.LogError("{Error}", LastError);
+                return;
+            }
         }
         State = ComponentState.Ready;
         _logger.LogInformation("TTS ready in {Ms:F0} ms with voices: {Voices}", sw.Elapsed.TotalMilliseconds,
-            string.Join(", ", _voices.Values.Select(v => $"{v.Info.Language}={v.Info.Id}")));
+            string.Join(", ", Voices.Select(v => $"{v.Language}={v.Id}")));
+    }
+
+    public async Task SetVoiceAsync(string language, string voiceId, CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() => Activate(language, voiceId), cancellationToken).ConfigureAwait(false);
+        _options.Voices[language] = voiceId;
+        if (State != ComponentState.Ready)
+        {
+            State = ComponentState.Ready;
+            LastError = null;
+        }
+        _logger.LogInformation("TTS voice for {Language} set to {Voice}", language, voiceId);
+    }
+
+    private void Activate(string language, string voiceId)
+    {
+        lock (_gate)
+        {
+            if (_engines.ContainsKey(voiceId))
+            {
+                _byLanguage[language] = voiceId;
+                return;
+            }
+        }
+        var entry = _catalog.Tts.FirstOrDefault(v => v.Id == voiceId)
+                    ?? throw new ArgumentException($"TTS voice '{voiceId}' is not in the catalog.");
+        var engine = new Engine(new VoiceInfo(entry.Id, entry.Language, entry.DisplayName), CreateEngine(entry), new SemaphoreSlim(1, 1));
+        lock (_gate)
+        {
+            _engines[voiceId] = engine;
+            _byLanguage[language] = voiceId;
+        }
     }
 
     private OfflineTts CreateEngine(VoiceCatalogEntry entry)
     {
         var dir = Path.Combine(_paths.ModelsDirectory, entry.Dir);
-        var model = Directory.GetFiles(dir, "*.onnx").FirstOrDefault()
-                    ?? throw new FileNotFoundException($"No .onnx model in {dir}");
+        var model = Directory.Exists(dir) ? Directory.GetFiles(dir, "*.onnx").FirstOrDefault() : null;
+        if (model == null) throw new FileNotFoundException($"Voice '{entry.Id}' is not installed (run scripts/setup.ps1 -AllVoices).", dir);
         var config = new OfflineTtsConfig();
         config.Model.Vits.Model = model;
         config.Model.Vits.Tokens = Path.Combine(dir, "tokens.txt");
@@ -91,39 +143,47 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
 
     public VoiceInfo? GetVoice(string? language) => Resolve(language)?.Info;
 
-    private (VoiceInfo Info, OfflineTts Engine, SemaphoreSlim Gate)? Resolve(string? language)
+    private Engine? Resolve(string? language)
     {
-        if (language != null && _voices.TryGetValue(language, out var v)) return v;
-        if (_voices.TryGetValue(_options.FallbackLanguage, out var f)) return f;
-        return _voices.Count > 0 ? _voices.Values.First() : null;
+        lock (_gate)
+        {
+            if (language != null && _byLanguage.TryGetValue(language, out var id)) return _engines[id];
+            if (_byLanguage.TryGetValue(_options.FallbackLanguage, out var fallback)) return _engines[fallback];
+            return _byLanguage.Count > 0 ? _engines[_byLanguage.Values.First()] : null;
+        }
     }
 
     public async Task<AudioClip> SynthesizeAsync(string text, string? language, CancellationToken cancellationToken = default)
     {
-        var voice = Resolve(language) ?? throw new InvalidOperationException(LastError ?? "TTS not initialized.");
-        await voice.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var engine = Resolve(language) ?? throw new InvalidOperationException(LastError ?? "TTS not initialized.");
+        await engine.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var speed = Speed;
             return await Task.Run(() =>
             {
-                var audio = voice.Engine.Generate(text, _options.Speed, 0);
+                var audio = engine.Tts.Generate(text, speed, 0);
                 try { return new AudioClip(audio.Samples, audio.SampleRate); }
                 finally { audio.Dispose(); }
             }, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            voice.Gate.Release();
+            engine.Gate.Release();
         }
     }
 
     public void Dispose()
     {
-        foreach (var v in _voices.Values)
+        lock (_gate)
         {
-            v.Engine.Dispose();
-            v.Gate.Dispose();
+            foreach (var e in _engines.Values)
+            {
+                e.Tts.Dispose();
+                e.Gate.Dispose();
+            }
+            _engines.Clear();
+            _byLanguage.Clear();
         }
-        _voices.Clear();
     }
 }

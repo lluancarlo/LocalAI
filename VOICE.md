@@ -3,8 +3,11 @@
 Two modes, both fully local:
 
 - **Push-to-talk** — hold the *Hold to talk* button or **Ctrl+Space** while speaking, release to send.
-- **Conversation mode** — toggle *Conversation mode*; speak naturally, the assistant answers aloud and listens again.
-  Interrupt it at any time by talking (barge-in).
+- **Live mode** — click the green **◉ Live** button; then just talk. The assistant answers aloud and listens again.
+  Interrupt it at any time by talking (barge-in). Click again to stop listening.
+
+While the microphone is open, a level meter shows its input in dBFS (peak over ~66 ms, VU-style release). Normal
+speech peaks around −30 to −10 dB; "silence" means the microphone delivers no signal (usually muted).
 
 The status bar shows the state: `◉ Listening` → `… Transcribing` → `◌ Thinking` → `♪ Speaking`
 (`● Recording` while push-to-talk is held). Typed messages can also be spoken (*Speak typed replies*).
@@ -34,11 +37,16 @@ Audio is processed in memory only. It is never written to disk and never logged.
 
 ## Language and voices
 
-| Language | Recognition | Voice (default) |
-|---|---|---|
-| Brazilian Portuguese | Whisper, `pt` | Piper `pt_BR-faber-medium` |
-| Italian | Whisper, `it` | Piper `it_IT-paola-medium` |
-| English | Whisper, `en` | Piper `en_US-lessac-medium` |
+| Language | Recognition | Default voice | Other installable voices |
+|---|---|---|---|
+| Brazilian Portuguese | Whisper, `pt` | Faber (male) | Cadu (m), Jeff (m), Miro (m, high), Dii (f, high), Edresson (m, low) |
+| Italian | Whisper, `it` | Paola (female) | Miro (m, high), Dii (f, high), Riccardo (m, very low quality) |
+| English | Whisper, `en` | Lessac (female) | Lessac high (f), Amy (f), Ryan high (m), HFC female, HFC male |
+
+`setup.ps1` installs the three defaults; `setup.ps1 -AllVoices` installs all 16 (~1 GB). Choose the voice per language
+and the speaking rate (0.75–1.5×) in **Settings → Voices**; ▶ plays a sample. Changes apply immediately (voices load on
+demand) and are saved to `usersettings.json`. Genders for voices whose model card does not state one (Miro, Dii) were
+determined by measuring their median pitch (Miro ≈ 105 Hz, Dii ≈ 190–210 Hz).
 
 Whisper's detected language is passed to the conversation (stored with the message, used in the prompt hint and for
 the voice). The speech output keeps the user's language unless a reply sentence is confidently in another language
@@ -93,16 +101,17 @@ quiet frames — hence a modest margin plus a windowed trigger instead of consec
 | `MinSpeechMs` | 250 | Shorter sounds are ignored (clicks, coughs) |
 | `EndOfSpeechSilenceMs` | 600 | Pause that ends your turn; raise if you get cut off mid-thought |
 | `MaxUtteranceSeconds` | 30 | Hard cap per utterance |
-| `BargeInEnabled` | true | Allow interrupting by voice in conversation mode |
+| `BargeInEnabled` | true | Allow interrupting by voice in Live mode |
 | `BargeInMinSpeechMs` | 300 | Speech needed to interrupt |
 | `BargeInEchoMargin` | 1.5 | How much louder than the learned echo your voice must be |
 
-`LocalAI:Audio:EchoCancellation` (default `true`) controls Windows AEC. Devices are chosen in the UI and saved to
-`usersettings.json`.
+Devices, echo cancellation (`LocalAI:Audio:EchoCancellation`, default `true`), voices and speaking rate are set in
+**Settings** and saved to `usersettings.json`. Changing the microphone or echo cancellation reopens the microphone
+immediately if it is in use. **Test microphone** opens it just to show the level; nothing is sent to the assistant.
 
 ## Hallucination and silence handling
 
 - Empty transcripts and well-known Whisper artifacts on silence ("Legendas pela comunidade Amara.org",
   "Sottotitoli creati dalla comunità Amara.org", `[Música]`) are discarded.
 - A muted microphone produces exact digital silence; the app shows "No sound from the microphone… Is it muted?"
-  (after a push-to-talk recording, or after 5 s in conversation mode).
+  (after a push-to-talk recording, or after 5 s in Live mode).

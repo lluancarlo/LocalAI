@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text;
+using Avalonia.Media;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -34,8 +35,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly LlamaCppEmbeddingService _embeddings;
     private readonly ISpeechToText _stt;
     private readonly ITextToSpeech _tts;
-    private readonly IAudioDeviceProvider _devices;
-    private readonly IAudioPlayer _player;
     private readonly MemoryService _memory;
     private readonly UserSettingsStore _settings;
     private readonly LocalAiPaths _paths;
@@ -49,7 +48,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(
         AssistantSession session, IConversationStore store, VoiceConversationController voice, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
-        IAudioDeviceProvider devices, IAudioPlayer player, MemoryService memory, UserSettingsStore settings,
+        MemoryService memory, UserSettingsStore settings, SettingsViewModel settingsViewModel,
         LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
     {
         _session = session;
@@ -60,9 +59,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _embeddings = embeddings;
         _stt = stt;
         _tts = tts;
-        _devices = devices;
-        _player = player;
         _memory = memory;
+        Settings = settingsViewModel;
         _settings = settings;
         _paths = paths;
         _options = options.Value;
@@ -81,8 +79,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _voice.Transcribed += (_, _) => Ui(() => BannerText = null);
         _startup.StatusChanged += (_, s) => Ui(() => OnSubsystem(s));
         _memory.MemoriesChanged += (_, _) => Ui(() => _ = LoadMemoriesAsync());
+        _voice.InputLevel += (_, db) => Ui(() => OnInputLevel(db));
+        _voice.CaptureChanged += (_, open) => Ui(() =>
+        {
+            IsMicOpen = open;
+            if (!open) OnInputLevel(AudioMath.SilenceDb, reset: true);
+        });
+        Settings.Changed += (_, _) => Ui(UpdateStatus);
 
-        RefreshDevices();
         UpdateStatus();
     }
 
@@ -90,9 +94,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ConversationItemViewModel> Conversations { get; } = [];
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
-    public ObservableCollection<AudioDevice> Microphones { get; } = [];
-    public ObservableCollection<AudioDevice> Speakers { get; } = [];
     public ObservableCollection<MemoryItemViewModel> Memories { get; } = [];
+    public SettingsViewModel Settings { get; }
 
     /// <summary>Raised when the view should scroll to the newest message.</summary>
     public event EventHandler? ScrollToEndRequested;
@@ -107,14 +110,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _modelText = "Model: loading…";
     [ObservableProperty] private string _voiceText = "Voice: starting…";
     [ObservableProperty] private string _conversationTitle = "New conversation";
-    [ObservableProperty] private AudioDevice? _selectedMicrophone;
-    [ObservableProperty] private AudioDevice? _selectedSpeaker;
     [ObservableProperty] private bool _isContinuous;
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] private bool _speakReplies;
     [ObservableProperty] private bool _voiceAvailable;
     [ObservableProperty] private bool _showDiagnostics;
     [ObservableProperty] private bool _showMemories;
+    [ObservableProperty] private bool _showSettings;
+    [ObservableProperty] private bool _isMicOpen;
+    /// <summary>Microphone level mapped to 0..1 over −60..0 dBFS (for the meter bar).</summary>
+    [ObservableProperty] private double _micLevel;
+    [ObservableProperty] private string _micLevelText = "";
+    [ObservableProperty] private IBrush _micLevelBrush = LevelOk;
+
+    private static readonly IBrush LevelOk = new SolidColorBrush(Color.Parse("#9ECE6A"));
+    private static readonly IBrush LevelHot = new SolidColorBrush(Color.Parse("#E0AF68"));
+    private static readonly IBrush LevelClip = new SolidColorBrush(Color.Parse("#F7768E"));
     [ObservableProperty] private string _diagnosticsText = "";
     [ObservableProperty] private string? _bannerText;
 
@@ -176,7 +187,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 break;
         }
 
-        VoiceAvailable = _stt.State == ComponentState.Ready && Microphones.Count > 0;
+        VoiceAvailable = _stt.State == ComponentState.Ready && Settings.Microphones.Count > 0;
         if (_voice.State is VoiceState.Off or VoiceState.Ready or VoiceState.Error) OnVoiceState(_voice.State);
         DiagnosticsText = BuildDiagnostics();
     }
@@ -415,7 +426,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void OnVoiceState(VoiceState s)
     {
         IsRecording = s == VoiceState.Recording;
-        var mic = SelectedMicrophone?.Name ?? "no microphone";
+        var mic = Settings.SelectedMicrophone?.Name ?? "no microphone";
         VoiceText = s switch
         {
             VoiceState.Listening => "◉ Listening",
@@ -426,7 +437,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VoiceState.Error => "Voice: " + (_voice.LastError ?? "error"),
             _ when _stt.State == ComponentState.Unavailable => "Voice: unavailable (" + (_stt.LastError ?? "speech recognition failed") + ")",
             _ when _stt.State != ComponentState.Ready => "Voice: loading…",
-            _ when Microphones.Count == 0 => "Voice: no microphone found",
+            _ when Settings.Microphones.Count == 0 => "Voice: no microphone found",
             _ => IsContinuous ? "◉ Listening" : $"Voice: push-to-talk · {mic}",
         };
         if (s == VoiceState.Error && IsContinuous)
@@ -435,35 +446,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    // Fast attack, ~25 dB/s release, like a hardware VU meter.
+    private float _displayedDb = AudioMath.SilenceDb;
+
+    private void OnInputLevel(float db, bool reset = false)
+    {
+        _displayedDb = reset ? db : Math.Max(db, _displayedDb - 1.7f);
+        var shown = _displayedDb;
+        MicLevel = Math.Clamp((shown + 60) / 60.0, 0, 1);
+        MicLevelText = shown <= -90 ? "silence" : $"{shown:F0} dB";
+        MicLevelBrush = shown > -6 ? LevelClip : shown > -18 ? LevelHot : LevelOk;
+    }
+
     [RelayCommand]
-    private void RefreshDevices()
+    private void ToggleSettings()
     {
-        Microphones.Clear();
-        foreach (var d in _devices.GetInputDevices()) Microphones.Add(d);
-        Speakers.Clear();
-        foreach (var d in _devices.GetOutputDevices()) Speakers.Add(d);
-
-        SelectedMicrophone = Microphones.FirstOrDefault(d => d.Id == _options.Audio.InputDeviceId)
-                             ?? Microphones.FirstOrDefault(d => d.IsDefault) ?? Microphones.FirstOrDefault();
-        SelectedSpeaker = Speakers.FirstOrDefault(d => d.Id == _options.Audio.OutputDeviceId)
-                          ?? Speakers.FirstOrDefault(d => d.IsDefault) ?? Speakers.FirstOrDefault();
-    }
-
-    partial void OnSelectedMicrophoneChanged(AudioDevice? value)
-    {
-        if (value == null) return;
-        _voice.SetInputDevice(value.Id);
-        _options.Audio.InputDeviceId = value.Id;
-        _settings.Set("Audio", "InputDeviceId", value.Id);
-        UpdateStatus();
-    }
-
-    partial void OnSelectedSpeakerChanged(AudioDevice? value)
-    {
-        if (value == null) return;
-        _player.SetDevice(value.Id);
-        _options.Audio.OutputDeviceId = value.Id;
-        _settings.Set("Audio", "OutputDeviceId", value.Id);
+        ShowSettings = !ShowSettings;
+        if (ShowSettings)
+        {
+            ShowDiagnostics = false;
+            ShowMemories = false;
+            Settings.RefreshVoices();
+        }
+        else
+        {
+            Settings.OnClosed();
+        }
     }
 
     // ---------------- Memory & diagnostics ----------------
@@ -495,14 +503,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         DiagnosticsText = BuildDiagnostics();
         ShowDiagnostics = !ShowDiagnostics;
-        if (ShowDiagnostics) ShowMemories = false;
+        if (ShowDiagnostics) { ShowMemories = false; CloseSettings(); }
     }
 
     [RelayCommand]
     private void ToggleMemories()
     {
         ShowMemories = !ShowMemories;
-        if (ShowMemories) ShowDiagnostics = false;
+        if (ShowMemories) { ShowDiagnostics = false; CloseSettings(); }
+    }
+
+    private void CloseSettings()
+    {
+        if (!ShowSettings) return;
+        ShowSettings = false;
+        Settings.OnClosed();
     }
 
     private string BuildDiagnostics()
@@ -536,8 +551,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         sb.AppendLine().AppendLine("Speech");
         sb.AppendLine($"  Recognition     {(_stt.State == ComponentState.Ready ? _stt.Description : _stt.State + " " + _stt.LastError)}");
         sb.AppendLine($"  Synthesis       {(_tts.State == ComponentState.Ready ? "Piper via sherpa-onnx (CPU): " + string.Join(", ", _tts.Voices.Select(v => $"{v.Language}={v.DisplayName}")) : _tts.State + " " + _tts.LastError)}");
-        sb.AppendLine($"  Microphone      {SelectedMicrophone?.Name ?? "none"}");
-        sb.AppendLine($"  Speaker         {SelectedSpeaker?.Name ?? "none"}");
+        sb.AppendLine($"  Microphone      {Settings.SelectedMicrophone?.Name ?? "none"}");
+        sb.AppendLine($"  Speaker         {Settings.SelectedSpeaker?.Name ?? "none"}");
 
         sb.AppendLine().AppendLine("Memory");
         sb.AppendLine($"  Long-term       {Memories.Count} memories, {(_embeddings.IsAvailable ? "semantic (" + _embeddings.ModelId + ")" : "keyword (" + _embeddings.LastError + ")")}");

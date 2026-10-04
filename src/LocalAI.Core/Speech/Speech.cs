@@ -34,9 +34,16 @@ public interface ITextToSpeech : IDisposable
 {
     ComponentState State { get; }
     string? LastError { get; }
+    /// <summary>Active voices, one per language.</summary>
     IReadOnlyList<VoiceInfo> Voices { get; }
+    /// <summary>Every installed voice that can be selected.</summary>
+    IReadOnlyList<VoiceInfo> AvailableVoices { get; }
+    /// <summary>Speaking rate multiplier (1 = normal, &gt;1 faster).</summary>
+    float Speed { get; set; }
     Task InitializeAsync(CancellationToken cancellationToken = default);
     /// <summary>Voice used for the given language (falls back to the configured default).</summary>
     VoiceInfo? GetVoice(string? language);
+    /// <summary>Makes <paramref name="voiceId"/> the voice for <paramref name="language"/> (loads it if needed).</summary>
+    Task SetVoiceAsync(string language, string voiceId, CancellationToken cancellationToken = default);
     Task<AudioClip> SynthesizeAsync(string text, string? language, CancellationToken cancellationToken = default);
 }

@@ -111,6 +111,10 @@ whenever the LLM loads (or reports "Model not installed" clearly).
 
 ## Configuration
 
+At runtime there is a single shared `LocalAiOptions` instance (behind both `IOptions` and `IOptionsMonitor`); the
+Settings menu changes it, applies the change to the affected component (player device, microphone, TTS voice/rate)
+and persists it to `usersettings.json`.
+
 `appsettings.json` (next to the executable) → `%LOCALAPPDATA%\LocalAI\usersettings.json` (written by the UI:
 devices, voice mode) → `LOCALAI_*` environment variables (e.g. `LOCALAI_LocalAI__Llm__ContextSize=8192`).
 All options are in `src/LocalAI.Configuration/Options.cs` with comments.

@@ -15,7 +15,8 @@ No cloud APIs, no telemetry, no data leaves the computer.
 │                  │ > `async` e `await` permitem…                 │
 │                  ├───────────────────────────────────────────────│
 │ ◆ Memory         │ [Type a message……………………………………]  [Send]   │
-│ ⚙ Diagnostics    │ [● Hold to talk] [Conversation mode] [mic ▾] │
+│ ⚙ Settings       │ (◉ Live) [● Hold to talk]  mic ▬▬▬── -32 dB │
+│ ⓘ Diagnostics    │                                               │
 │                  │ ● Ready  GPU: RTX 4080 SUPER  Model: Gemma 4… │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -26,8 +27,13 @@ No cloud APIs, no telemetry, no data leaves the computer.
   (create, rename, delete, search, continue after restart).
 - **Push-to-talk**: hold the *Hold to talk* button or **Ctrl+Space**, speak, release. Whisper transcribes locally, the LLM answers,
   and the answer is spoken while it is still being generated.
-- **Conversation mode** (hands-free): voice activity detection finds the end of each utterance, the assistant answers
-  aloud and listens again. **Barge-in**: start talking while it speaks and it stops immediately and listens.
+- **Live mode** (the green **◉ Live** button, hands-free): just talk. Voice activity detection finds the end of each
+  utterance, the assistant answers aloud and listens again. **Barge-in**: start talking while it speaks and it stops
+  immediately and listens.
+- **Microphone level meter** in dBFS next to the voice buttons whenever the microphone is open.
+- **Settings** (⚙ in the sidebar): microphone and speaker, a microphone test with level meter, echo cancellation,
+  the voice for each language (16 installable Piper voices, with ▶ preview) and speaking rate. Changes apply
+  immediately and are remembered.
 - **Automatic language**: Brazilian Portuguese, Italian and English are detected (Whisper for speech, a local detector
   for text); the assistant answers in your language and speaks with a matching voice.
 - **Long-term memory**: durable facts about you ("User prefers C# for software development") are extracted locally,
