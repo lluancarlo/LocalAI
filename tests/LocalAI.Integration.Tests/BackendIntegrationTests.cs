@@ -102,46 +102,31 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
         output.WriteLine(stt.Description);
 
         var sw = Stopwatch.StartNew();
-        var clip = await tts.SynthesizeAsync(sentence, language);
+        var clip = await tts.SynthesizeAsync(sentence, LocalAiFixture.VoiceFor(language), VoiceStyle.Default);
         var ttsMs = sw.Elapsed.TotalMilliseconds;
         var audio16k = StreamingResampler.Convert(clip.Samples, clip.SampleRate, ISpeechToText.SampleRate);
 
         var result = await stt.TranscribeAsync(audio16k);
-        output.WriteLine($"[{language}] TTS {ttsMs:F0} ms for {clip.Duration.TotalSeconds:F1}s audio (voice {tts.GetVoice(language)?.Id}); " +
+        output.WriteLine($"[{language}] TTS {ttsMs:F0} ms for {clip.Duration.TotalSeconds:F1}s audio (voice {LocalAiFixture.VoiceFor(language)}); " +
                          $"STT {result.ProcessingTime.TotalMilliseconds:F0} ms → lang={result.Language} p={result.LanguageProbability:F2}: {result.Text}");
         Assert.Equal(language, result.Language);
         foreach (var k in keywords) Assert.Contains(k, result.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Voices_can_be_switched_and_speed_changes_duration()
+    public async Task Voice_style_speed_changes_duration()
     {
         var tts = Get<ITextToSpeech>();
-        var installed = tts.AvailableVoices.Where(v => v.Language == "pt").ToList();
-        output.WriteLine("Installed pt voices: " + string.Join(", ", installed.Select(v => v.Id)));
-        Assert.Contains(installed, v => v.Id == "pt_BR-faber-medium");
-        var original = tts.GetVoice("pt")!.Id;
-        var other = installed.FirstOrDefault(v => v.Id != original);
-        try
-        {
-            if (other != null)
-            {
-                await tts.SetVoiceAsync("pt", other.Id);
-                Assert.Equal(other.Id, tts.GetVoice("pt")!.Id);
-            }
-            const string text = "Esta frase serve para medir a velocidade da fala.";
-            tts.Speed = 1.0f;
-            var normal = await tts.SynthesizeAsync(text, "pt");
-            tts.Speed = 1.4f;
-            var fast = await tts.SynthesizeAsync(text, "pt");
-            output.WriteLine($"{tts.GetVoice("pt")!.Id}: 1.0x {normal.Duration.TotalSeconds:F2}s, 1.4x {fast.Duration.TotalSeconds:F2}s");
-            Assert.True(fast.Duration < normal.Duration * 0.85);
-        }
-        finally
-        {
-            tts.Speed = 1.0f;
-            await tts.SetVoiceAsync("pt", original);
-        }
+        var voice = LocalAiFixture.VoiceFor("pt");
+        const string text = "Esta frase serve para medir a velocidade da fala.";
+        // Rhythm 0 removes Piper's random duration noise, so durations are comparable between runs.
+        var steady = VoiceStyle.Default with { Rhythm = 0 };
+
+        var normal = await tts.SynthesizeAsync(text, voice, steady);
+        var fast = await tts.SynthesizeAsync(text, voice, steady with { Speed = 1.5 });
+
+        output.WriteLine($"{voice}: normal {normal.Duration.TotalSeconds:F2}s, 1.5x {fast.Duration.TotalSeconds:F2}s");
+        Assert.True(fast.Duration < normal.Duration * 0.8);
     }
 
     [Fact]
@@ -149,26 +134,26 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
     {
         var session = Get<AssistantSession>();
         session.SelectConversation(null);
-        var result = await session.SubmitAsync(new TurnRequest("Responda apenas com a palavra: banana.", InputSource.Text));
+        var result = await session.SubmitAsync(new TurnRequest("Reply with just the word: banana.", InputSource.Text));
         Assert.Equal(TurnOutcome.Completed, result.Outcome);
         var conversationId = session.CurrentConversationId!.Value;
 
         // "Restart": a brand-new store over the same database file.
         var db = new SqliteDatabase(fx.Paths.DatabasePath, Microsoft.Extensions.Logging.Abstractions.NullLogger<SqliteDatabase>.Instance);
-        var store = new SqliteConversationStore(db);
+        var store = new SqliteConversationStore(db, Get<LocalAI.Core.Assistants.AssistantContext>());
         var conversations = await store.ListAsync();
         Assert.Contains(conversations, c => c.Id == conversationId);
         var messages = await store.GetMessagesAsync(conversationId);
         Assert.Equal(2, messages.Count);
         Assert.Equal(ChatRole.User, messages[0].Role);
-        Assert.Equal("pt", messages[0].Language);
+        Assert.Equal("en", messages[0].Language);
         Assert.Contains("banana", messages[1].Content, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(messages[1].Model);
         output.WriteLine($"Reply: {messages[1].Content}  meta={messages[1].MetadataJson}");
     }
 
     [Fact]
-    public async Task Answers_in_the_language_of_the_user()
+    public async Task Replies_in_the_assistants_language_whatever_the_user_writes()
     {
         var session = Get<AssistantSession>();
         var detector = Get<LocalAI.Core.Language.ILanguageDetector>();
@@ -176,14 +161,13 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
                  {
                      ("pt", "O que é uma variável em programação? Responda em duas frases."),
                      ("it", "Che cos'è una variabile in programmazione? Rispondi in due frasi."),
-                     ("en", "What is a variable in programming? Answer in two sentences."),
                  })
         {
             session.SelectConversation(null);
             var r = await session.SubmitAsync(new TurnRequest(question, InputSource.Text));
             var detected = detector.Detect(r.AssistantMessage!.Content);
             output.WriteLine($"[{lang}] → [{detected.Language} {detected.Confidence:F2}] {r.AssistantMessage.Content}");
-            Assert.Equal(lang, detected.Language);
+            Assert.Equal("en", detected.Language); // the test assistant speaks English
         }
     }
 

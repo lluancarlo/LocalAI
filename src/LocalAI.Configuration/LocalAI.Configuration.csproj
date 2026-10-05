@@ -1,2 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <None Update="catalog.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="languages.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

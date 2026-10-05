@@ -43,6 +43,35 @@ public sealed class SqliteDatabase
             embedding_model        TEXT
         );
         """,
+        // v2: assistants own their conversations and memories
+        """
+        CREATE TABLE assistants (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+            style_prompt  TEXT    NOT NULL,
+            voices        TEXT    NOT NULL,
+            created_at    INTEGER NOT NULL
+        );
+        ALTER TABLE conversations ADD COLUMN assistant_id INTEGER REFERENCES assistants(id) ON DELETE CASCADE;
+        ALTER TABLE memories ADD COLUMN assistant_id INTEGER REFERENCES assistants(id) ON DELETE CASCADE;
+        CREATE INDEX ix_conversations_assistant ON conversations(assistant_id, updated_at DESC);
+        CREATE INDEX ix_memories_assistant ON memories(assistant_id);
+        """,
+        // v3: each assistant has one language model and one voice (in one language) with a tunable style
+        """
+        ALTER TABLE assistants ADD COLUMN model_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE assistants ADD COLUMN voice_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE assistants ADD COLUMN language TEXT NOT NULL DEFAULT '';
+        ALTER TABLE assistants ADD COLUMN voice_style TEXT NOT NULL DEFAULT '';
+        UPDATE assistants SET
+            voice_id = COALESCE(json_extract(voices, '$.pt'), json_extract(voices, '$.en'), json_extract(voices, '$.it'), ''),
+            language = CASE
+                WHEN json_extract(voices, '$.pt') IS NOT NULL THEN 'pt'
+                WHEN json_extract(voices, '$.en') IS NOT NULL THEN 'en'
+                WHEN json_extract(voices, '$.it') IS NOT NULL THEN 'it'
+                ELSE '' END;
+        ALTER TABLE assistants DROP COLUMN voices;
+        """,
     ];
 
     public SqliteDatabase(string databasePath, ILogger<SqliteDatabase> logger)

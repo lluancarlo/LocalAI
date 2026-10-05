@@ -59,6 +59,6 @@ public sealed class SileroVoiceActivityDetectorFactory(IOptions<LocalAiOptions> 
 
     public IVoiceActivityDetector Create() =>
         new SileroVoiceActivityDetector(
-            ModelPath ?? throw new FileNotFoundException("VAD model not installed (run scripts/setup.ps1)."),
+            ModelPath ?? throw new FileNotFoundException("Voice activity model not installed (Settings > Models)."),
             options.Value.Voice.VadThreshold);
 }

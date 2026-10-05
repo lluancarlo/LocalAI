@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Diagnostics;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
@@ -22,6 +23,8 @@ public sealed class StartupService(
     ISpeechToText stt,
     ITextToSpeech tts,
     SqliteDatabase database,
+    AssistantManager assistants,
+    AssistantContext assistant,
     MemoryService memory,
     VoiceConversationController voice,
     IGpuInfoProvider gpu,
@@ -50,6 +53,13 @@ public sealed class StartupService(
             return (ComponentState.Ready, database.DatabasePath);
         }).ConfigureAwait(false);
 
+        // The active assistant decides which voices the TTS engine loads.
+        await RunAsync("Assistant", async () =>
+        {
+            await assistants.LoadAsync(ct).ConfigureAwait(false);
+            return assistant.Current is { } a ? (ComponentState.Ready, $"assistant {a.Id}") : (ComponentState.Unavailable, "none created yet");
+        }).ConfigureAwait(false);
+
         var llmTask = RunAsync("LLM", async () =>
         {
             await llm.LoadAsync(ct).ConfigureAwait(false);
@@ -60,7 +70,7 @@ public sealed class StartupService(
         var ttsTask = RunAsync("TTS", async () =>
         {
             await tts.InitializeAsync(ct).ConfigureAwait(false);
-            return (tts.State, tts.State == ComponentState.Ready ? string.Join(", ", tts.Voices.Select(v => v.Id)) : tts.LastError);
+            return (tts.State, tts.State == ComponentState.Ready ? tts.Voice?.Id : tts.LastError);
         });
         await llmTask.ConfigureAwait(false);
 

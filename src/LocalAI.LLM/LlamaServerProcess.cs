@@ -56,7 +56,7 @@ public sealed class LlamaServerProcess : IAsyncDisposable
         LlamaServerStartInfo info, HttpClient http, ILogger logger, CancellationToken ct)
     {
         if (!File.Exists(info.ExecutablePath))
-            throw new FileNotFoundException("llama.cpp runtime not installed (run scripts/setup.ps1).", info.ExecutablePath);
+            throw new FileNotFoundException("llama.cpp runtime is missing from the application folder (runtime\\llama.cpp). Reinstall the application.", info.ExecutablePath);
         if (!File.Exists(info.ModelPath))
             throw new FileNotFoundException("Model file not found.", info.ModelPath);
 

@@ -133,21 +133,33 @@ internal sealed class FakeEmbeddings : IEmbeddingService
 
 internal sealed class FakeTts : ITextToSpeech
 {
-    public List<(string Text, string? Language)> Spoken { get; } = [];
+    public List<string> Spoken { get; } = [];
     public ComponentState State { get; set; } = ComponentState.Ready;
     public string? LastError => null;
-    public IReadOnlyList<VoiceInfo> Voices { get; } = [new("v", "en", "Voice")];
-    public IReadOnlyList<VoiceInfo> AvailableVoices => Voices;
-    public float Speed { get; set; } = 1f;
+    public VoiceInfo? Voice { get; private set; } = new("v", "en", "Voice");
+    public IReadOnlyList<VoiceInfo> AvailableVoices => Voice == null ? [] : [Voice];
+    public VoiceStyle Style { get; set; } = VoiceStyle.Default;
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-    public VoiceInfo? GetVoice(string? language) => Voices[0];
-    public Task SetVoiceAsync(string language, string voiceId, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-    public Task<AudioClip> SynthesizeAsync(string text, string? language, CancellationToken cancellationToken = default)
+    public Task SetVoiceAsync(string voiceId, CancellationToken cancellationToken = default)
     {
-        lock (Spoken) Spoken.Add((text, language));
+        Voice = new VoiceInfo(voiceId, "en", voiceId);
+        return Task.CompletedTask;
+    }
+
+    public void RemoveVoice(string voiceId)
+    {
+        if (Voice?.Id == voiceId) Voice = null;
+    }
+
+    public Task<AudioClip> SynthesizeAsync(string text, CancellationToken cancellationToken = default)
+    {
+        lock (Spoken) Spoken.Add(text);
         return Task.FromResult(new AudioClip(new float[1600], 16000));
     }
+
+    public Task<AudioClip> SynthesizeAsync(string text, string voiceId, VoiceStyle style, CancellationToken cancellationToken = default) =>
+        SynthesizeAsync(text, cancellationToken);
 
     public void Dispose() { }
 }

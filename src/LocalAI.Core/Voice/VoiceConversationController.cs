@@ -16,7 +16,8 @@ public enum VoiceState { Off, Ready, Listening, Recording, Transcribing, Thinkin
 /// One loop consumes microphone frames; VAD + <see cref="UtteranceSegmenter"/> detect utterances, Whisper transcribes
 /// them, <see cref="AssistantSession"/> answers and speaks. While the assistant thinks or speaks, the loop keeps
 /// listening; sustained user speech (echo-gated by <see cref="BargeInDetector"/>) cancels the turn, and the speech
-/// that interrupted becomes the next utterance.
+/// that interrupted becomes the next utterance. In continuous mode the user can also type: the microphone is ignored
+/// while text is being typed, and the typed message is answered aloud like a spoken one.
 /// </summary>
 public sealed class VoiceConversationController : IAsyncDisposable
 {
@@ -25,6 +26,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
     private readonly ISpeechToText _stt;
     private readonly AssistantSession _session;
     private readonly IOptionsMonitor<LocalAiOptions> _options;
+    private readonly LanguageData _languages;
     private readonly ILogger<VoiceConversationController> _logger;
     private readonly Lock _gate = new();
 
@@ -34,6 +36,8 @@ public sealed class VoiceConversationController : IAsyncDisposable
     private bool _continuous;
     private bool _pttRecording;
     private bool _monitoring;
+    private volatile bool _typing;
+    private int _discardAudio;
     private readonly List<float> _pttBuffer = [];
     private int _turnGeneration;
     private string? _inputDeviceId;
@@ -44,6 +48,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         ISpeechToText stt,
         AssistantSession session,
         IOptionsMonitor<LocalAiOptions> options,
+        LanguageData languages,
         ILogger<VoiceConversationController> logger)
     {
         _capture = capture;
@@ -51,6 +56,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
         _stt = stt;
         _session = session;
         _options = options;
+        _languages = languages;
         _logger = logger;
         _inputDeviceId = NullIfEmpty(options.CurrentValue.Audio.InputDeviceId);
         _session.Speech.SpeakingStarted += (_, latency) =>
@@ -62,6 +68,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
 
     public VoiceState State { get; private set; } = VoiceState.Off;
     public bool IsContinuous => _continuous;
+    public bool IsTyping => _typing;
     public string? LastError { get; private set; }
     public string? ActiveInputDevice => _captureSession?.DeviceName;
     public bool IsCapturing => _captureSession != null;
@@ -166,6 +173,39 @@ public sealed class VoiceConversationController : IAsyncDisposable
         }
         var generation = Interlocked.Increment(ref _turnGeneration);
         _ = ProcessUtteranceAsync(samples, generation);
+    }
+
+    // ---------- Typing in continuous mode ----------
+
+    /// <summary>
+    /// While the user types, the microphone is ignored (nothing said becomes a message, no barge-in), and a
+    /// transcription that has not been submitted yet is dropped.
+    /// </summary>
+    public void SetTyping(bool typing)
+    {
+        if (_typing == typing) return;
+        _typing = typing;
+        if (typing && State == VoiceState.Transcribing) Interrupt();
+    }
+
+    /// <summary>
+    /// Answers a typed message aloud, as in a spoken conversation. Audio captured before sending is discarded; the
+    /// microphone counts again from now on, so the user can interrupt the reply or keep talking.
+    /// </summary>
+    public async Task SubmitTextAsync(string text, bool speak)
+    {
+        _typing = false;
+        Interlocked.Exchange(ref _discardAudio, 1);
+        var generation = Interlocked.Increment(ref _turnGeneration);
+        try
+        {
+            SetState(VoiceState.Thinking);
+            await _session.SubmitAsync(new TurnRequest(text, InputSource.Text, Speak: speak)).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (generation == Volatile.Read(ref _turnGeneration)) SetState(IdleState);
+        }
     }
 
     /// <summary>Stops the assistant (LLM + TTS + playback) without leaving voice mode.</summary>
@@ -275,6 +315,14 @@ public sealed class VoiceConversationController : IAsyncDisposable
                 }
                 else if (silentSamples == 0) silenceWarned = false;
 
+                if (_typing || Interlocked.Exchange(ref _discardAudio, 0) == 1)
+                {
+                    pending.Clear();
+                    segmenter.Reset();
+                    bargeIn.ResetTrigger();
+                    if (_typing) continue;
+                }
+
                 pending.AddRange(chunk);
                 while (pending.Count >= frameSize)
                 {
@@ -342,7 +390,7 @@ public sealed class VoiceConversationController : IAsyncDisposable
             _logger.LogInformation("Transcribed {Seconds:F1}s of audio in {Ms:F0} ms (language {Lang} p={P:F2})",
                 transcription.AudioDuration.TotalSeconds, sw.Elapsed.TotalMilliseconds, transcription.Language, transcription.LanguageProbability);
 
-            if (TranscriptFilter.IsNoise(transcription.Text))
+            if (TranscriptFilter.IsNoise(transcription.Text, _languages.TranscriptNoise))
             {
                 SetState(IdleState);
                 return;
@@ -390,17 +438,12 @@ public sealed class VoiceConversationController : IAsyncDisposable
 /// <summary>Filters empty transcripts and well-known Whisper hallucinations on silence/noise.</summary>
 public static class TranscriptFilter
 {
-    private static readonly string[] Hallucinations =
-    [
-        "amara.org", "legendas pela comunidade", "sottotitoli creati dalla comunità", "sottotitoli a cura di",
-        "subtitles by the amara", "transcription by castingwords", "www.", "[música]", "[music]", "(música)",
-    ];
-
-    public static bool IsNoise(string text)
+    /// <param name="hallucinations">Lower-case phrases Whisper produces on silence (languages.json).</param>
+    public static bool IsNoise(string text, IReadOnlyList<string> hallucinations)
     {
         var t = text.Trim();
         if (!t.Any(char.IsLetter)) return true;
         var lower = t.ToLowerInvariant();
-        return Hallucinations.Any(lower.Contains) || (lower.StartsWith('[') && lower.EndsWith(']'));
+        return hallucinations.Any(lower.Contains) || (lower.StartsWith('[') && lower.EndsWith(']'));
     }
 }

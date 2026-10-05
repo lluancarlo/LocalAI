@@ -1,3 +1,4 @@
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
 using Microsoft.Data.Sqlite;
@@ -5,15 +6,17 @@ using static LocalAI.Memory.SqliteDatabase;
 
 namespace LocalAI.Memory;
 
-public sealed class SqliteConversationStore(SqliteDatabase db) : IConversationStore
+/// <summary>Conversations of the active assistant (<see cref="AssistantContext"/>).</summary>
+public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext assistant) : IConversationStore
 {
     public async Task<Conversation> CreateAsync(string title, CancellationToken ct = default)
     {
         var now = DateTimeOffset.Now;
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "INSERT INTO conversations(title, created_at, updated_at) VALUES ($t, $n, $n) RETURNING id;";
+        cmd.CommandText = "INSERT INTO conversations(title, created_at, updated_at, assistant_id) VALUES ($t, $n, $n, $a) RETURNING id;";
         cmd.Parameters.AddWithValue("$t", title);
+        cmd.Parameters.AddWithValue("$a", assistant.CurrentId);
         cmd.Parameters.AddWithValue("$n", ToUnixMs(now));
         var id = (long)(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
         return new Conversation(id, title, FromUnixMs(ToUnixMs(now)), FromUnixMs(ToUnixMs(now)));
@@ -31,9 +34,11 @@ public sealed class SqliteConversationStore(SqliteDatabase db) : IConversationSt
 
     public async Task<IReadOnlyList<Conversation>> ListAsync(CancellationToken ct = default)
     {
+        if (assistant.Current == null) return [];
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC, id DESC;";
+        cmd.CommandText = "SELECT id, title, created_at, updated_at FROM conversations WHERE assistant_id = $a ORDER BY updated_at DESC, id DESC;";
+        cmd.Parameters.AddWithValue("$a", assistant.CurrentId);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<Conversation>();
         while (await r.ReadAsync(ct).ConfigureAwait(false)) list.Add(ReadConversation(r));
@@ -124,7 +129,7 @@ public sealed class SqliteConversationStore(SqliteDatabase db) : IConversationSt
     public async Task<IReadOnlyList<ConversationSearchHit>> SearchAsync(string query, CancellationToken ct = default)
     {
         query = query.Trim();
-        if (query.Length == 0) return [];
+        if (query.Length == 0 || assistant.Current == null) return [];
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
@@ -133,12 +138,14 @@ public sealed class SqliteConversationStore(SqliteDatabase db) : IConversationSt
                      WHERE m.conversation_id = c.id AND localai_contains(m.content, $q)
                      ORDER BY m.id DESC LIMIT 1) AS snippet
             FROM conversations c
-            WHERE localai_contains(c.title, $q)
-               OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND localai_contains(m.content, $q))
+            WHERE c.assistant_id = $a
+              AND (localai_contains(c.title, $q)
+                   OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND localai_contains(m.content, $q)))
             ORDER BY c.updated_at DESC
             LIMIT 100;
             """;
         cmd.Parameters.AddWithValue("$q", query);
+        cmd.Parameters.AddWithValue("$a", assistant.CurrentId);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var hits = new List<ConversationSearchHit>();
         while (await r.ReadAsync(ct).ConfigureAwait(false))

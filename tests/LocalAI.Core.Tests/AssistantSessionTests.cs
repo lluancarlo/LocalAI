@@ -4,6 +4,7 @@ using LocalAI.Core.Conversations;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
+using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,7 +12,9 @@ namespace LocalAI.Core.Tests;
 
 public sealed class AssistantSessionTests
 {
+    private static readonly Configuration.LanguageData Languages = Configuration.LanguageData.LoadDefault();
     private readonly FakeLanguageModel _llm = new();
+    private readonly LocalAI.Core.Assistants.AssistantContext _assistant = new();
     private readonly InMemoryConversationStore _store = new();
     private readonly InMemoryMemoryStore _memories = new();
     private readonly NoMemoryRetriever _retriever = new();
@@ -26,8 +29,8 @@ public sealed class AssistantSessionTests
             configure?.Invoke(o);
         });
         var memory = new MemoryService(_memories, _retriever, new FakeEmbeddings(), _llm, options, NullLogger<MemoryService>.Instance);
-        var speech = new SpeechOutput(_tts, _player, new HeuristicLanguageDetector(), NullLogger<SpeechOutput>.Instance);
-        return new AssistantSession(_llm, _store, new PromptBuilder(options), new HeuristicLanguageDetector(), memory, speech, options,
+        var speech = new SpeechOutput(_tts, _player, Languages, NullLogger<SpeechOutput>.Instance);
+        return new AssistantSession(_llm, _store, new PromptBuilder(options, _assistant), new HeuristicLanguageDetector(Languages), memory, speech, options,
             NullLogger<AssistantSession>.Instance);
     }
 
@@ -117,16 +120,15 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
-    public async Task Spoken_turn_streams_sentences_to_tts_with_detected_language()
+    public async Task Spoken_turn_streams_sentences_to_tts()
     {
         using var session = CreateSession();
-        _llm.Responder = _ => ["Claro", ". Async", " e await", " funcionam", " juntos", "."];
+        _llm.Responder = _ => ["Sure", ". Async", " and await", " work", " together", "."];
 
-        var result = await session.SubmitAsync(new TurnRequest("Explique async", InputSource.Voice, Language: "pt", Speak: true));
+        var result = await session.SubmitAsync(new TurnRequest("Explain async", InputSource.Voice, Language: "en", Speak: true));
 
         Assert.Equal(TurnOutcome.Completed, result.Outcome);
-        Assert.Equal(["Claro.", "Async e await funcionam juntos."], _tts.Spoken.Select(s => s.Text));
-        Assert.All(_tts.Spoken, s => Assert.Equal("pt", s.Language));
+        Assert.Equal(["Sure.", "Async and await work together."], _tts.Spoken);
         Assert.Equal(2, _player.Enqueued);
         // Spoken replies are prompted to avoid markdown.
         Assert.Contains("spoken aloud", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
@@ -143,15 +145,17 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
-    public async Task Uncertain_language_does_not_inherit_previous_language_hint()
+    public async Task Replies_are_in_the_assistants_language_whatever_the_user_writes()
     {
+        _assistant.Set(PromptBuilderTests.Profile("it"));
         using var session = CreateSession();
-        await session.SubmitAsync(new TurnRequest("Explique o que é uma variável, por favor.", InputSource.Text));
-        Assert.Contains("Reply in Brazilian Portuguese", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+        var stored = new List<StoredMessage>();
+        session.UserMessageAdded += (_, m) => stored.Add(m);
 
-        // Ambiguous follow-up: no explicit hint rather than a possibly wrong one.
-        await session.SubmitAsync(new TurnRequest("C# vs F#?", InputSource.Text));
-        Assert.DoesNotContain("Reply in", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+        await session.SubmitAsync(new TurnRequest("Explique o que é uma variável, por favor.", InputSource.Text));
+
+        Assert.Contains("Always reply in Italian", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+        Assert.Equal("pt", Assert.Single(stored).Language);
     }
 
     [Fact]
@@ -169,11 +173,11 @@ public sealed class PromptBuilderTests
     [Fact]
     public void Respects_history_budget_keeping_newest_messages()
     {
-        var builder = new PromptBuilder(TestOptions.Create(o => o.Assistant.HistoryTokenBudget = 100));
+        var builder = new PromptBuilder(TestOptions.Create(o => o.Assistant.HistoryTokenBudget = 100), new LocalAI.Core.Assistants.AssistantContext());
         var history = Enumerable.Range(0, 20)
             .Select(i => Msg(i % 2 == 0 ? ChatRole.User : ChatRole.Assistant, $"message number {i} " + new string('x', 60)))
             .ToList();
-        var prompt = builder.Build(history, "latest", "en", [], false, DateTimeOffset.Now);
+        var prompt = builder.Build(history, "latest", [], false, DateTimeOffset.Now);
 
         Assert.True(prompt.Count < 10);
         Assert.Equal(ChatRole.System, prompt[0].Role);
@@ -182,21 +186,43 @@ public sealed class PromptBuilderTests
         Assert.Equal("latest", prompt[^1].Content);
     }
 
+    internal static LocalAI.Core.Assistants.AssistantProfile Profile(string language) =>
+        new(1, "Diana", "Speaks like a pirate.", "model", "voice", language, VoiceStyle.Default, DateTimeOffset.Now);
+
     [Fact]
-    public void Adds_language_instruction_and_name()
+    public void Adds_name_style_and_the_assistants_reply_language()
     {
-        var builder = new PromptBuilder(TestOptions.Create(o => o.Assistant.Name = "Diana"));
-        var system = builder.Build([], "Ciao", "it", [], false, DateTimeOffset.Now)[0].Content;
+        var context = new LocalAI.Core.Assistants.AssistantContext();
+        context.Set(Profile("it"));
+        var system = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", [], false, DateTimeOffset.Now)[0].Content;
         Assert.Contains("You are Diana", system, StringComparison.Ordinal);
-        Assert.Contains("Reply in Italian", system, StringComparison.Ordinal);
+        Assert.Contains("Speaks like a pirate.", system, StringComparison.Ordinal);
+        Assert.Contains("Always reply in Italian", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Reminds_the_reply_language_in_the_last_user_turn()
+    {
+        var context = new LocalAI.Core.Assistants.AssistantContext();
+        context.Set(Profile("it"));
+        var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", [], false, DateTimeOffset.Now);
+        Assert.Equal("Hello\n\n(Reply in Italian.)", prompt[^1].Content);
+    }
+
+    [Fact]
+    public void Without_an_assistant_the_reply_follows_the_users_language()
+    {
+        var system = new PromptBuilder(TestOptions.Create(), new LocalAI.Core.Assistants.AssistantContext())
+            .Build([], "Hello", [], false, DateTimeOffset.Now)[0].Content;
+        Assert.Contains("same language as the user's last message", system, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Merges_consecutive_same_role_messages_to_keep_alternation()
     {
-        var builder = new PromptBuilder(TestOptions.Create());
+        var builder = new PromptBuilder(TestOptions.Create(), new LocalAI.Core.Assistants.AssistantContext());
         var history = new List<StoredMessage> { Msg(ChatRole.User, "a"), Msg(ChatRole.User, "b"), Msg(ChatRole.Assistant, "c") };
-        var prompt = builder.Build(history, "d", null, [], false, DateTimeOffset.Now);
+        var prompt = builder.Build(history, "d", [], false, DateTimeOffset.Now);
         var roles = prompt.Skip(1).Select(m => m.Role).ToList();
         Assert.Equal([ChatRole.User, ChatRole.Assistant, ChatRole.User], roles);
     }

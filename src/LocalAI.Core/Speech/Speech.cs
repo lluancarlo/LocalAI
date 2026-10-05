@@ -27,23 +27,45 @@ public interface ISpeechToText : IDisposable
     string? LastError { get; }
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task<Transcription> TranscribeAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken = default);
+    /// <summary>Releases the model so its file can be removed. <see cref="InitializeAsync"/> loads it again.</summary>
+    void Unload();
 }
 
-/// <summary>Offline speech synthesis.</summary>
+/// <summary>
+/// How a voice is rendered. Speed, expressiveness and rhythm are Piper parameters; pitch is applied after synthesis.
+/// </summary>
+public sealed record VoiceStyle
+{
+    public static readonly VoiceStyle Default = new();
+
+    /// <summary>Speaking rate multiplier (1 = normal, &gt;1 faster).</summary>
+    public double Speed { get; init; } = 1.0;
+    /// <summary>Pitch shift in semitones (0 = original voice).</summary>
+    public double Pitch { get; init; }
+    /// <summary>Intonation variation (Piper noise scale): lower is flatter.</summary>
+    public double Expressiveness { get; init; } = 0.667;
+    /// <summary>Syllable timing variation (Piper noise width): lower is more regular.</summary>
+    public double Rhythm { get; init; } = 0.8;
+}
+
+/// <summary>Offline speech synthesis with one active voice (the active assistant's).</summary>
 public interface ITextToSpeech : IDisposable
 {
     ComponentState State { get; }
     string? LastError { get; }
-    /// <summary>Active voices, one per language.</summary>
-    IReadOnlyList<VoiceInfo> Voices { get; }
-    /// <summary>Every installed voice that can be selected.</summary>
+    /// <summary>The active voice, or null when none is loaded.</summary>
+    VoiceInfo? Voice { get; }
+    /// <summary>Every installed voice.</summary>
     IReadOnlyList<VoiceInfo> AvailableVoices { get; }
-    /// <summary>Speaking rate multiplier (1 = normal, &gt;1 faster).</summary>
-    float Speed { get; set; }
+    VoiceStyle Style { get; set; }
+    /// <summary>Loads the configured voice (<c>TextToSpeech:Voice</c>).</summary>
     Task InitializeAsync(CancellationToken cancellationToken = default);
-    /// <summary>Voice used for the given language (falls back to the configured default).</summary>
-    VoiceInfo? GetVoice(string? language);
-    /// <summary>Makes <paramref name="voiceId"/> the voice for <paramref name="language"/> (loads it if needed).</summary>
-    Task SetVoiceAsync(string language, string voiceId, CancellationToken cancellationToken = default);
-    Task<AudioClip> SynthesizeAsync(string text, string? language, CancellationToken cancellationToken = default);
+    /// <summary>Makes <paramref name="voiceId"/> the active voice (loads it if needed).</summary>
+    Task SetVoiceAsync(string voiceId, CancellationToken cancellationToken = default);
+    /// <summary>Releases a voice so its files can be removed.</summary>
+    void RemoveVoice(string voiceId);
+    /// <summary>Speaks with the active voice and style.</summary>
+    Task<AudioClip> SynthesizeAsync(string text, CancellationToken cancellationToken = default);
+    /// <summary>Speaks with any installed voice (previews, tests).</summary>
+    Task<AudioClip> SynthesizeAsync(string text, string voiceId, VoiceStyle style, CancellationToken cancellationToken = default);
 }

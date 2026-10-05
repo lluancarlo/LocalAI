@@ -3,6 +3,7 @@
     <ProjectReference Include="..\LocalAI.Core\LocalAI.Core.csproj" />
     <ProjectReference Include="..\LocalAI.LLM\LocalAI.LLM.csproj" />
     <ProjectReference Include="..\LocalAI.Memory\LocalAI.Memory.csproj" />
+    <ProjectReference Include="..\LocalAI.Models\LocalAI.Models.csproj" />
     <ProjectReference Include="..\LocalAI.Speech\LocalAI.Speech.csproj" />
     <ProjectReference Include="..\LocalAI.Audio\LocalAI.Audio.csproj" />
   </ItemGroup>

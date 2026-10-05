@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using LocalAI.Configuration;
 using LocalAI.Core.Audio;
-using LocalAI.Core.Language;
 using LocalAI.Core.Speech;
 using Microsoft.Extensions.Logging;
 
@@ -9,20 +9,20 @@ namespace LocalAI.Core.Voice;
 
 /// <summary>
 /// Streams text to speech: LLM tokens → sentence chunks → TTS → queued playback. Synthesis of sentence N+1 overlaps
-/// playback of sentence N. Cancelling the token stops synthesis and playback immediately.
+/// playback of sentence N, always with the active voice. Cancelling the token stops synthesis and playback immediately.
 /// </summary>
 public sealed class SpeechOutput
 {
     private readonly ITextToSpeech _tts;
     private readonly IAudioPlayer _player;
-    private readonly ILanguageDetector _languageDetector;
+    private readonly LanguageData _languages;
     private readonly ILogger _logger;
 
-    public SpeechOutput(ITextToSpeech tts, IAudioPlayer player, ILanguageDetector languageDetector, ILogger<SpeechOutput> logger)
+    public SpeechOutput(ITextToSpeech tts, IAudioPlayer player, LanguageData languages, ILogger<SpeechOutput> logger)
     {
         _tts = tts;
         _player = player;
-        _languageDetector = languageDetector;
+        _languages = languages;
         _logger = logger;
     }
 
@@ -32,24 +32,22 @@ public sealed class SpeechOutput
     /// <summary>Raised when the first audio of an utterance is queued for playback (latency = time since Begin).</summary>
     public event EventHandler<TimeSpan>? SpeakingStarted;
 
-    public SpeechUtterance Begin(string? language, CancellationToken cancellationToken) =>
-        new(this, language, cancellationToken);
+    public SpeechUtterance Begin(CancellationToken cancellationToken) => new(this, cancellationToken);
 
     public void StopAll() => _player.Stop();
 
     public sealed class SpeechUtterance
     {
         private readonly SpeechOutput _owner;
-        private readonly SentenceChunker _chunker = new();
+        private readonly SentenceChunker _chunker;
         private readonly Channel<string> _sentences = Channel.CreateUnbounded<string>(new() { SingleReader = true });
         private readonly CancellationToken _ct;
         private readonly Stopwatch _sinceBegin = Stopwatch.StartNew();
-        private string? _language;
 
-        internal SpeechUtterance(SpeechOutput owner, string? language, CancellationToken ct)
+        internal SpeechUtterance(SpeechOutput owner, CancellationToken ct)
         {
             _owner = owner;
-            _language = language;
+            _chunker = new SentenceChunker(owner._languages.Abbreviations);
             _ct = ct;
             Completion = Task.Run(RunAsync, CancellationToken.None);
         }
@@ -75,11 +73,10 @@ public sealed class SpeechOutput
             {
                 await foreach (var sentence in _sentences.Reader.ReadAllAsync(_ct).ConfigureAwait(false))
                 {
-                    var lang = ChooseLanguage(sentence);
                     AudioClip clip;
                     try
                     {
-                        clip = await _owner._tts.SynthesizeAsync(sentence, lang, _ct).ConfigureAwait(false);
+                        clip = await _owner._tts.SynthesizeAsync(sentence, _ct).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -107,14 +104,6 @@ public sealed class SpeechOutput
                 _owner._logger.LogError(ex, "Speech output failed");
                 _owner._player.Stop();
             }
-        }
-
-        private string? ChooseLanguage(string sentence)
-        {
-            // The reply is normally in the user's language; switch only when a sentence is clearly in another one.
-            var d = _owner._languageDetector.Detect(sentence);
-            if (d.IsConfident && d.Confidence >= 0.75f && d.Language != _language) _language = d.Language;
-            return _language;
         }
     }
 }

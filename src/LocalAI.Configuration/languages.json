@@ -1,0 +1,59 @@
+{
+  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
+  "languages": {
+    "pt": {
+      "name": "Portuguese (Brazil)",
+      "voiceSample": "Olá! Esta é a minha voz. Como posso ajudar você hoje?",
+      "commonWords": [
+        "o", "os", "as", "um", "uma", "uns", "umas", "do", "da", "dos", "das", "no", "na", "nos", "nas",
+        "em", "de", "que", "não", "nao", "é", "são", "com", "para", "pra", "por", "como", "mais", "mas",
+        "ou", "se", "eu", "você", "voce", "vocês", "ele", "ela", "eles", "elas", "meu", "minha", "seu", "sua",
+        "isso", "isto", "esse", "essa", "este", "esta", "também", "tambem", "muito", "muita", "quando", "onde",
+        "porque", "qual", "quais", "ser", "estar", "está", "estou", "tem", "têm", "tenho", "foi", "vai",
+        "então", "entao", "já", "aqui", "ao", "aos", "pelo", "pela", "sobre", "explique", "obrigado", "sim",
+        "olá", "oi", "bom", "dia", "fazer", "faz", "posso", "pode", "preciso", "quero", "seria", "agora",
+        "dois", "duas", "três", "responda", "explica", "diga", "me", "te", "lhe", "nós", "coisa"
+      ],
+      "wordEndings": ["ção", "ções", "ões", "amos", "agem", "inho"],
+      "letters": "ãõçâêô",
+      "letterGroups": ["lh", "nh"]
+    },
+    "it": {
+      "name": "Italian",
+      "voiceSample": "Ciao! Questa è la mia voce. Come posso aiutarti oggi?",
+      "commonWords": [
+        "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "del", "dello", "della", "dei", "degli",
+        "delle", "nel", "nella", "nei", "di", "che", "non", "è", "sono", "con", "per", "come", "più", "piu",
+        "ma", "o", "se", "io", "tu", "lui", "lei", "noi", "voi", "loro", "mio", "mia", "suo", "sua", "questo",
+        "questa", "quello", "quella", "anche", "molto", "quando", "dove", "perché", "perche", "quale",
+        "essere", "stare", "sto", "ho", "hai", "ha", "abbiamo", "fatto", "fare", "va", "allora", "già",
+        "qui", "al", "allo", "alla", "ai", "sul", "sulla", "spiegami", "grazie", "sì", "ciao", "buongiorno",
+        "posso", "puoi", "voglio", "vorrei", "adesso", "ora", "cosa", "c'è", "ne", "ci", "mi", "ti",
+        "in", "due", "tre", "cos'è", "dell'", "nell'", "sei", "siamo", "dimmi", "rispondi", "spiega"
+      ],
+      "wordEndings": ["isco", "iamo", "ere", "zione", "zioni", "ggio"],
+      "letters": "òùì",
+      "letterGroups": ["gli", "cch", "ggi"]
+    },
+    "en": {
+      "name": "English",
+      "voiceSample": "Hello! This is my voice. How can I help you today?",
+      "commonWords": [
+        "the", "a", "an", "of", "to", "in", "on", "at", "and", "or", "but", "is", "are", "was", "were",
+        "be", "been", "it", "this", "that", "these", "those", "with", "for", "from", "by", "as", "not", "no",
+        "i", "you", "he", "she", "we", "they", "my", "your", "his", "her", "our", "their", "what", "which",
+        "who", "when", "where", "why", "how", "do", "does", "did", "have", "has", "had", "can", "could",
+        "would", "should", "will", "about", "explain", "thanks", "thank", "yes", "hello", "hi", "please",
+        "want", "need", "now", "just", "there", "here", "if", "so", "me", "use", "into", "than"
+      ],
+      "wordEndings": ["tion", "ness", "ing", "ould"],
+      "letters": "",
+      "letterGroups": ["th"]
+    }
+  },
+  "transcriptNoise": [
+    "amara.org", "legendas pela comunidade", "sottotitoli creati dalla comunità", "sottotitoli a cura di",
+    "subtitles by the amara", "transcription by castingwords", "www.", "[música]", "[music]", "(música)"
+  ],
+  "abbreviations": ["e.g.", "i.e.", "etc.", "vs.", "mr.", "mrs.", "dr.", "sr.", "sra.", "ecc.", "es.", "p.ex.", "obs.", "nº."]
+}

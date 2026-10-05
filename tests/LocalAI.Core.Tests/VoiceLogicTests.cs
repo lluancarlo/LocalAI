@@ -150,8 +150,8 @@ public sealed class TranscriptFilterTests
     [InlineData("[Música]", true)]
     [InlineData("Legendas pela comunidade Amara.org", true)]
     [InlineData("Sottotitoli creati dalla comunità Amara.org", true)]
-    [InlineData("Espera.", false)]
-    [InlineData("Obrigado!", false)]
+    [InlineData("Wait.", false)]
+    [InlineData("Thanks!", false)]
     public void Filters_noise_and_known_hallucinations(string text, bool noise) =>
-        Assert.Equal(noise, TranscriptFilter.IsNoise(text));
+        Assert.Equal(noise, TranscriptFilter.IsNoise(text, LocalAI.Configuration.LanguageData.LoadDefault().TranscriptNoise));
 }

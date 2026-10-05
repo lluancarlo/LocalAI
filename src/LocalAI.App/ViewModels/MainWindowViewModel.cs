@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
@@ -20,6 +21,8 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.App.ViewModels;
 
 public enum StatusLevel { Ok, Busy, Warning, Error }
+
+public enum AppPage { Chat, Memory, Settings, Diagnostics }
 
 /// <summary>
 /// Main screen state. Thin layer over <see cref="AssistantSession"/> and <see cref="VoiceConversationController"/>:
@@ -36,6 +39,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly ISpeechToText _stt;
     private readonly ITextToSpeech _tts;
     private readonly MemoryService _memory;
+    private readonly ModelService _models;
+    private readonly AssistantContext _assistant;
     private readonly UserSettingsStore _settings;
     private readonly LocalAiPaths _paths;
     private readonly LocalAiOptions _options;
@@ -48,7 +53,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(
         AssistantSession session, IConversationStore store, VoiceConversationController voice, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
-        MemoryService memory, UserSettingsStore settings, SettingsViewModel settingsViewModel,
+        MemoryService memory, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
         LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
     {
         _session = session;
@@ -60,13 +65,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _stt = stt;
         _tts = tts;
         _memory = memory;
+        _models = models;
+        _assistant = assistant;
         Settings = settingsViewModel;
         _settings = settings;
         _paths = paths;
         _options = options.Value;
         _logger = logger;
-        AssistantName = _options.Assistant.Name;
-        _isContinuousPreferred = _options.Voice.Mode == VoiceMode.Continuous;
+        _preferredMode = _options.Voice.ReplyMode;
+        _replyMode = _preferredMode == ReplyMode.ReadAloud ? ReplyMode.ReadAloud : ReplyMode.Text;
 
         _session.UserMessageAdded += (_, m) => Ui(() => OnUserMessage(m));
         _session.AssistantMessageStarted += (_, id) => Ui(() => OnAssistantStarted(id));
@@ -86,11 +93,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!open) OnInputLevel(AudioMath.SilenceDb, reset: true);
         });
         Settings.Changed += (_, _) => Ui(UpdateStatus);
+        Settings.Assistants.DownloadsStarted += (_, _) => Ui(ShowDownloads);
+        _llm.StateChanged += (_, _) => Ui(OnModelsChanged);
+        _models.Changed += (_, _) => Ui(OnModelsChanged);
+        _assistant.Changed += (_, _) => Ui(OnAssistantChanged);
 
         UpdateStatus();
     }
 
-    public string AssistantName { get; }
+    [ObservableProperty] private string _assistantName = "Local AI";
+    [ObservableProperty] private bool _showWelcome;
+    [ObservableProperty] private bool _welcomeIntro = true;
+    private bool _startupCompleted;
 
     public ObservableCollection<ConversationItemViewModel> Conversations { get; } = [];
     public ObservableCollection<MessageViewModel> Messages { get; } = [];
@@ -110,13 +124,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _modelText = "Model: loading…";
     [ObservableProperty] private string _voiceText = "Voice: starting…";
     [ObservableProperty] private string _conversationTitle = "New conversation";
-    [ObservableProperty] private bool _isContinuous;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsContinuous), nameof(IsTextMode), nameof(IsReadAloudMode), nameof(IsLiveMode))]
+    private ReplyMode _replyMode;
     [ObservableProperty] private bool _isRecording;
-    [ObservableProperty] private bool _speakReplies;
     [ObservableProperty] private bool _voiceAvailable;
-    [ObservableProperty] private bool _showDiagnostics;
-    [ObservableProperty] private bool _showMemories;
-    [ObservableProperty] private bool _showSettings;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChatPage), nameof(IsMemoryPage), nameof(IsSettingsPage), nameof(IsDiagnosticsPage))]
+    private AppPage _selectedPage = AppPage.Chat;
     [ObservableProperty] private bool _isMicOpen;
     /// <summary>Microphone level mapped to 0..1 over −60..0 dBFS (for the meter bar).</summary>
     [ObservableProperty] private double _micLevel;
@@ -129,14 +144,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _diagnosticsText = "";
     [ObservableProperty] private string? _bannerText;
 
-    private readonly bool _isContinuousPreferred;
+    private readonly ReplyMode _preferredMode;
+
+    public bool IsContinuous => ReplyMode == ReplyMode.Live;
+
+    public bool IsTextMode
+    {
+        get => ReplyMode == ReplyMode.Text;
+        set { if (value) ReplyMode = ReplyMode.Text; }
+    }
+
+    public bool IsReadAloudMode
+    {
+        get => ReplyMode == ReplyMode.ReadAloud;
+        set { if (value) ReplyMode = ReplyMode.ReadAloud; }
+    }
+
+    public bool IsLiveMode
+    {
+        get => ReplyMode == ReplyMode.Live;
+        set { if (value) ReplyMode = ReplyMode.Live; }
+    }
 
     public string SendButtonText => IsBusy ? "Stop" : "Send";
+
+    /// <summary>Open pages, shown as tabs. The chat tab (named after the assistant) is always first and cannot be closed.</summary>
+    public ObservableCollection<PageTabViewModel> Tabs { get; } = [new(AppPage.Chat, "Local AI", isClosable: false) { IsSelected = true }];
+    public bool IsChatPage => SelectedPage == AppPage.Chat;
+    public bool IsMemoryPage => SelectedPage == AppPage.Memory;
+    public bool IsSettingsPage => SelectedPage == AppPage.Settings;
+    public bool IsDiagnosticsPage => SelectedPage == AppPage.Diagnostics;
 
     // ---------------- Startup ----------------
 
     public async Task LoadConversationsAsync()
     {
+        if (_assistant.Current == null)
+        {
+            Conversations.Clear();
+            return;
+        }
         try
         {
             var list = await _store.ListAsync();
@@ -152,9 +199,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void OnStartupCompleted()
     {
+        _startupCompleted = true;
         UpdateStatus();
+        if (_preferredMode == ReplyMode.Live && VoiceAvailable) ReplyMode = ReplyMode.Live;
+        OfferModelDownload();
+    }
+
+    private void OnAssistantChanged()
+    {
+        Stop();
+        AssistantName = _assistant.Current?.Name ?? "Local AI";
+        Tabs[0].Title = AssistantName;
+        ShowWelcome = _assistant.Current == null;
+        NewConversation();
+        _ = LoadConversationsAsync();
         _ = LoadMemoriesAsync();
-        if (_isContinuousPreferred && VoiceAvailable) IsContinuous = true;
+        Settings.RefreshVoice();
+        OfferModelDownload();
+    }
+
+    private void ShowDownloads()
+    {
+        Settings.SelectedTab = SettingsViewModel.ModelsTab;
+        OpenPage(AppPage.Settings);
+    }
+
+    private void OfferModelDownload()
+    {
+        if (!_startupCompleted || ShowWelcome || _models.HasLanguageModel) return;
+        Settings.SelectedTab = SettingsViewModel.ModelsTab;
+        OpenPage(AppPage.Settings);
+    }
+
+    private void OnModelsChanged()
+    {
+        UpdateStatus();
+        Settings.Models.Refresh();
+        if (IsSettingsPage) Settings.RefreshVoice();
     }
 
     private void OnSubsystem(SubsystemStatus s) => UpdateStatus();
@@ -177,6 +258,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             case LanguageModelState.Loading:
                 ModelText = "Model: loading…";
                 SetStatus(StatusLevel.Busy, "Loading model…");
+                break;
+            case LanguageModelState.Failed or LanguageModelState.NotLoaded when !_models.HasLanguageModel:
+                ModelText = "Model: none";
+                SetStatus(StatusLevel.Warning, ModelSelector.NoModelMessage);
                 break;
             case LanguageModelState.Failed:
                 ModelText = "Model: unavailable";
@@ -212,10 +297,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
         var text = InputText.Trim();
-        if (text.Length == 0) return;
+        if (text.Length == 0 || ShowWelcome) return;
         InputText = "";
         BannerText = null;
-        var speak = SpeakReplies && _tts.State == ComponentState.Ready;
+        if (IsContinuous)
+        {
+            // Live mode: the typed message is answered aloud and the conversation keeps listening afterwards.
+            await Task.Run(() => _voice.SubmitTextAsync(text, speak: _tts.State == ComponentState.Ready));
+            return;
+        }
+        var speak = ReplyMode == ReplyMode.ReadAloud && _tts.State == ComponentState.Ready;
         await Task.Run(() => _session.SubmitAsync(new TurnRequest(text, InputSource.Text, Speak: speak)));
     }
 
@@ -314,6 +405,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnSelectedConversationChanged(ConversationItemViewModel? value)
     {
         if (_suppressSelection) return;
+        if (value != null) SelectedPage = AppPage.Chat;
         _ = OpenConversationAsync(value);
     }
 
@@ -341,6 +433,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void NewConversation()
     {
+        SelectedPage = AppPage.Chat;
         SelectedConversation = null;
         _ = OpenConversationAsync(null);
     }
@@ -382,6 +475,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (item != null) item.IsRenaming = false;
     }
 
+    partial void OnInputTextChanged(string value)
+    {
+        _voice.SetTyping(IsContinuous && !string.IsNullOrWhiteSpace(value));
+        if (IsContinuous) OnVoiceState(_voice.State);
+    }
+
     partial void OnSearchTextChanged(string value)
     {
         _searchCts?.Cancel();
@@ -411,16 +510,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task BeginPushToTalkAsync()
     {
-        if (!VoiceAvailable) return;
+        if (!VoiceAvailable || ShowWelcome) return;
         await _voice.BeginPushToTalkAsync();
     }
 
     public async Task EndPushToTalkAsync() => await _voice.EndPushToTalkAsync();
 
-    partial void OnIsContinuousChanged(bool value)
+    partial void OnReplyModeChanged(ReplyMode oldValue, ReplyMode newValue)
     {
-        _ = value ? _voice.StartContinuousAsync() : _voice.StopContinuousAsync();
-        _settings.Set("Voice", "Mode", value ? nameof(VoiceMode.Continuous) : nameof(VoiceMode.PushToTalk));
+        _voice.SetTyping(newValue == ReplyMode.Live && !string.IsNullOrWhiteSpace(InputText));
+        if (newValue == ReplyMode.Live) _ = _voice.StartContinuousAsync();
+        else if (oldValue == ReplyMode.Live) _ = _voice.StopContinuousAsync();
+        _settings.Set("Voice", "ReplyMode", newValue.ToString());
     }
 
     private void OnVoiceState(VoiceState s)
@@ -429,6 +530,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var mic = Settings.SelectedMicrophone?.Name ?? "no microphone";
         VoiceText = s switch
         {
+            VoiceState.Listening when _voice.IsTyping => "⌨ Typing · microphone paused",
             VoiceState.Listening => "◉ Listening",
             VoiceState.Recording => "● Recording",
             VoiceState.Transcribing => "… Transcribing",
@@ -440,10 +542,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _ when Settings.Microphones.Count == 0 => "Voice: no microphone found",
             _ => IsContinuous ? "◉ Listening" : $"Voice: push-to-talk · {mic}",
         };
-        if (s == VoiceState.Error && IsContinuous)
-        {
-            IsContinuous = false;
-        }
+        if (s == VoiceState.Error && IsContinuous) ReplyMode = ReplyMode.Text;
     }
 
     // Fast attack, ~25 dB/s release, like a hardware VU meter.
@@ -459,18 +558,41 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void ToggleSettings()
+    private void ContinueWelcome() => WelcomeIntro = false;
+
+    // ---------------- Tabs ----------------
+
+    [RelayCommand]
+    private void OpenPage(AppPage page)
     {
-        ShowSettings = !ShowSettings;
-        if (ShowSettings)
+        if (Tabs.All(t => t.Page != page)) Tabs.Add(new PageTabViewModel(page, page.ToString(), isClosable: true));
+        SelectedPage = page;
+    }
+
+    [RelayCommand]
+    private void ClosePage(AppPage page)
+    {
+        var tab = Tabs.FirstOrDefault(t => t.Page == page && t.IsClosable);
+        if (tab == null) return;
+        var index = Tabs.IndexOf(tab);
+        Tabs.Remove(tab);
+        if (SelectedPage == page) SelectedPage = Tabs[index - 1].Page;
+    }
+
+    partial void OnSelectedPageChanged(AppPage oldValue, AppPage newValue)
+    {
+        foreach (var tab in Tabs) tab.IsSelected = tab.Page == newValue;
+        if (oldValue == AppPage.Settings) Settings.OnClosed();
+        switch (newValue)
         {
-            ShowDiagnostics = false;
-            ShowMemories = false;
-            Settings.RefreshVoices();
-        }
-        else
-        {
-            Settings.OnClosed();
+            case AppPage.Settings:
+                Settings.RefreshVoice();
+                Settings.Models.Refresh();
+                _ = Settings.Assistants.RefreshAsync();
+                break;
+            case AppPage.Diagnostics:
+                DiagnosticsText = BuildDiagnostics();
+                break;
         }
     }
 
@@ -478,6 +600,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task LoadMemoriesAsync()
     {
+        if (_assistant.Current == null)
+        {
+            Memories.Clear();
+            return;
+        }
         try
         {
             var items = await _memory.ListAsync(CancellationToken.None);
@@ -496,28 +623,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (item == null) return;
         await _memory.DeleteAsync(item.Id, CancellationToken.None);
-    }
-
-    [RelayCommand]
-    private void ToggleDiagnostics()
-    {
-        DiagnosticsText = BuildDiagnostics();
-        ShowDiagnostics = !ShowDiagnostics;
-        if (ShowDiagnostics) { ShowMemories = false; CloseSettings(); }
-    }
-
-    [RelayCommand]
-    private void ToggleMemories()
-    {
-        ShowMemories = !ShowMemories;
-        if (ShowMemories) { ShowDiagnostics = false; CloseSettings(); }
-    }
-
-    private void CloseSettings()
-    {
-        if (!ShowSettings) return;
-        ShowSettings = false;
-        Settings.OnClosed();
     }
 
     private string BuildDiagnostics()
@@ -550,7 +655,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         sb.AppendLine().AppendLine("Speech");
         sb.AppendLine($"  Recognition     {(_stt.State == ComponentState.Ready ? _stt.Description : _stt.State + " " + _stt.LastError)}");
-        sb.AppendLine($"  Synthesis       {(_tts.State == ComponentState.Ready ? "Piper via sherpa-onnx (CPU): " + string.Join(", ", _tts.Voices.Select(v => $"{v.Language}={v.DisplayName}")) : _tts.State + " " + _tts.LastError)}");
+        sb.AppendLine($"  Synthesis       {(_tts.State == ComponentState.Ready ? "Piper via sherpa-onnx (CPU): " + _tts.Voice?.DisplayName : _tts.State + " " + _tts.LastError)}");
         sb.AppendLine($"  Microphone      {Settings.SelectedMicrophone?.Name ?? "none"}");
         sb.AppendLine($"  Speaker         {Settings.SelectedSpeaker?.Name ?? "none"}");
 

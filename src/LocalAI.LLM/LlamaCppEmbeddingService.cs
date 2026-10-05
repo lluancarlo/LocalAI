@@ -78,6 +78,21 @@ public sealed class LlamaCppEmbeddingService : IEmbeddingService, IAsyncDisposab
         }
     }
 
+    public async Task StopAsync()
+    {
+        await _startGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_server != null) await _server.DisposeAsync().ConfigureAwait(false);
+            _server = null;
+            LastError = $"Embedding model '{_options.Model}' not installed; memory uses keyword matching.";
+        }
+        finally
+        {
+            _startGate.Release();
+        }
+    }
+
     public async Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default)
     {
         var server = _server ?? throw new InvalidOperationException("Embedding service not started.");

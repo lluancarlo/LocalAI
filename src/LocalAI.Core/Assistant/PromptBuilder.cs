@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using LocalAI.Configuration;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
@@ -9,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.Core.Assistant;
 
 /// <summary>Assembles the model input: system prompt + relevant memories + recent history within a token budget.</summary>
-public sealed class PromptBuilder(IOptions<LocalAiOptions> options)
+public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantContext assistant)
 {
     private readonly AssistantOptions _options = options.Value.Assistant;
 
@@ -31,12 +32,14 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options)
     public IReadOnlyList<ChatMessage> Build(
         IReadOnlyList<StoredMessage> history,
         string userText,
-        string? userLanguage,
         IReadOnlyList<ScoredMemory> memories,
         bool spoken,
         DateTimeOffset now)
     {
-        var system = new StringBuilder(_options.SystemPrompt.Replace("{name}", _options.Name, StringComparison.Ordinal));
+        var profile = assistant.Current;
+        var system = new StringBuilder(_options.SystemPrompt.Replace("{name}", profile?.Name ?? "Assistant", StringComparison.Ordinal));
+        if (!string.IsNullOrWhiteSpace(profile?.StylePrompt))
+            system.Append("\n\nPersonality and style defined by the user:\n").Append(profile.StylePrompt);
         system.Append(CultureInfo.InvariantCulture, $"\nCurrent local date/time: {now:yyyy-MM-dd HH:mm} ({now:dddd}).");
 
         if (memories.Count > 0)
@@ -45,9 +48,10 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options)
             foreach (var m in memories) system.Append("\n- ").Append(m.Memory.Content);
         }
 
-        var langName = LanguageName(userLanguage);
-        if (langName.Length > 0)
-            system.Append(CultureInfo.InvariantCulture, $"\n\nThe user's last message is in {langName}. Reply in {langName}.");
+        var language = LanguageName(profile?.Language);
+        system.Append(language.Length > 0
+            ? $"\n\nAlways reply in {language}, even when the user writes or speaks another language. Never switch languages."
+            : "\n\nReply in the same language as the user's last message.");
 
         if (spoken) system.Append("\n\n").Append(_options.VoiceStyleHint);
 
@@ -69,10 +73,13 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options)
         while (selected.Count > 0 && selected[0].Role != ChatRole.User) selected.RemoveAt(0);
         messages.AddRange(MergeConsecutive(selected));
 
+        // Models tend to follow the language of the last message over the system prompt, so repeat the rule there.
+        // This reminder is only sent to the model; the stored message is unchanged.
+        var userTurn = language.Length > 0 ? $"{userText}\n\n(Reply in {language}.)" : userText;
         if (messages[^1].Role == ChatRole.User)
-            messages[^1] = messages[^1] with { Content = messages[^1].Content + "\n\n" + userText };
+            messages[^1] = messages[^1] with { Content = messages[^1].Content + "\n\n" + userTurn };
         else
-            messages.Add(new ChatMessage(ChatRole.User, userText));
+            messages.Add(new ChatMessage(ChatRole.User, userTurn));
         return messages;
     }
 

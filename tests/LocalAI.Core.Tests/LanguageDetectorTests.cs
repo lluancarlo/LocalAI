@@ -4,7 +4,7 @@ namespace LocalAI.Core.Tests;
 
 public sealed class LanguageDetectorTests
 {
-    private readonly HeuristicLanguageDetector _detector = new();
+    private readonly HeuristicLanguageDetector _detector = new(LocalAI.Configuration.LanguageData.LoadDefault());
 
     [Theory]
     [InlineData("Explique async/await em C# para mim, por favor.", "pt")]

@@ -1,34 +1,42 @@
 using System.Runtime.InteropServices;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Memory;
 using static LocalAI.Memory.SqliteDatabase;
 
 namespace LocalAI.Memory;
 
-/// <summary>Long-term memories with embeddings stored as float32 BLOBs.</summary>
-public sealed class SqliteMemoryStore(SqliteDatabase db) : IMemoryStore
+/// <summary>
+/// Long-term memories of the active assistant, with embeddings stored as float32 BLOBs. A memory extracted from a
+/// conversation belongs to that conversation's assistant.
+/// </summary>
+public sealed class SqliteMemoryStore(SqliteDatabase db, AssistantContext assistant) : IMemoryStore
 {
     public async Task<MemoryItem> AddAsync(MemoryItem item, CancellationToken ct = default)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO memories(content, created_at, source_conversation_id, embedding, embedding_model)
-            VALUES ($content, $at, $conv, $emb, $model) RETURNING id;
+            INSERT INTO memories(content, created_at, source_conversation_id, embedding, embedding_model, assistant_id)
+            VALUES ($content, $at, $conv, $emb, $model, COALESCE((SELECT assistant_id FROM conversations WHERE id = $conv), $a))
+            RETURNING id;
             """;
         cmd.Parameters.AddWithValue("$content", item.Content);
         cmd.Parameters.AddWithValue("$at", ToUnixMs(item.CreatedAt));
         cmd.Parameters.AddWithValue("$conv", (object?)item.SourceConversationId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$emb", item.Embedding is { } e ? ToBlob(e) : DBNull.Value);
         cmd.Parameters.AddWithValue("$model", (object?)item.EmbeddingModel ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$a", assistant.CurrentId);
         var id = (long)(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
         return item with { Id = id };
     }
 
     public async Task<IReadOnlyList<MemoryItem>> ListAsync(CancellationToken ct = default)
     {
+        if (assistant.Current == null) return [];
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id, content, created_at, source_conversation_id, embedding, embedding_model FROM memories ORDER BY id;";
+        cmd.CommandText = "SELECT id, content, created_at, source_conversation_id, embedding, embedding_model FROM memories WHERE assistant_id = $a ORDER BY id;";
+        cmd.Parameters.AddWithValue("$a", assistant.CurrentId);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<MemoryItem>();
         while (await r.ReadAsync(ct).ConfigureAwait(false))
