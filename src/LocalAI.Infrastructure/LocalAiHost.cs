@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using LocalAI.Audio;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Diagnostics;
@@ -12,6 +13,7 @@ using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.LLM;
 using LocalAI.Memory;
+using LocalAI.Models;
 using LocalAI.Speech;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,19 +28,17 @@ namespace LocalAI.Infrastructure;
 public static class LocalAiHost
 {
     /// <summary>appsettings.json (next to the executable) → usersettings.json (data dir) → LOCALAI_ environment variables.</summary>
-    public static IConfigurationRoot BuildConfiguration(string? baseDirectory = null, string? dataDirectory = null)
+    public static IConfigurationRoot BuildConfiguration(LocalAiPaths paths, string? baseDirectory = null)
     {
-        var baseDir = baseDirectory ?? AppContext.BaseDirectory;
-        var dataDir = dataDirectory ?? LocalAiPaths.DefaultDataDirectory;
         return new ConfigurationBuilder()
-            .SetBasePath(baseDir)
+            .SetBasePath(baseDirectory ?? AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddJsonFile(Path.Combine(dataDir, "usersettings.json"), optional: true, reloadOnChange: false)
+            .AddJsonFile(paths.UserSettingsPath, optional: true, reloadOnChange: false)
             .AddEnvironmentVariables("LOCALAI_")
             .Build();
     }
 
-    public static IServiceCollection AddLocalAi(this IServiceCollection services, IConfiguration configuration, LocalAiPaths? pathsOverride = null)
+    public static IServiceCollection AddLocalAi(this IServiceCollection services, IConfiguration configuration, LocalAiPaths paths)
     {
         // One options instance for the whole app: IOptions and IOptionsMonitor would otherwise hold separate copies,
         // and settings changed at runtime (settings menu) must be seen by every component. Changes are persisted to
@@ -48,9 +48,15 @@ public static class LocalAiHost
         services.AddSingleton<IOptions<LocalAiOptions>>(Options.Create(options));
         services.AddSingleton<IOptionsMonitor<LocalAiOptions>>(new FixedOptionsMonitor<LocalAiOptions>(options));
 
-        services.AddSingleton(sp => pathsOverride ?? new LocalAiPaths(sp.GetRequiredService<IOptions<LocalAiOptions>>().Value.Paths));
-        services.AddSingleton(sp => ModelCatalog.Load(sp.GetRequiredService<LocalAiPaths>().CatalogPath));
-        services.AddSingleton(sp => new UserSettingsStore(sp.GetRequiredService<LocalAiPaths>().UserSettingsPath));
+        services.AddSingleton(paths);
+        services.AddSingleton(_ => ModelCatalog.LoadDefault());
+        services.AddSingleton(_ => LanguageData.LoadDefault());
+        services.AddSingleton(_ => new UserSettingsStore(paths.UserSettingsPath));
+
+        // Model downloads (the only Internet access, always started by the user)
+        services.AddSingleton(_ => new ModelDownloader());
+        services.AddSingleton<ModelLibrary>();
+        services.AddSingleton<ModelService>();
 
         // Diagnostics
         services.AddSingleton<IGpuInfoProvider, NvidiaSmiGpuInfoProvider>();
@@ -62,8 +68,10 @@ public static class LocalAiHost
         services.AddSingleton<IEmbeddingService>(sp => sp.GetRequiredService<LlamaCppEmbeddingService>());
 
         // Persistence + memory
-        services.AddSingleton(sp => new SqliteDatabase(sp.GetRequiredService<LocalAiPaths>().DatabasePath,
+        services.AddSingleton(sp => new SqliteDatabase(paths.DatabasePath,
             sp.GetRequiredService<ILogger<SqliteDatabase>>()));
+        services.AddSingleton<AssistantContext>();
+        services.AddSingleton<IAssistantStore, SqliteAssistantStore>();
         services.AddSingleton<IConversationStore, SqliteConversationStore>();
         services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
         services.AddSingleton<IMemoryRetriever, MemoryRetriever>();
@@ -90,6 +98,7 @@ public static class LocalAiHost
         // Orchestration
         services.AddSingleton<PromptBuilder>();
         services.AddSingleton<SpeechOutput>();
+        services.AddSingleton<AssistantManager>();
         services.AddSingleton<AssistantSession>();
         services.AddSingleton<VoiceConversationController>();
         services.AddSingleton<StartupService>();
@@ -128,13 +137,29 @@ public static class LocalAiHost
     }
 
     /// <summary>
+    /// Points TEMP/TMP of this process (inherited by llama-server) to the application folder, so temporary files of
+    /// native and third-party libraries never land in the user profile. Emptied at every start.
+    /// </summary>
+    public static void ConfigureTempDirectory(LocalAiPaths paths)
+    {
+        try
+        {
+            if (Directory.Exists(paths.TempDirectory)) Directory.Delete(paths.TempDirectory, recursive: true);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        Directory.CreateDirectory(paths.TempDirectory);
+        Environment.SetEnvironmentVariable("TEMP", paths.TempDirectory);
+        Environment.SetEnvironmentVariable("TMP", paths.TempDirectory);
+    }
+
+    /// <summary>
     /// Makes the CUDA runtime shipped with llama.cpp (cublas64_13.dll, ...) resolvable for Whisper.net's CUDA backend,
     /// so no CUDA Toolkit installation is needed.
     /// </summary>
     public static void ConfigureNativeSearchPath(LocalAiPaths paths)
     {
         var dir = paths.LlamaCppDirectory;
-        if (!Directory.Exists(dir)) return;
         var path = Environment.GetEnvironmentVariable("PATH") ?? "";
         if (!path.Split(Path.PathSeparator).Contains(dir, StringComparer.OrdinalIgnoreCase))
             Environment.SetEnvironmentVariable("PATH", dir + Path.PathSeparator + path);

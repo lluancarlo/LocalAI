@@ -1,19 +1,16 @@
 {
-  "$comment": "Describes downloadable local models. Used by scripts/setup.ps1 (download) and by the app (model info / auto-selection). Model files are never committed.",
+  "$comment": "Everything the app can download from Settings > Models. Files are stored next to the application (models/ and runtime/).",
   "llm": [
     {
       "id": "gemma-4-26b-a4b-qat-q4kxl",
       "displayName": "Gemma 4 26B-A4B Instruct (QAT)",
       "file": "llm/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
       "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
-      "sizeBytes": 14250000000,
+      "sizeBytes": 14249047104,
       "quantization": "UD-Q4_K_XL (QAT)",
       "parametersB": 26,
       "minVramMb": 22000,
-      "defaultContext": 16384,
-      "chatTemplateKwargs": {
-        "enable_thinking": false
-      }
+      "defaultContext": 16384
     },
     {
       "id": "gemma-4-12b-qat-q4_0",
@@ -24,10 +21,7 @@
       "quantization": "Q4_0 (QAT)",
       "parametersB": 12,
       "minVramMb": 11000,
-      "defaultContext": 16384,
-      "chatTemplateKwargs": {
-        "enable_thinking": false
-      }
+      "defaultContext": 16384
     },
     {
       "id": "gemma-4-e4b-qat-q4_0",
@@ -38,10 +32,7 @@
       "quantization": "Q4_0 (QAT)",
       "parametersB": 4,
       "minVramMb": 0,
-      "defaultContext": 8192,
-      "chatTemplateKwargs": {
-        "enable_thinking": false
-      }
+      "defaultContext": 8192
     }
   ],
   "embedding": [
@@ -67,7 +58,8 @@
       "id": "silero-vad-v5",
       "displayName": "Silero VAD v5",
       "file": "vad/silero_vad_v5.onnx",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx",
+      "sizeBytes": 2313101
     }
   ],
   "tts": [
@@ -77,42 +69,48 @@
       "displayName": "Faber (pt-BR, male)",
       "dir": "tts/vits-piper-pt_BR-faber-medium",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-faber-medium.tar.bz2",
-      "default": true
+      "default": true,
+      "sizeBytes": 67183065
     },
     {
       "id": "pt_BR-cadu-medium",
       "language": "pt",
       "displayName": "Cadu (pt-BR, male)",
       "dir": "tts/vits-piper-pt_BR-cadu-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-cadu-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-cadu-medium.tar.bz2",
+      "sizeBytes": 67207562
     },
     {
       "id": "pt_BR-jeff-medium",
       "language": "pt",
       "displayName": "Jeff (pt-BR, male)",
       "dir": "tts/vits-piper-pt_BR-jeff-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-jeff-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-jeff-medium.tar.bz2",
+      "sizeBytes": 67207052
     },
     {
       "id": "pt_BR-edresson-low",
       "language": "pt",
       "displayName": "Edresson (pt-BR, male, low quality)",
       "dir": "tts/vits-piper-pt_BR-edresson-low",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-edresson-low.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-edresson-low.tar.bz2",
+      "sizeBytes": 67081775
     },
     {
       "id": "pt_BR-miro-high",
       "language": "pt",
       "displayName": "Miro (pt-BR, male, high quality)",
       "dir": "tts/vits-piper-pt_BR-miro-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-miro-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-miro-high.tar.bz2",
+      "sizeBytes": 67207707
     },
     {
       "id": "pt_BR-dii-high",
       "language": "pt",
       "displayName": "Dii (pt-BR, female, high quality)",
       "dir": "tts/vits-piper-pt_BR-dii-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-dii-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-pt_BR-dii-high.tar.bz2",
+      "sizeBytes": 67238016
     },
     {
       "id": "it_IT-paola-medium",
@@ -120,28 +118,32 @@
       "displayName": "Paola (it-IT, female)",
       "dir": "tts/vits-piper-it_IT-paola-medium",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-paola-medium.tar.bz2",
-      "default": true
+      "default": true,
+      "sizeBytes": 67221173
     },
     {
       "id": "it_IT-riccardo-x_low",
       "language": "it",
       "displayName": "Riccardo (it-IT, male, low quality)",
       "dir": "tts/vits-piper-it_IT-riccardo-x_low",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-riccardo-x_low.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-riccardo-x_low.tar.bz2",
+      "sizeBytes": 26496614
     },
     {
       "id": "it_IT-miro-high",
       "language": "it",
       "displayName": "Miro (it-IT, male, high quality)",
       "dir": "tts/vits-piper-it_IT-miro-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-miro-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-miro-high.tar.bz2",
+      "sizeBytes": 67162890
     },
     {
       "id": "it_IT-dii-high",
       "language": "it",
       "displayName": "Dii (it-IT, female, high quality)",
       "dir": "tts/vits-piper-it_IT-dii-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-dii-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-dii-high.tar.bz2",
+      "sizeBytes": 67196676
     },
     {
       "id": "en_US-lessac-medium",
@@ -149,48 +151,58 @@
       "displayName": "Lessac (en-US, female)",
       "dir": "tts/vits-piper-en_US-lessac-medium",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2",
-      "default": true
+      "default": true,
+      "sizeBytes": 67230653
     },
     {
       "id": "en_US-lessac-high",
       "language": "en",
       "displayName": "Lessac (en-US, female, high quality)",
       "dir": "tts/vits-piper-en_US-lessac-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-high.tar.bz2",
+      "sizeBytes": 115545841
     },
     {
       "id": "en_US-amy-medium",
       "language": "en",
       "displayName": "Amy (en-US, female)",
       "dir": "tts/vits-piper-en_US-amy-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium.tar.bz2",
+      "sizeBytes": 67223746
     },
     {
       "id": "en_US-ryan-high",
       "language": "en",
       "displayName": "Ryan (en-US, male, high quality)",
       "dir": "tts/vits-piper-en_US-ryan-high",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-high.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-ryan-high.tar.bz2",
+      "sizeBytes": 115630708
     },
     {
       "id": "en_US-hfc_female-medium",
       "language": "en",
       "displayName": "HFC (en-US, female)",
       "dir": "tts/vits-piper-en_US-hfc_female-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_female-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_female-medium.tar.bz2",
+      "sizeBytes": 67228166
     },
     {
       "id": "en_US-hfc_male-medium",
       "language": "en",
       "displayName": "HFC (en-US, male)",
       "dir": "tts/vits-piper-en_US-hfc_male-medium",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_male-medium.tar.bz2"
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_male-medium.tar.bz2",
+      "sizeBytes": 67214049
     }
   ],
   "runtime": {
-    "llamaCppBuild": "b11381",
-    "llamaCppUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cuda-13.4-x64.zip",
-    "cudartUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/cudart-llama-bin-win-cuda-13.4-x64.zip",
-    "llamaCppCpuUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cpu-x64.zip"
+    "id": "llama-cpp-b11381",
+    "displayName": "llama.cpp b11381 (CUDA 13.4)",
+    "dir": "llama.cpp",
+    "urls": [
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cuda-13.4-x64.zip",
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11381/cudart-llama-bin-win-cuda-13.4-x64.zip"
+    ],
+    "sizeBytes": 576540693
   }
 }

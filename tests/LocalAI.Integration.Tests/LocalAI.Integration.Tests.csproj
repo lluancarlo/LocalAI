@@ -17,4 +17,7 @@
   <ItemGroup>
     <None Include="..\..\src\LocalAI.App\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\TestPaths.cs" Link="TestPaths.cs" />
+  </ItemGroup>
 </Project>

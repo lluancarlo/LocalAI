@@ -1,51 +1,33 @@
 namespace LocalAI.Configuration;
 
 /// <summary>
-/// Resolves on-disk locations. Models and runtime live under a "LocalAI home": the LOCALAI_HOME environment variable,
-/// else the nearest ancestor of the executable containing a <c>localai.home</c> marker (the repository root),
-/// else %LOCALAPPDATA%\LocalAI. User data defaults to %LOCALAPPDATA%\LocalAI.
+/// The application lives in one folder: the executable's. Everything it creates or keeps for the user (database,
+/// settings, logs, temporary files, downloaded models) goes into its <c>data</c> subfolder, so copying the folder
+/// installs the app and deleting it removes every trace.
 /// </summary>
 public sealed class LocalAiPaths
 {
-    public const string MarkerFile = "localai.home";
+    public LocalAiPaths(string home, string? dataDirectory = null)
+    {
+        Home = Path.GetFullPath(home);
+        DataDirectory = Path.GetFullPath(dataDirectory ?? Path.Combine(Home, "data"));
+        ModelsDirectory = Path.Combine(DataDirectory, "models");
+    }
 
+    /// <summary>The executable's folder.</summary>
     public string Home { get; }
-    public string ModelsDirectory { get; }
-    public string RuntimeDirectory { get; }
     public string DataDirectory { get; }
+    /// <summary>Downloaded models. Can be pointed elsewhere (tests reuse already downloaded models).</summary>
+    public string ModelsDirectory { get; init; }
 
+    /// <summary>Native runtime shipped with the app.</summary>
+    public string RuntimeDirectory => Path.Combine(Home, "runtime");
+    public string LlamaCppDirectory => Path.Combine(RuntimeDirectory, "llama.cpp");
+    public string DownloadsDirectory => Path.Combine(DataDirectory, "downloads");
     public string DatabasePath => Path.Combine(DataDirectory, "localai.db");
     public string LogsDirectory => Path.Combine(DataDirectory, "logs");
+    public string TempDirectory => Path.Combine(DataDirectory, "temp");
     public string UserSettingsPath => Path.Combine(DataDirectory, "usersettings.json");
-    public string CatalogPath => Path.Combine(ModelsDirectory, "catalog.json");
-    public string LlamaCppDirectory => Path.Combine(RuntimeDirectory, "llama.cpp");
 
-    public LocalAiPaths(PathOptions options, string? baseDirectory = null)
-    {
-        Home = ResolveHome(baseDirectory ?? AppContext.BaseDirectory) ?? DefaultDataDirectory;
-        ModelsDirectory = Resolve(options.ModelsDirectory, Path.Combine(Home, "models"));
-        RuntimeDirectory = Resolve(options.RuntimeDirectory, Path.Combine(Home, "runtime"));
-        DataDirectory = Resolve(options.DataDirectory, DefaultDataDirectory);
-    }
-
-    /// <summary>Needed before configuration is built (to locate usersettings.json).</summary>
-    public static string DefaultDataDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LocalAI");
-
-    private string Resolve(string configured, string fallback) =>
-        string.IsNullOrWhiteSpace(configured)
-            ? Path.GetFullPath(fallback)
-            : Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured), Home);
-
-    private static string? ResolveHome(string baseDirectory)
-    {
-        var env = Environment.GetEnvironmentVariable("LOCALAI_HOME");
-        if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return Path.GetFullPath(env);
-
-        for (var dir = new DirectoryInfo(baseDirectory); dir != null; dir = dir.Parent)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, MarkerFile))) return dir.FullName;
-        }
-        return null;
-    }
+    public static LocalAiPaths ForApplication() => new(AppContext.BaseDirectory);
 }

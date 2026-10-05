@@ -5,7 +5,6 @@ public sealed class LocalAiOptions
 {
     public const string SectionName = "LocalAI";
 
-    public PathOptions Paths { get; set; } = new();
     public LlmOptions Llm { get; set; } = new();
     public AssistantOptions Assistant { get; set; } = new();
     public EmbeddingOptions Embedding { get; set; } = new();
@@ -16,22 +15,10 @@ public sealed class LocalAiOptions
     public MemoryOptions Memory { get; set; } = new();
 }
 
-public sealed class PathOptions
-{
-    /// <summary>Directory with model files. Empty = auto (see <see cref="LocalAiPaths"/>).</summary>
-    public string ModelsDirectory { get; set; } = "";
-    /// <summary>Directory with native runtimes (llama.cpp). Empty = auto.</summary>
-    public string RuntimeDirectory { get; set; } = "";
-    /// <summary>Directory for database, logs and user settings. Empty = %LOCALAPPDATA%\LocalAI.</summary>
-    public string DataDirectory { get; set; } = "";
-}
-
 public sealed class LlmOptions
 {
-    /// <summary>Catalog id of the model, or "auto" to pick the best installed model for the GPU.</summary>
+    /// <summary>Catalog id of the model (set from Settings > Models), or "auto" to pick the best installed model for the GPU.</summary>
     public string Model { get; set; } = "auto";
-    /// <summary>Explicit GGUF path; overrides <see cref="Model"/> when set.</summary>
-    public string ModelPath { get; set; } = "";
     /// <summary>Context size in tokens. 0 = model catalog default.</summary>
     public int ContextSize { get; set; }
     /// <summary>Layers to offload to the GPU. -1 = all, 0 = CPU only.</summary>
@@ -49,10 +36,10 @@ public sealed class LlmOptions
 
 public sealed class AssistantOptions
 {
-    public string Name { get; set; } = "Diana";
+    /// <summary>Id of the active assistant (set by the app). Name, style and voices are stored per assistant in the database.</summary>
+    public long ActiveId { get; set; }
     public string SystemPrompt { get; set; } =
         "You are {name}, a helpful, precise assistant running fully offline on the user's computer. " +
-        "Always answer in the same language as the user's last message (Brazilian Portuguese, Italian, English, or other). " +
         "Be concise and direct. The user is an experienced software engineer.";
     /// <summary>Extra instruction appended when the answer will be spoken aloud.</summary>
     public string VoiceStyleHint { get; set; } =
@@ -83,10 +70,8 @@ public sealed class SpeechToTextOptions
 public sealed class TextToSpeechOptions
 {
     public bool Enabled { get; set; } = true;
-    /// <summary>Voice id per language (catalog ids). Missing languages fall back to <see cref="FallbackLanguage"/>.</summary>
-    public Dictionary<string, string> Voices { get; set; } = [];
-    public string FallbackLanguage { get; set; } = "en";
-    public float Speed { get; set; } = 1.0f;
+    /// <summary>Catalog id of the active voice. Set by the app from the active assistant.</summary>
+    public string Voice { get; set; } = "";
     public int Threads { get; set; } = 4;
 }
 
@@ -103,11 +88,12 @@ public sealed class AudioOptions
     public bool EchoCancellation { get; set; } = true;
 }
 
-public enum VoiceMode { PushToTalk, Continuous }
+/// <summary>How the assistant replies: text only, text read aloud, or a live spoken conversation (microphone open).</summary>
+public enum ReplyMode { Text, ReadAloud, Live }
 
 public sealed class VoiceOptions
 {
-    public VoiceMode Mode { get; set; } = VoiceMode.PushToTalk;
+    public ReplyMode ReplyMode { get; set; } = ReplyMode.Text;
     /// <summary>Silero speech probability threshold.</summary>
     public float VadThreshold { get; set; } = 0.5f;
     /// <summary>Audio kept before speech onset so the first syllable is not clipped.</summary>

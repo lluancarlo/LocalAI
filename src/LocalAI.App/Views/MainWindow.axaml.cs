@@ -35,7 +35,14 @@ public sealed partial class MainWindow : Window
 
         DataContextChanged += (_, _) =>
         {
-            if (Vm != null) Vm.ScrollToEndRequested += (_, _) => ScrollToEnd();
+            if (Vm == null) return;
+            Vm.ScrollToEndRequested += (_, _) => ScrollToEnd();
+            // Focus Cancel when the delete confirmation opens, so Enter never deletes by accident.
+            Vm.Settings.Assistants.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(AssistantsViewModel.PendingDelete) && Vm.Settings.Assistants.PendingDelete != null)
+                    Dispatcher.UIThread.Post(() => CancelDeleteButton.Focus(), DispatcherPriority.Loaded);
+            };
         };
         Opened += (_, _) => InputBox.Focus();
     }
@@ -60,7 +67,14 @@ public sealed partial class MainWindow : Window
 
     private void Window_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (Vm == null) return;
+        if (Vm == null || Vm.ShowWelcome) return;
+        if (Vm.Settings.Assistants.PendingDelete is { } pendingDelete)
+        {
+            // The confirmation popup is modal: Escape cancels it and no other shortcut runs behind it.
+            if (e.Key == Key.Escape) pendingDelete.CancelCommand.Execute(null);
+            if (e.Key is not (Key.Tab or Key.Enter or Key.Space)) e.Handled = true;
+            return;
+        }
         switch (e.Key)
         {
             case Key.Escape:

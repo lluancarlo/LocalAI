@@ -10,7 +10,7 @@ using Xunit.Abstractions;
 
 namespace LocalAI.Integration.Tests;
 
-/// <summary>Prints stage-by-stage timings on the real hardware. Numbers feed PERFORMANCE.md.</summary>
+/// <summary>Prints stage-by-stage timings on the real hardware.</summary>
 [Collection(IntegrationCollection.Name)]
 [Trait("Category", "Benchmark")]
 public sealed class PerformanceBenchmarks(LocalAiFixture fx, ITestOutputHelper output)
@@ -42,7 +42,7 @@ public sealed class PerformanceBenchmarks(LocalAiFixture fx, ITestOutputHelper o
                 for (var i = 0; i < 3; i++)
                 {
                     var sw = Stopwatch.StartNew();
-                    clip = await tts.SynthesizeAsync(text, lang);
+                    clip = await tts.SynthesizeAsync(text, LocalAiFixture.VoiceFor(lang), VoiceStyle.Default);
                     ttsTimes.Add(sw.Elapsed.TotalMilliseconds);
                 }
                 var audio = StreamingResampler.Convert(clip.Samples, clip.SampleRate, ISpeechToText.SampleRate);

@@ -114,9 +114,15 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
             SetState(LanguageModelState.NotLoaded);
             throw;
         }
+        catch (ModelNotAvailableException ex)
+        {
+            LastError = ex.Message;
+            _logger.LogWarning("{Error}", LastError);
+            SetState(LanguageModelState.Failed);
+        }
         catch (Exception ex)
         {
-            LastError = ex is ModelNotAvailableException ? ex.Message : $"Failed to load model: {FirstLine(ex.Message)}";
+            LastError = $"Failed to load model: {FirstLine(ex.Message)}";
             _logger.LogError(ex, "Model load failed");
             SetState(LanguageModelState.Failed);
         }

@@ -8,19 +8,19 @@ namespace LocalAI.Core.Voice;
 /// </summary>
 public sealed class SentenceChunker
 {
-    private static readonly string[] Abbreviations =
-        ["e.g.", "i.e.", "etc.", "vs.", "mr.", "mrs.", "dr.", "sr.", "sra.", "ecc.", "es.", "p.ex.", "obs.", "nº."];
-
     private readonly StringBuilder _buffer = new();
+    private readonly HashSet<string> _abbreviations;
     private readonly int _firstChunkMinChars;
     private readonly int _maxChunkChars;
     private bool _inCodeBlock;
     private bool _emittedAny;
 
+    /// <param name="abbreviations">Lower-case abbreviations whose period does not end a sentence (languages.json).</param>
     /// <param name="firstChunkMinChars">The first chunk may break at a comma once it is this long (lower latency).</param>
     /// <param name="maxChunkChars">Force a break at whitespace beyond this length.</param>
-    public SentenceChunker(int firstChunkMinChars = 40, int maxChunkChars = 220)
+    public SentenceChunker(IEnumerable<string> abbreviations, int firstChunkMinChars = 40, int maxChunkChars = 220)
     {
+        _abbreviations = new HashSet<string>(abbreviations, StringComparer.Ordinal);
         _firstChunkMinChars = firstChunkMinChars;
         _maxChunkChars = maxChunkChars;
     }
@@ -96,7 +96,7 @@ public sealed class SentenceChunker
         var text = _buffer.ToString().TrimEnd();
         var lastSpace = text.LastIndexOfAny([' ', '\n', '(']);
         var word = text[(lastSpace + 1)..].ToLowerInvariant();
-        return Abbreviations.Contains(word) || (word.Length == 2 && char.IsLetter(word[0]) && word[1] == '.');
+        return _abbreviations.Contains(word) || (word.Length == 2 && char.IsLetter(word[0]) && word[1] == '.');
     }
 
     private void Flush(List<string> result)

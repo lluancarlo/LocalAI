@@ -1,21 +1,42 @@
 <#
 .SYNOPSIS
-  Builds a Release version of the app into publish\LocalAI (framework-dependent, win-x64).
-
-.DESCRIPTION
-  The published app finds models/ and runtime/ by walking up to the repository root (localai.home marker).
-  To run it from elsewhere, set LOCALAI_HOME to the folder that contains models\ and runtime\.
+  Builds the distributable app into publish\LocalAI: self-contained (no .NET install needed) with the llama.cpp
+  runtime included and no models. Everything the app creates goes into publish\LocalAI\data; republishing replaces
+  the program files and keeps data\.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
   .\publish\LocalAI\LocalAI.exe
 #>
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $out = Join-Path $root "publish\LocalAI"
+$runtime = Join-Path $root "runtime\llama.cpp"
+$catalog = Get-Content (Join-Path $root "src\LocalAI.Configuration\catalog.json") -Raw | ConvertFrom-Json
 
-dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained false -o $out -p:DebugType=none
+if (-not (Test-Path (Join-Path $runtime "llama-server.exe"))) {
+    Write-Host "Downloading $($catalog.runtime.displayName)..."
+    $downloads = Join-Path $root "runtime\_downloads"
+    New-Item -ItemType Directory -Force $downloads, $runtime | Out-Null
+    foreach ($url in $catalog.runtime.urls) {
+        $zip = Join-Path $downloads (Split-Path $url -Leaf)
+        & curl.exe -L --fail --retry 5 -C - -o $zip $url
+        if ($LASTEXITCODE -ne 0) { throw "Download failed: $url" }
+        Expand-Archive -Force $zip $runtime
+    }
+    Remove-Item -Recurse -Force $downloads
+}
+
+# Replace the program files but never the user's data.
+if (Test-Path $out) {
+    Get-ChildItem $out | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force
+}
+dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained true -o $out -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
 Write-Host ""
 Write-Host "Published to $out"
-Write-Host "Run: $out\LocalAI.exe"
+Write-Host "Copy that folder to any Windows PC and run LocalAI.exe. The folder must be writable (not under Program Files)."
+Write-Host "Everything the app creates is in its data folder: delete the folder to remove the app completely."

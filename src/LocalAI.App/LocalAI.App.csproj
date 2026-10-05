@@ -4,6 +4,7 @@
     <AssemblyName>LocalAI</AssemblyName>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
@@ -18,5 +19,11 @@
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+  <!-- The llama.cpp runtime (fetched into the repository's runtime\ by scripts\publish.ps1) ships next to the executable. -->
+  <ItemGroup>
+    <None Include="..\..\runtime\llama.cpp\**" Exclude="..\..\runtime\llama.cpp\**\*.partial"
+          Link="runtime\llama.cpp\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

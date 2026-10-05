@@ -1,87 +1,61 @@
-# Local AI
+<h1 align="center">Local AI</h1>
 
-A fully local, offline AI assistant for Windows with text chat and voice conversation, written in C# (.NET 10, Avalonia).
-Everything — the language model, speech recognition, speech synthesis, memory — runs on your machine.
-No cloud APIs, no telemetry, no data leaves the computer.
+<p align="center">
+  <b>Personal AI assistants that run entirely on your Windows PC.</b><br>
+  Chat or talk out loud. Conversations, voice and memories never leave your computer.
+</p>
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ Local AI         │ Explique async/await em C#                    │
-│ ＋ New           │                                               │
-│ [search…]        │ You  01:23 · pt                               │
-│                  │ > Explique async/await em C#                  │
-│ Explique async…  │                                               │
-│ Roman Empire…    │ Diana  01:23 · pt                             │
-│                  │ > `async` e `await` permitem…                 │
-│                  ├───────────────────────────────────────────────│
-│ ◆ Memory         │ [Type a message……………………………………]  [Send]   │
-│ ⚙ Settings       │ (◉ Live) [● Hold to talk]  mic ▬▬▬── -32 dB │
-│ ⓘ Diagnostics    │                                               │
-│                  │ ● Ready  GPU: RTX 4080 SUPER  Model: Gemma 4… │
-└──────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img alt="Windows 11" src="https://img.shields.io/badge/Windows%2011-x64-0078D4?logo=windows11&logoColor=white">
+  <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white">
+  <img alt="Avalonia UI" src="https://img.shields.io/badge/UI-Avalonia-8B44AC">
+  <img alt="Offline" src="https://img.shields.io/badge/cloud%20APIs-none-2EA043">
+</p>
 
-## What it does
+<p align="center">
+  <img src="docs/screenshots/chat.png" alt="Chatting with an assistant named Diana" width="900">
+</p>
 
-- **Text chat** with token-by-token streaming, Stop (Esc), and persistent conversation history
-  (create, rename, delete, search, continue after restart).
-- **Push-to-talk**: hold the *Hold to talk* button or **Ctrl+Space**, speak, release. Whisper transcribes locally, the LLM answers,
-  and the answer is spoken while it is still being generated.
-- **Live mode** (the green **◉ Live** button, hands-free): just talk. Voice activity detection finds the end of each
-  utterance, the assistant answers aloud and listens again. **Barge-in**: start talking while it speaks and it stops
-  immediately and listens.
-- **Microphone level meter** in dBFS next to the voice buttons whenever the microphone is open.
-- **Settings** (⚙ in the sidebar): microphone and speaker, a microphone test with level meter, echo cancellation,
-  the voice for each language (16 installable Piper voices, with ▶ preview) and speaking rate. Changes apply
-  immediately and are remembered.
-- **Automatic language**: Brazilian Portuguese, Italian and English are detected (Whisper for speech, a local detector
-  for text); the assistant answers in your language and speaks with a matching voice.
-- **Long-term memory**: durable facts about you ("User prefers C# for software development") are extracted locally,
-  stored in SQLite with embeddings, and recalled when relevant. View/delete them in the Memory panel.
-- **Diagnostics**: GPU, VRAM, model, quantization, context size, GPU layers, estimated and measured VRAM, speech engines.
+- **Your own assistants:** each with a name, personality, language model, voice, conversations and memories.
+- **Text or voice:** streaming chat, push-to-talk, read aloud, or hands-free Live mode that you can interrupt.
+- **Long-term memory:** it learns facts about you and recalls them when relevant. You can see and delete each one.
+- **Fully offline:** llama.cpp (Gemma 4), Whisper, Piper and SQLite on your GPU. The Internet is used only to download
+  models.
+- **Portable:** everything stays in the app folder. Copy it to install, delete it to remove every trace.
 
-## Quick start
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/create-assistant.png" alt="Creating an assistant"></td>
+    <td width="50%"><img src="docs/screenshots/memory.png" alt="What the assistant remembers"></td>
+  </tr>
+  <tr>
+    <td align="center">Create an assistant</td>
+    <td align="center">What it remembers about you</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-voice.png" alt="Audio and voice settings"></td>
+    <td><img src="docs/screenshots/settings-models.png" alt="Model management"></td>
+  </tr>
+  <tr>
+    <td align="center">Voice and audio settings</td>
+    <td align="center">Models managed in the app</td>
+  </tr>
+</table>
 
-Requirements: Windows 11 x64 (developed and tested; Windows 10 is untested), .NET 10 SDK, an NVIDIA GPU with a driver
-supporting CUDA 13 recommended.
-No CUDA Toolkit, CMake or Visual Studio is needed.
+## Getting started
+
+You need Windows 11, the [.NET 10 SDK](https://dotnet.microsoft.com/download), an NVIDIA GPU (recommended) and about
+9 GB of disk space for models.
 
 ```powershell
-# 1. One-time download of the runtime and models (~9 GB). The only step that uses the Internet.
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
-
-# 2. Run
-dotnet run --project src\LocalAI.App -c Release
+git clone https://github.com/lluancarlo/LocalAI.git
+cd LocalAI
+powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
+publish\LocalAI\LocalAI.exe
 ```
 
-Or build a release folder: `powershell -ExecutionPolicy Bypass -File scripts\publish.ps1`, then run
-`publish\LocalAI\LocalAI.exe`.
+On first launch you create your first assistant and the app downloads the models it needs.
 
-The model is chosen automatically for your GPU (see [MODEL_SETUP.md](MODEL_SETUP.md)). On this project's reference
-machine (RTX 4080 SUPER 16 GB) that is **Gemma 4 12B Instruct (QAT, Q4_0)**, fully on the GPU.
+## License
 
-## Keyboard
-
-| Key | Action |
-|---|---|
-| Enter / Shift+Enter | Send / new line |
-| Esc | Stop generation and speech |
-| Hold Ctrl+Space | Push-to-talk |
-| Ctrl+N | New conversation |
-| F2 | Rename conversation |
-
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Projects, components, data flow, design decisions |
-| [MODEL_SETUP.md](MODEL_SETUP.md) | What gets installed, automatic model selection, changing models |
-| [VOICE.md](VOICE.md) | Voice pipeline, VAD, barge-in, echo handling, tuning |
-| [PERFORMANCE.md](PERFORMANCE.md) | Measured latency, throughput, VRAM and RAM |
-| [PRIVACY.md](PRIVACY.md) | What is stored, where, and the offline guarantees |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Building, testing, project conventions |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common problems and fixes |
-
-## Status
-
-MVP. See "Known limitations" in [ARCHITECTURE.md](ARCHITECTURE.md#known-limitations).
+No license yet: all rights reserved.

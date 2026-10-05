@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LocalAI.Configuration;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
@@ -11,30 +12,37 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.App.ViewModels;
 
 /// <summary>
-/// Settings menu: audio devices, echo cancellation, microphone test and voices. Changes apply immediately and are
-/// persisted to usersettings.json.
+/// Settings menu: audio devices, echo cancellation, microphone test, the active assistant's voice style, assistants and
+/// models. Changes apply immediately; device settings go to usersettings.json, the voice style to the assistant.
 /// </summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    private static readonly Dictionary<string, (string Title, string Sample)> LanguageInfo = new()
-    {
-        ["pt"] = ("Português (Brasil)", "Olá! Esta é a minha voz. Como posso ajudar você hoje?"),
-        ["it"] = ("Italiano", "Ciao! Questa è la mia voce. Come posso aiutarti oggi?"),
-        ["en"] = ("English", "Hello! This is my voice. How can I help you today?"),
-    };
-
     private readonly VoiceConversationController _voice;
     private readonly IAudioDeviceProvider _devices;
     private readonly IAudioPlayer _player;
     private readonly ITextToSpeech _tts;
     private readonly UserSettingsStore _settings;
+    private readonly AssistantManager _assistants;
+    private readonly AssistantContext _assistant;
     private readonly LocalAiOptions _options;
+    private readonly LanguageData _languageData;
+    private readonly ModelCatalog _catalog;
     private readonly ILogger<SettingsViewModel> _logger;
     private bool _loading;
 
+    public const int ModelsTab = 2;
+
     public SettingsViewModel(VoiceConversationController voice, IAudioDeviceProvider devices, IAudioPlayer player,
-        ITextToSpeech tts, UserSettingsStore settings, IOptions<LocalAiOptions> options, ILogger<SettingsViewModel> logger)
+        ITextToSpeech tts, UserSettingsStore settings, AssistantManager assistants, AssistantContext assistant, ModelsViewModel models,
+        AssistantsViewModel assistantsViewModel, LanguageData languageData, ModelCatalog catalog, IOptions<LocalAiOptions> options,
+        ILogger<SettingsViewModel> logger)
     {
+        _catalog = catalog;
+        _languageData = languageData;
+        Models = models;
+        Assistants = assistantsViewModel;
+        _assistants = assistants;
+        _assistant = assistant;
         _voice = voice;
         _devices = devices;
         _player = player;
@@ -44,7 +52,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         _logger = logger;
         _loading = true;
         _echoCancellation = _options.Audio.EchoCancellation;
-        _speed = _options.TextToSpeech.Speed;
         _loading = false;
         RefreshDevices();
     }
@@ -52,18 +59,27 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Raised after any setting changed (main window refreshes its status line).</summary>
     public event EventHandler? Changed;
 
+    public ModelsViewModel Models { get; }
+    public AssistantsViewModel Assistants { get; }
     public ObservableCollection<AudioDevice> Microphones { get; } = [];
     public ObservableCollection<AudioDevice> Speakers { get; } = [];
-    public ObservableCollection<VoiceLanguageViewModel> Languages { get; } = [];
 
     [ObservableProperty] private AudioDevice? _selectedMicrophone;
     [ObservableProperty] private AudioDevice? _selectedSpeaker;
     [ObservableProperty] private bool _echoCancellation;
     [ObservableProperty] private bool _isTestingMicrophone;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SpeedText))] private double _speed;
+    [ObservableProperty] private string _voiceName = "";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SpeedText))] private double _speed = VoiceStyle.Default.Speed;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(PitchText))] private double _pitch;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ExpressivenessText))] private double _expressiveness = VoiceStyle.Default.Expressiveness;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(RhythmText))] private double _rhythm = VoiceStyle.Default.Rhythm;
     [ObservableProperty] private string? _voiceError;
+    [ObservableProperty] private int _selectedTab;
 
     public string SpeedText => $"{Speed:0.00}×";
+    public string PitchText => Pitch == 0 ? "0" : $"{Pitch:+0;-0}";
+    public string ExpressivenessText => $"{Expressiveness:0.00}";
+    public string RhythmText => $"{Rhythm:0.00}";
 
     // ---------------- Devices ----------------
 
@@ -114,46 +130,74 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnIsTestingMicrophoneChanged(bool value) =>
         _ = value ? _voice.StartMonitorAsync() : _voice.StopMonitorAsync();
 
-    // ---------------- Voices ----------------
+    // ---------------- Voice of the active assistant ----------------
 
-    /// <summary>Reloads installed voices (called when the panel opens).</summary>
-    public void RefreshVoices()
+    private CancellationTokenSource? _saveStyle;
+
+    /// <summary>Shows the active assistant's voice and style (called when the page opens or the assistant changes).</summary>
+    public void RefreshVoice()
     {
-        var available = _tts.AvailableVoices;
-        Languages.Clear();
-        foreach (var (language, info) in LanguageInfo)
-        {
-            var options = available.Where(v => v.Language == language).ToList();
-            if (options.Count == 0) continue;
-            var current = _tts.GetVoice(language);
-            Languages.Add(new VoiceLanguageViewModel(this, language, info.Title, info.Sample, options,
-                options.FirstOrDefault(o => o.Id == current?.Id) ?? options[0]));
-        }
+        var profile = _assistant.Current;
+        var entry = _catalog.Tts.FirstOrDefault(v => v.Id == profile?.VoiceId);
+        var installed = _tts.AvailableVoices.Any(v => v.Id == profile?.VoiceId);
+        var name = string.IsNullOrEmpty(entry?.DisplayName) ? profile?.VoiceId : entry.DisplayName;
+        VoiceName = profile == null ? "" : installed ? name! : $"{name} · not downloaded yet";
+        var style = profile?.VoiceStyle ?? VoiceStyle.Default;
+        _loading = true;
+        Speed = style.Speed;
+        Pitch = style.Pitch;
+        Expressiveness = style.Expressiveness;
+        Rhythm = style.Rhythm;
+        _loading = false;
     }
 
-    internal async Task SelectVoiceAsync(VoiceLanguageViewModel language, VoiceInfo voice)
+    private VoiceStyle CurrentStyle => new()
+    {
+        Speed = Math.Round(Speed, 2),
+        Pitch = Math.Round(Pitch),
+        Expressiveness = Math.Round(Expressiveness, 2),
+        Rhythm = Math.Round(Rhythm, 2),
+    };
+
+    partial void OnSpeedChanged(double value) => ScheduleStyleSave();
+    partial void OnPitchChanged(double value) => ScheduleStyleSave();
+    partial void OnExpressivenessChanged(double value) => ScheduleStyleSave();
+    partial void OnRhythmChanged(double value) => ScheduleStyleSave();
+
+    // Sliders fire many changes per second: save (and rebuild the voice engine) once the user pauses.
+    private void ScheduleStyleSave()
+    {
+        if (_loading) return;
+        _saveStyle?.Cancel();
+        _saveStyle = new CancellationTokenSource();
+        _ = SaveStyleAsync(CurrentStyle, _saveStyle.Token);
+    }
+
+    private async Task SaveStyleAsync(VoiceStyle style, CancellationToken ct)
     {
         try
         {
-            VoiceError = null;
-            await _tts.SetVoiceAsync(language.Language, voice.Id);
-            _settings.Set("TextToSpeech", "Voices", _options.TextToSpeech.Voices);
-            Changed?.Invoke(this, EventArgs.Empty);
+            await Task.Delay(400, ct);
+            await _assistants.SaveVoiceStyleAsync(style, ct);
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not switch voice");
+            _logger.LogError(ex, "Could not save the voice style");
             VoiceError = ex.Message;
         }
     }
 
-    internal async Task PreviewAsync(VoiceLanguageViewModel language)
+    [RelayCommand]
+    private async Task PreviewVoiceAsync()
     {
+        if (_assistant.Current is not { } profile) return;
         try
         {
             VoiceError = null;
+            var sample = _languageData.Languages.TryGetValue(profile.Language, out var info) ? info.VoiceSample : profile.Name;
             _player.Stop();
-            var clip = await Task.Run(() => _tts.SynthesizeAsync(language.Sample, language.Language));
+            var clip = await Task.Run(() => _tts.SynthesizeAsync(sample, profile.VoiceId, CurrentStyle));
             _player.Enqueue(clip);
         }
         catch (Exception ex)
@@ -163,41 +207,18 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    partial void OnSpeedChanged(double value)
+    [RelayCommand]
+    private void ResetVoiceStyle()
     {
-        if (_loading) return;
-        _tts.Speed = (float)value;
-        _settings.Set("TextToSpeech", "Speed", Math.Round(value, 2));
+        _loading = true;
+        Speed = VoiceStyle.Default.Speed;
+        Pitch = VoiceStyle.Default.Pitch;
+        Expressiveness = VoiceStyle.Default.Expressiveness;
+        Rhythm = VoiceStyle.Default.Rhythm;
+        _loading = false;
+        ScheduleStyleSave();
     }
 
     /// <summary>Stops the microphone test when the panel closes.</summary>
     public void OnClosed() => IsTestingMicrophone = false;
-}
-
-public sealed partial class VoiceLanguageViewModel : ObservableObject
-{
-    private readonly SettingsViewModel _owner;
-
-    public VoiceLanguageViewModel(SettingsViewModel owner, string language, string title, string sample,
-        IReadOnlyList<VoiceInfo> voices, VoiceInfo selected)
-    {
-        _owner = owner;
-        Language = language;
-        Title = title;
-        Sample = sample;
-        Voices = voices;
-        _selected = selected;
-    }
-
-    public string Language { get; }
-    public string Title { get; }
-    public string Sample { get; }
-    public IReadOnlyList<VoiceInfo> Voices { get; }
-
-    [ObservableProperty] private VoiceInfo _selected;
-
-    partial void OnSelectedChanged(VoiceInfo value) => _ = _owner.SelectVoiceAsync(this, value);
-
-    [RelayCommand]
-    private Task PreviewAsync() => _owner.PreviewAsync(this);
 }

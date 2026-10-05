@@ -126,17 +126,13 @@ public sealed class AssistantSession : IDisposable
             return failed;
         }
 
-        // Language: Whisper's detection for voice, heuristic detection for text. The prompt only gets an explicit
-        // "reply in X" hint when the detection is reliable — a wrong hint is worse than none, because the base system
-        // prompt already asks the model to answer in the user's language. The voice/metadata language falls back to
-        // the best guess, then to the previous turn's language (short replies like "ok").
-        string? promptLanguage = request.Language;
-        string? language = request.Language;
+        // The user's language is stored with the message (Whisper's detection for voice, heuristic for text). The reply
+        // language is the assistant's, set in the prompt. Uncertain detections fall back to the previous turn's language.
+        var language = request.Language;
         if (language == null)
         {
             var detected = _languageDetector.Detect(request.Text);
-            promptLanguage = detected.IsConfident ? detected.Language : null;
-            language = promptLanguage ?? (detected.Confidence >= 0.3f ? detected.Language : null) ?? _lastUserLanguage ?? detected.Language;
+            language = (detected.Confidence >= 0.3f ? detected.Language : null) ?? _lastUserLanguage ?? detected.Language;
         }
         if (language != null) _lastUserLanguage = language;
 
@@ -156,7 +152,7 @@ public sealed class AssistantSession : IDisposable
 
         var memories = await _memory.RecallAsync(request.Text, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
-        var prompt = _promptBuilder.Build(history, request.Text, promptLanguage, memories, speak, DateTimeOffset.Now);
+        var prompt = _promptBuilder.Build(history, request.Text, memories, speak, DateTimeOffset.Now);
 
         var options = new GenerationOptions
         {
@@ -170,7 +166,7 @@ public sealed class AssistantSession : IDisposable
         GenerationStats? stats = null;
         var outcome = TurnOutcome.Completed;
         string? error = null;
-        var utterance = speak ? _speech.Begin(language, ct) : null;
+        var utterance = speak ? _speech.Begin(ct) : null;
         var sw = Stopwatch.StartNew();
 
         try

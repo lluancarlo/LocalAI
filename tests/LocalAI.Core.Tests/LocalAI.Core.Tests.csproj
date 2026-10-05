@@ -14,4 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\LocalAI.Core\LocalAI.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\TestPaths.cs" Link="TestPaths.cs" />
+  </ItemGroup>
 </Project>

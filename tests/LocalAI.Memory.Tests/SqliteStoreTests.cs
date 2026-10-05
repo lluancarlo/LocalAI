@@ -1,3 +1,5 @@
+using LocalAI.Tests;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
@@ -8,10 +10,21 @@ namespace LocalAI.Memory.Tests;
 
 public sealed class SqliteFixture : IDisposable
 {
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"localai-test-{Guid.NewGuid():N}.db");
+    public string Path { get; } = System.IO.Path.Combine(TestPaths.New("sqlite"), "localai.db");
     public SqliteDatabase Database { get; }
 
-    public SqliteFixture() => Database = new SqliteDatabase(Path, NullLogger<SqliteDatabase>.Instance);
+    public AssistantContext Assistant { get; } = new();
+
+    public SqliteFixture()
+    {
+        Database = new SqliteDatabase(Path, NullLogger<SqliteDatabase>.Instance);
+        Assistant.Set(CreateAssistant("Diana"));
+    }
+
+    public AssistantProfile CreateAssistant(string name) =>
+        new SqliteAssistantStore(Database).CreateAsync(Draft(name), LocalAI.Core.Speech.VoiceStyle.Default).GetAwaiter().GetResult();
+
+    public static NewAssistant Draft(string name) => new(name, "", "model", "en_US-lessac-medium", "en");
 
     public SqliteDatabase Reopen() => new(Path, NullLogger<SqliteDatabase>.Instance);
 
@@ -28,7 +41,7 @@ public sealed class SqliteConversationStoreTests : IDisposable
     private readonly SqliteFixture _fx = new();
     private readonly SqliteConversationStore _store;
 
-    public SqliteConversationStoreTests() => _store = new SqliteConversationStore(_fx.Database);
+    public SqliteConversationStoreTests() => _store = new SqliteConversationStore(_fx.Database, _fx.Assistant);
 
     public void Dispose() => _fx.Dispose();
 
@@ -61,18 +74,18 @@ public sealed class SqliteConversationStoreTests : IDisposable
     public async Task Persists_messages_with_metadata_across_reopen()
     {
         var c = await _store.CreateAsync("Chat");
-        await Add(c.Id, ChatRole.User, "Olá, tudo bem?", "pt");
+        await Add(c.Id, ChatRole.User, "Hi, how are you?", "en");
         await _store.AddMessageAsync(new StoredMessage
         {
-            ConversationId = c.Id, Role = ChatRole.Assistant, Content = "Tudo ótimo!", CreatedAt = DateTimeOffset.Now,
-            Language = "pt", Model = "gemma", Source = InputSource.Voice, MetadataJson = "{\"interrupted\":false}",
+            ConversationId = c.Id, Role = ChatRole.Assistant, Content = "All good!", CreatedAt = DateTimeOffset.Now,
+            Language = "en", Model = "gemma", Source = InputSource.Voice, MetadataJson = "{\"interrupted\":false}",
         });
 
-        var reopened = new SqliteConversationStore(_fx.Reopen());
+        var reopened = new SqliteConversationStore(_fx.Reopen(), _fx.Assistant);
         var messages = await reopened.GetMessagesAsync(c.Id);
         Assert.Equal(2, messages.Count);
-        Assert.Equal("Olá, tudo bem?", messages[0].Content);
-        Assert.Equal("pt", messages[0].Language);
+        Assert.Equal("Hi, how are you?", messages[0].Content);
+        Assert.Equal("en", messages[0].Language);
         Assert.Equal(InputSource.Voice, messages[1].Source);
         Assert.Equal("gemma", messages[1].Model);
         Assert.Equal("{\"interrupted\":false}", messages[1].MetadataJson);
@@ -93,8 +106,8 @@ public sealed class SqliteConversationStoreTests : IDisposable
     {
         var pt = await _store.CreateAsync("Programação");
         await Add(pt.Id, ChatRole.User, "Como funciona a memória do computador?");
-        var it = await _store.CreateAsync("Cucina");
-        await Add(it.Id, ChatRole.User, "Come si fa la carbonara?");
+        var other = await _store.CreateAsync("Cooking");
+        await Add(other.Id, ChatRole.User, "How do I make carbonara?");
 
         var hits = await _store.SearchAsync("MEMORIA");
         var hit = Assert.Single(hits);
@@ -110,7 +123,7 @@ public sealed class SqliteConversationStoreTests : IDisposable
     public async Task Migration_is_idempotent()
     {
         await _store.CreateAsync("x");
-        var again = new SqliteConversationStore(_fx.Reopen());
+        var again = new SqliteConversationStore(_fx.Reopen(), _fx.Assistant);
         Assert.Single(await again.ListAsync());
     }
 }
@@ -123,12 +136,12 @@ public sealed class SqliteMemoryStoreTests : IDisposable
     [Fact]
     public async Task Stores_memories_with_embeddings()
     {
-        var store = new SqliteMemoryStore(_fx.Database);
+        var store = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
         var vector = new[] { 0.1f, -0.5f, 3.25f };
         var a = await store.AddAsync(new MemoryItem { Content = "User prefers C#.", CreatedAt = DateTimeOffset.Now, Embedding = vector, EmbeddingModel = "e", SourceConversationId = 7 });
         var b = await store.AddAsync(new MemoryItem { Content = "User likes coffee.", CreatedAt = DateTimeOffset.Now });
 
-        var list = await new SqliteMemoryStore(_fx.Reopen()).ListAsync();
+        var list = await new SqliteMemoryStore(_fx.Reopen(), _fx.Assistant).ListAsync();
         Assert.Equal(2, list.Count);
         Assert.Equal(vector, list[0].Embedding!);
         Assert.Equal(7, list[0].SourceConversationId);
@@ -144,8 +157,8 @@ public sealed class SqliteMemoryStoreTests : IDisposable
     [Fact]
     public async Task Memories_survive_conversation_deletion()
     {
-        var conversations = new SqliteConversationStore(_fx.Database);
-        var memories = new SqliteMemoryStore(_fx.Database);
+        var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
+        var memories = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
         var c = await conversations.CreateAsync("chat");
         await memories.AddAsync(new MemoryItem { Content = "fact", CreatedAt = DateTimeOffset.Now, SourceConversationId = c.Id });
         await conversations.DeleteAsync(c.Id);

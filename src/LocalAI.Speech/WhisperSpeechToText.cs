@@ -50,7 +50,7 @@ public sealed class WhisperSpeechToText : ISpeechToText
             var entry = _catalog.Whisper.FirstOrDefault(w => w.Id == _options.Model)
                         ?? throw new FileNotFoundException($"Whisper model '{_options.Model}' is not in the catalog.");
             var path = Path.Combine(_paths.ModelsDirectory, entry.File);
-            if (!File.Exists(path)) throw new FileNotFoundException("Whisper model not installed (run scripts/setup.ps1).", path);
+            if (!File.Exists(path)) throw new FileNotFoundException("Speech recognition model not installed (Settings > Models).", path);
 
             var sw = Stopwatch.StartNew();
             await Task.Run(() =>
@@ -72,6 +72,12 @@ public sealed class WhisperSpeechToText : ISpeechToText
             State = ComponentState.Ready;
             _logger.LogInformation("Whisper ready in {Ms:F0} ms: {Description}", sw.Elapsed.TotalMilliseconds, Description);
         }
+        catch (FileNotFoundException ex)
+        {
+            State = ComponentState.Unavailable;
+            LastError = ex.Message;
+            _logger.LogWarning("{Error}", LastError);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             State = ComponentState.Unavailable;
@@ -82,10 +88,10 @@ public sealed class WhisperSpeechToText : ISpeechToText
 
     public async Task<Transcription> TranscribeAsync(ReadOnlyMemory<float> samples, CancellationToken cancellationToken = default)
     {
-        var processor = _processor ?? throw new InvalidOperationException(LastError ?? "Speech recognition not initialized.");
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var processor = _processor ?? throw new InvalidOperationException(LastError ?? "Speech recognition not initialized.");
             var sw = Stopwatch.StartNew();
             var audio = samples.ToArray();
 
@@ -112,6 +118,24 @@ public sealed class WhisperSpeechToText : ISpeechToText
                 probability,
                 TimeSpan.FromSeconds((double)audio.Length / ISpeechToText.SampleRate),
                 sw.Elapsed);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public void Unload()
+    {
+        _gate.Wait();
+        try
+        {
+            _processor?.Dispose();
+            _factory?.Dispose();
+            _processor = null;
+            _factory = null;
+            State = ComponentState.NotInitialized;
+            LastError = "Speech recognition model not installed (Settings > Models).";
         }
         finally
         {

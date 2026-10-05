@@ -1,3 +1,4 @@
+using LocalAI.Tests;
 using System.Text.Json;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
@@ -21,11 +22,11 @@ public sealed class DependencyInjectionTests
     [Fact]
     public async Task All_services_resolve_and_core_abstractions_map_to_implementations()
     {
-        var dataDir = Path.Combine(Path.GetTempPath(), "localai-di-" + Guid.NewGuid().ToString("N")[..8]);
-        var configuration = LocalAiHost.BuildConfiguration(AppContext.BaseDirectory, dataDir);
+        var paths = new LocalAiPaths(TestPaths.New("di"));
+        var configuration = LocalAiHost.BuildConfiguration(paths);
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddLocalAi(configuration, new LocalAiPaths(new PathOptions { DataDirectory = dataDir }));
+        services.AddLocalAi(configuration, paths);
 
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
 
@@ -39,6 +40,28 @@ public sealed class DependencyInjectionTests
         Assert.NotNull(provider.GetRequiredService<AssistantSession>());
         Assert.NotNull(provider.GetRequiredService<VoiceConversationController>());
         Assert.Same(provider.GetRequiredService<ILanguageModel>(), provider.GetRequiredService<LlamaCppLanguageModel>());
+        Assert.NotEmpty(provider.GetRequiredService<ModelService>().Packages);
+    }
+
+    [Fact]
+    public async Task Models_and_voices_used_by_an_assistant_cannot_be_removed()
+    {
+        var paths = new LocalAiPaths(TestPaths.New("usage"));
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddLocalAi(LocalAiHost.BuildConfiguration(paths), paths);
+        await using var provider = services.BuildServiceProvider();
+        var models = provider.GetRequiredService<ModelService>();
+        var llm = models.Packages.First(p => p.Kind == LocalAI.Models.ModelKind.Llm);
+        var voice = models.Packages.First(p => p.Kind == LocalAI.Models.ModelKind.Voice);
+        await provider.GetRequiredService<LocalAI.Core.Assistants.IAssistantStore>().CreateAsync(
+            new LocalAI.Core.Assistants.NewAssistant("Diana", "", llm.Id, voice.Id, voice.Language!), VoiceStyle.Default);
+
+        var usage = await models.GetUsageAsync();
+        Assert.Equal(["Diana"], usage[llm.Id]);
+        Assert.Equal(["Diana"], usage[voice.Id]);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => models.UninstallAsync(voice));
+        Assert.Equal("Used by Diana.", ex.Message);
     }
 }
 
@@ -47,17 +70,15 @@ public sealed class ConfigurationTests
     [Fact]
     public void Appsettings_binds_all_sections()
     {
-        var configuration = LocalAiHost.BuildConfiguration(AppContext.BaseDirectory, Path.GetTempPath());
+        var configuration = LocalAiHost.BuildConfiguration(new LocalAiPaths(TestPaths.New("cfg")));
         var o = new LocalAiOptions();
         configuration.GetSection(LocalAiOptions.SectionName).Bind(o);
 
         Assert.Equal("auto", o.Llm.Model);
         Assert.Equal(-1, o.Llm.GpuLayers);
         Assert.Equal(["pt", "it", "en"], o.SpeechToText.AllowedLanguages);
-        Assert.Equal("pt_BR-faber-medium", o.TextToSpeech.Voices["pt"]);
-        Assert.Equal("it_IT-paola-medium", o.TextToSpeech.Voices["it"]);
-        Assert.Equal("en_US-lessac-medium", o.TextToSpeech.Voices["en"]);
-        Assert.Equal(VoiceMode.PushToTalk, o.Voice.Mode);
+        Assert.Empty(o.TextToSpeech.Voice); // set from the active assistant
+        Assert.Equal(ReplyMode.Text, o.Voice.ReplyMode);
         Assert.True(o.Memory.Enabled);
         Assert.True(o.Audio.EchoCancellation);
     }
@@ -65,17 +86,18 @@ public sealed class ConfigurationTests
     [Fact]
     public void User_settings_override_appsettings()
     {
-        var dataDir = Path.Combine(Path.GetTempPath(), "localai-cfg-" + Guid.NewGuid().ToString("N")[..8]);
+        var dataDir = TestPaths.New("cfg");
         try
         {
-            var store = new UserSettingsStore(Path.Combine(dataDir, "usersettings.json"));
-            store.Set("Voice", "Mode", "Continuous");
+            var paths = new LocalAiPaths(dataDir);
+            var store = new UserSettingsStore(paths.UserSettingsPath);
+            store.Set("Voice", "ReplyMode", "Live");
             store.Set("Audio", "InputDeviceId", "{mic-id}");
             store.Set("Audio", "InputDeviceId", "{mic-id-2}"); // last write wins
 
             var o = new LocalAiOptions();
-            LocalAiHost.BuildConfiguration(AppContext.BaseDirectory, dataDir).GetSection(LocalAiOptions.SectionName).Bind(o);
-            Assert.Equal(VoiceMode.Continuous, o.Voice.Mode);
+            LocalAiHost.BuildConfiguration(paths).GetSection(LocalAiOptions.SectionName).Bind(o);
+            Assert.Equal(ReplyMode.Live, o.Voice.ReplyMode);
             Assert.Equal("{mic-id-2}", o.Audio.InputDeviceId);
             Assert.Equal(["pt", "it", "en"], o.SpeechToText.AllowedLanguages); // untouched values still from appsettings
         }
@@ -86,27 +108,22 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
-    public void Paths_resolve_home_from_marker_file()
+    public void The_application_folder_is_the_executables_folder()
     {
-        var root = Path.Combine(Path.GetTempPath(), "localai-home-" + Guid.NewGuid().ToString("N")[..8]);
-        var bin = Path.Combine(root, "src", "app", "bin");
-        Directory.CreateDirectory(bin);
-        File.WriteAllText(Path.Combine(root, LocalAiPaths.MarkerFile), "");
-        try
-        {
-            var paths = new LocalAiPaths(new PathOptions(), bin);
-            Assert.Equal(root, paths.Home);
-            Assert.Equal(Path.Combine(root, "models"), paths.ModelsDirectory);
-            Assert.Equal(Path.Combine(root, "runtime", "llama.cpp"), paths.LlamaCppDirectory);
-            Assert.Equal(LocalAiPaths.DefaultDataDirectory, paths.DataDirectory);
+        Assert.Equal(Path.GetFullPath(AppContext.BaseDirectory), LocalAiPaths.ForApplication().Home);
+    }
 
-            var custom = new LocalAiPaths(new PathOptions { ModelsDirectory = "D:\\Models" }, bin);
-            Assert.Equal("D:\\Models", custom.ModelsDirectory);
-        }
-        finally
-        {
-            Directory.Delete(root, true);
-        }
+    [Fact]
+    public void Everything_the_app_creates_is_in_the_data_folder_next_to_the_executable()
+    {
+        var app = TestPaths.New("app"); // never created
+        var paths = new LocalAiPaths(app);
+        var data = Path.Combine(app, "data");
+        Assert.Equal(data, paths.DataDirectory);
+        string[] created = [paths.ModelsDirectory, paths.DownloadsDirectory, paths.LogsDirectory, paths.TempDirectory,
+            paths.DatabasePath, paths.UserSettingsPath];
+        Assert.All(created, p => Assert.StartsWith(data + Path.DirectorySeparatorChar, p));
+        Assert.Equal(Path.Combine(app, "runtime", "llama.cpp"), paths.LlamaCppDirectory); // shipped with the app
     }
 
     [Fact]
@@ -124,8 +141,7 @@ public sealed class ConfigurationTests
     [Fact]
     public void Repository_catalog_is_valid()
     {
-        var path = Path.Combine(new LocalAiPaths(new PathOptions()).ModelsDirectory, "catalog.json");
-        var catalog = ModelCatalog.Load(path);
+        var catalog = ModelCatalog.LoadDefault();
         Assert.NotEmpty(catalog.Llm);
         Assert.NotEmpty(catalog.Whisper);
         Assert.NotEmpty(catalog.Vad);
@@ -134,12 +150,17 @@ public sealed class ConfigurationTests
         Assert.Contains(catalog.Tts, v => v.Language == "en");
         // Preference order: larger VRAM requirement first.
         Assert.Equal(catalog.Llm.OrderByDescending(l => l.MinVramMb).Select(l => l.Id), catalog.Llm.Select(l => l.Id));
+        Assert.All(catalog.Llm, l => Assert.True(LocalAI.Models.ModelLibrary.IsHuggingFace(new Uri(l.Url)), l.Url));
+        Assert.All(catalog.Llm, l => Assert.True(l.SizeBytes > 0));
+        Assert.All(catalog.Tts, v => Assert.True(v.SizeBytes > 0));
+        Assert.All(catalog.Whisper.Concat(catalog.Vad).Concat(catalog.Embedding), e => Assert.True(e.SizeBytes > 0));
+        Assert.NotEmpty(catalog.Runtime.Urls);
     }
 }
 
 public sealed class ModelSelectorTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "localai-models-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _dir = TestPaths.New("models");
     private readonly ModelCatalog _catalog = new()
     {
         Llm =
@@ -178,7 +199,15 @@ public sealed class ModelSelectorTests : IDisposable
     {
         foreach (var f in Directory.GetFiles(Path.Combine(_dir, "llm"))) File.Delete(f);
         var ex = Assert.Throws<ModelNotAvailableException>(() => ModelSelector.Select(_catalog, new LlmOptions(), _dir, 16376));
-        Assert.StartsWith("Model not installed", ex.Message);
+        Assert.Equal(ModelSelector.NoModelMessage, ex.Message);
+    }
+
+    [Fact]
+    public void An_assistants_model_is_never_silently_replaced()
+    {
+        File.Delete(Path.Combine(_dir, "llm", "big.gguf"));
+        var ex = Assert.Throws<ModelNotAvailableException>(() => ModelSelector.Select(_catalog, new LlmOptions { Model = "big" }, _dir, 24576));
+        Assert.StartsWith("Big is not installed yet", ex.Message);
     }
 
     [Fact]
@@ -192,16 +221,6 @@ public sealed class ModelSelectorTests : IDisposable
         Assert.Equal("big", explicitModel.Entry.Id);
         Assert.Equal(4096, explicitModel.ContextSize);
         Assert.True(explicitModel.EstimatedVramMb > 600);
-    }
-
-    [Fact]
-    public void Custom_model_path_is_supported()
-    {
-        var custom = Path.Combine(_dir, "my-model.Q5_K_M.gguf");
-        File.WriteAllBytes(custom, new byte[10]);
-        var s = ModelSelector.Select(_catalog, new LlmOptions { ModelPath = custom }, _dir, 16376);
-        Assert.Equal("Q5_K_M", s.Entry.Quantization);
-        Assert.Equal(custom, s.FullPath);
     }
 }
 

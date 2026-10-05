@@ -41,22 +41,22 @@ public sealed class App : Application
                 await startup.StartAsync(_startupCts.Token).ConfigureAwait(false);
                 await Dispatcher.UIThread.InvokeAsync(vm.OnStartupCompleted);
             });
-            _ = vm.LoadConversationsAsync();
         }
         base.OnFrameworkInitializationCompleted();
     }
 
     private static ServiceProvider BuildServices()
     {
-        var configuration = LocalAiHost.BuildConfiguration();
-        var options = new LocalAiOptions();
-        configuration.GetSection(LocalAiOptions.SectionName).Bind(options);
-        var paths = new LocalAiPaths(options.Paths);
+        var paths = LocalAiPaths.ForApplication();
+        LocalAiHost.ConfigureTempDirectory(paths);
+        var configuration = LocalAiHost.BuildConfiguration(paths);
         LocalAiHost.ConfigureNativeSearchPath(paths);
 
         var services = new ServiceCollection();
         services.AddLogging(b => LocalAiHost.ConfigureLogging(b, configuration, paths.LogsDirectory));
         services.AddLocalAi(configuration, paths);
+        services.AddSingleton<ModelsViewModel>();
+        services.AddSingleton<AssistantsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
     }

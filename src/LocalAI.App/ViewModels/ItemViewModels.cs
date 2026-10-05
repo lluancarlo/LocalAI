@@ -58,6 +58,14 @@ public sealed partial class ConversationItemViewModel(Conversation conversation)
     partial void OnUpdatedAtChanged(DateTimeOffset value) => OnPropertyChanged(nameof(When));
 }
 
+public sealed partial class PageTabViewModel(AppPage page, string title, bool isClosable) : ObservableObject
+{
+    public AppPage Page { get; } = page;
+    public bool IsClosable { get; } = isClosable;
+    [ObservableProperty] private string _title = title;
+    [ObservableProperty] private bool _isSelected;
+}
+
 public sealed partial class MemoryItemViewModel(long id, string content, DateTimeOffset createdAt) : ObservableObject
 {
     public long Id { get; } = id;

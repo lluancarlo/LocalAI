@@ -3,10 +3,10 @@
         xmlns:vm="using:LocalAI.App.ViewModels"
         xmlns:views="using:LocalAI.App.Views"
         xmlns:audio="using:LocalAI.Core.Audio"
-        xmlns:speech="using:LocalAI.Core.Speech"
         x:Class="LocalAI.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Local AI"
+        Icon="/Assets/app.ico"
         Width="1180" Height="800" MinWidth="720" MinHeight="480"
         WindowStartupLocation="CenterScreen">
 
@@ -29,27 +29,75 @@
     <Style Selector="ListBox#ConversationList ListBoxItem">
       <Setter Property="Padding" Value="10,6" />
     </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="#B03A4E" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="Padding" Value="14,6" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#C9475D" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
     <Style Selector="Button.record">
       <Setter Property="Background" Value="{StaticResource RecordBrush}" />
       <Setter Property="Foreground" Value="#0E1015" />
     </Style>
-    <!-- Live button: large, accent-coloured while active -->
-    <Style Selector="ToggleButton.live">
+    <!-- Reply mode selector: segmented pills, the active one accent-coloured -->
+    <Style Selector="RadioButton.mode">
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Padding" Value="16,6" />
-      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Padding" Value="14,6" />
+      <Setter Property="CornerRadius" Value="0" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="BorderBrush" Value="{StaticResource AiBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{StaticResource AiBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
     </Style>
-    <Style Selector="ToggleButton.live:checked /template/ ContentPresenter">
+    <Style Selector="RadioButton.mode.first">
+      <Setter Property="CornerRadius" Value="16,0,0,16" />
+    </Style>
+    <Style Selector="RadioButton.mode.last">
+      <Setter Property="CornerRadius" Value="0,16,16,0" />
+    </Style>
+    <Style Selector="RadioButton.mode:checked /template/ ContentPresenter">
       <Setter Property="Background" Value="{StaticResource AiBrush}" />
       <Setter Property="Foreground" Value="#0E1015" />
     </Style>
-    <Style Selector="ToggleButton.live:checked:pointerover /template/ ContentPresenter">
+    <Style Selector="RadioButton.mode:checked:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="#B4DD8A" />
       <Setter Property="Foreground" Value="#0E1015" />
+    </Style>
+    <Style Selector="Border.tab">
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="Padding" Value="4,0" />
+    </Style>
+    <Style Selector="Border.tab.selected">
+      <Setter Property="BorderBrush" Value="{StaticResource AiBrush}" />
+      <Setter Property="Background" Value="{StaticResource BgBrush}" />
+    </Style>
+    <Style Selector="Button.tabTitle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+    <Style Selector="Border.tab.selected Button.tabTitle">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style Selector="Button.tabClose">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.tag">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource AiBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="TextBlock.section">
       <Setter Property="FontWeight" Value="SemiBold" />
@@ -64,7 +112,7 @@
     <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,1,0">
       <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Top" Spacing="8">
-          <TextBlock Text="Local AI" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" />
+          <TextBlock Text="{Binding AssistantName}" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" TextTrimming="CharacterEllipsis" />
           <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                   Command="{Binding NewConversationCommand}" Content="＋  New conversation" ToolTip.Tip="Ctrl+N" />
           <TextBox Text="{Binding SearchText}" PlaceholderText="Search history…" />
@@ -72,11 +120,11 @@
 
         <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
           <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding ToggleMemoriesCommand}" Content="◆  Memory" />
+                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Memory}" Content="◆  Memory" />
           <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding ToggleSettingsCommand}" Content="⚙  Settings" />
+                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Settings}" Content="⚙  Settings" />
           <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding ToggleDiagnosticsCommand}" Content="ⓘ  Diagnostics" />
+                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Diagnostics}" Content="ⓘ  Diagnostics" />
         </StackPanel>
 
         <ListBox x:Name="ConversationList" Margin="0,10,0,0" Background="Transparent"
@@ -106,75 +154,111 @@
     </Border>
 
     <!-- ============ Main ============ -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto,Auto,Auto">
+    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
 
-      <!-- Header -->
-      <Border Grid.Row="0" Padding="18,12" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Right" Classes="muted" VerticalAlignment="Center"
-                     Text="Enter send · Shift+Enter newline · Esc stop · hold Ctrl+Space to talk" />
-          <TextBlock Text="{Binding ConversationTitle}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-        </DockPanel>
-      </Border>
-
-      <!-- Conversation -->
-      <ScrollViewer Grid.Row="1" x:Name="MessagesScroll" Padding="0,8">
-        <ItemsControl ItemsSource="{Binding Messages}" Margin="22,4,22,12">
+      <!-- Tabs -->
+      <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1">
+        <ItemsControl ItemsSource="{Binding Tabs}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:MessageViewModel">
-              <StackPanel Margin="0,10" Spacing="3">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <TextBlock Classes="author" Classes.user="{Binding IsUser}" Classes.system="{Binding IsSystem}" Text="{Binding Author}" />
-                  <TextBlock Classes="muted" Text="{Binding Meta}" VerticalAlignment="Bottom" />
-                  <TextBlock Classes="muted" Text="(stopped)" IsVisible="{Binding Interrupted}" Foreground="{StaticResource WarnBrush}" VerticalAlignment="Bottom" />
-                  <TextBlock Classes="muted" Text="…" IsVisible="{Binding IsStreaming}" VerticalAlignment="Bottom" />
+            <DataTemplate x:DataType="vm:PageTabViewModel">
+              <Border Classes="tab" Classes.selected="{Binding IsSelected}">
+                <StackPanel Orientation="Horizontal">
+                  <Button Classes="tabTitle" Content="{Binding Title}"
+                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).OpenPageCommand}" CommandParameter="{Binding Page}" />
+                  <Button Classes="tabClose" Content="✕" IsVisible="{Binding IsClosable}" ToolTip.Tip="Close"
+                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ClosePageCommand}" CommandParameter="{Binding Page}" />
                 </StackPanel>
-                <Grid ColumnDefinitions="Auto,*">
-                  <TextBlock Grid.Column="0" Text="&gt;" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
-                  <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"
-                                       FontFamily="{StaticResource MonoFont}" FontSize="14" LineHeight="21"
-                                       Foreground="{StaticResource TextBrush}" />
-                </Grid>
-              </StackPanel>
+              </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-      </ScrollViewer>
-
-      <!-- Banner (non-fatal errors) -->
-      <Border Grid.Row="2" Background="#2A1E24" Padding="18,6" IsVisible="{Binding BannerText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-        <TextBlock Text="{Binding BannerText}" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" />
       </Border>
 
-      <!-- Input -->
-      <Border Grid.Row="3" Padding="18,10" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
-        <StackPanel Spacing="10">
-          <Grid ColumnDefinitions="*,Auto">
-            <TextBox x:Name="InputBox" Grid.Column="0" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="44" MaxHeight="200" PlaceholderText="Type a message…" FontFamily="{StaticResource MonoFont}" />
-            <Button Grid.Column="1" Margin="10,0,0,0" MinWidth="84" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
-                    HorizontalContentAlignment="Center" Command="{Binding SendCommand}" Content="{Binding SendButtonText}" />
-          </Grid>
-          <WrapPanel Orientation="Horizontal">
-            <ToggleButton Classes="live" Margin="0,0,10,6" IsChecked="{Binding IsContinuous}" IsEnabled="{Binding VoiceAvailable}"
-                          Content="◉  Live" ToolTip.Tip="Live mode: just talk. The assistant answers aloud, listens again, and you can interrupt it at any time." />
-            <Button x:Name="PushToTalkButton" Classes="flat" Classes.record="{Binding IsRecording}" Margin="0,0,10,6"
-                    IsEnabled="{Binding VoiceAvailable}" Content="●  Hold to talk" ToolTip.Tip="Hold the button (or Ctrl+Space) while speaking" />
-            <!-- Microphone level meter (visible while the microphone is open) -->
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,16,6" VerticalAlignment="Center" IsVisible="{Binding IsMicOpen}"
-                        ToolTip.Tip="Microphone level (dBFS). Speech should peak around -30 to -10 dB.">
-              <TextBlock Classes="muted" Text="mic" VerticalAlignment="Center" />
-              <ProgressBar Width="140" Height="8" MinHeight="8" Minimum="0" Maximum="1" Value="{Binding MicLevel}"
-                           Foreground="{Binding MicLevelBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
-              <TextBlock Classes="muted" Text="{Binding MicLevelText}" MinWidth="52" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
-            </StackPanel>
-            <CheckBox Margin="0,0,16,6" IsChecked="{Binding SpeakReplies}" Content="Speak typed replies" />
-          </WrapPanel>
-        </StackPanel>
-      </Border>
+      <!-- Chat page -->
+      <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding IsChatPage}">
+
+        <!-- Header -->
+        <Border Grid.Row="0" Padding="18,12" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Right" Classes="muted" VerticalAlignment="Center"
+                       Text="Enter send · Shift+Enter newline · Esc stop · hold Ctrl+Space to talk" />
+            <TextBlock Text="{Binding ConversationTitle}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
+        </Border>
+
+        <!-- Conversation -->
+        <ScrollViewer Grid.Row="1" x:Name="MessagesScroll" Padding="0,8">
+          <ItemsControl ItemsSource="{Binding Messages}" Margin="22,4,22,12">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MessageViewModel">
+                <StackPanel Margin="0,10" Spacing="3">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Classes="author" Classes.user="{Binding IsUser}" Classes.system="{Binding IsSystem}" Text="{Binding Author}" />
+                    <TextBlock Classes="muted" Text="{Binding Meta}" VerticalAlignment="Bottom" />
+                    <TextBlock Classes="muted" Text="(stopped)" IsVisible="{Binding Interrupted}" Foreground="{StaticResource WarnBrush}" VerticalAlignment="Bottom" />
+                    <TextBlock Classes="muted" Text="…" IsVisible="{Binding IsStreaming}" VerticalAlignment="Bottom" />
+                  </StackPanel>
+                  <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Grid.Column="0" Text="&gt;" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
+                    <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"
+                                         FontFamily="{StaticResource MonoFont}" FontSize="14" LineHeight="21"
+                                         Foreground="{StaticResource TextBrush}" />
+                  </Grid>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Banner (non-fatal errors) -->
+        <Border Grid.Row="2" Background="#2A1E24" Padding="18,6" IsVisible="{Binding BannerText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+          <TextBlock Text="{Binding BannerText}" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- Input -->
+        <Border Grid.Row="3" Padding="18,10" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox x:Name="InputBox" Grid.Column="0" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap"
+                       MinHeight="44" MaxHeight="200" PlaceholderText="Type a message…" FontFamily="{StaticResource MonoFont}" />
+              <Button Grid.Column="1" Margin="10,0,0,0" MinWidth="84" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                      HorizontalContentAlignment="Center" Command="{Binding SendCommand}" Content="{Binding SendButtonText}" />
+            </Grid>
+            <WrapPanel Orientation="Horizontal">
+              <!-- Reply mode: Text / Read aloud / Live -->
+              <StackPanel Orientation="Horizontal" Margin="0,0,10,6">
+                <RadioButton Classes="mode first" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
+                             IsChecked="{Binding IsTextMode}" Content="Text" ToolTip.Tip="Replies are shown as text." />
+                <RadioButton Classes="mode" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
+                             IsChecked="{Binding IsReadAloudMode}" Content="Read aloud"
+                             ToolTip.Tip="Replies are shown and read aloud. The microphone stays closed." />
+                <RadioButton Classes="mode last" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
+                             IsChecked="{Binding IsLiveMode}" IsEnabled="{Binding VoiceAvailable}" Content="◉  Live"
+                             ToolTip.Tip="Live conversation: just talk (or type). The assistant answers aloud, listens again, and you can interrupt it at any time."
+                             ToolTip.ShowOnDisabled="True" />
+              </StackPanel>
+              <Button x:Name="PushToTalkButton" Classes="flat" Classes.record="{Binding IsRecording}" Margin="0,0,10,6"
+                      IsEnabled="{Binding VoiceAvailable}" IsVisible="{Binding !IsContinuous}" Content="●  Hold to talk"
+                      ToolTip.Tip="Hold the button (or Ctrl+Space) while speaking" />
+              <!-- Microphone level meter (visible while the microphone is open) -->
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,16,6" VerticalAlignment="Center" IsVisible="{Binding IsMicOpen}"
+                          ToolTip.Tip="Microphone level (dBFS). Speech should peak around -30 to -10 dB.">
+                <TextBlock Classes="muted" Text="mic" VerticalAlignment="Center" />
+                <ProgressBar Width="140" Height="8" MinHeight="8" Minimum="0" Maximum="1" Value="{Binding MicLevel}"
+                             Foreground="{Binding MicLevelBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
+                <TextBlock Classes="muted" Text="{Binding MicLevelText}" MinWidth="52" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
+              </StackPanel>
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+
+      </Grid>
 
       <!-- Status bar -->
-      <Border Grid.Row="4" Background="{StaticResource PanelBrush}" Padding="18,5" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+      <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="18,5" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
         <StackPanel Orientation="Horizontal" Spacing="18">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Ellipse Width="9" Height="9" Fill="{Binding StatusLevel, Converter={StaticResource StatusBrush}}" VerticalAlignment="Center" />
@@ -186,130 +270,252 @@
         </StackPanel>
       </Border>
 
-      <!-- Diagnostics overlay -->
-      <Border Grid.Row="1" Grid.RowSpan="2" IsVisible="{Binding ShowDiagnostics}" Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6"
-              Margin="24" Padding="18" HorizontalAlignment="Right" VerticalAlignment="Top" MaxWidth="720">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Button DockPanel.Dock="Right" Classes="flat" Content="✕" Command="{Binding ToggleDiagnosticsCommand}" />
-            <TextBlock Text="Diagnostics" FontWeight="SemiBold" VerticalAlignment="Center" />
-          </DockPanel>
-          <ScrollViewer>
-            <SelectableTextBlock Text="{Binding DiagnosticsText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" Foreground="{StaticResource TextBrush}" />
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
+      <!-- Diagnostics page -->
+      <ScrollViewer Grid.Row="1" IsVisible="{Binding IsDiagnosticsPage}" Padding="24,18">
+        <SelectableTextBlock Text="{Binding DiagnosticsText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" Foreground="{StaticResource TextBrush}" />
+      </ScrollViewer>
 
-      <!-- Settings overlay -->
-      <Border Grid.Row="1" Grid.RowSpan="2" IsVisible="{Binding ShowSettings}" Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6"
-              Margin="24" Padding="18" HorizontalAlignment="Right" VerticalAlignment="Top" Width="560">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top">
-            <Button DockPanel.Dock="Right" Classes="flat" Content="✕" Command="{Binding ToggleSettingsCommand}" />
-            <TextBlock Text="Settings" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" />
-          </DockPanel>
-          <ScrollViewer MaxHeight="620">
-            <StackPanel DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel">
-
-              <TextBlock Classes="section" Text="Audio devices" />
-              <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto">
-                <TextBlock Grid.Row="0" Text="Microphone" VerticalAlignment="Center" />
-                <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding Microphones}"
-                          SelectedItem="{Binding SelectedMicrophone}" PlaceholderText="No microphone found">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="audio:AudioDevice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-                <Button Grid.Row="0" Grid.Column="2" Classes="flat" Margin="8,0,0,0" Command="{Binding RefreshDevicesCommand}"
-                        Content="↻" ToolTip.Tip="Rescan audio devices" />
-                <TextBlock Grid.Row="1" Text="Speaker" VerticalAlignment="Center" Margin="0,8,0,0" />
-                <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" Margin="0,8,0,0" ItemsSource="{Binding Speakers}"
-                          SelectedItem="{Binding SelectedSpeaker}" PlaceholderText="No speaker found">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="audio:AudioDevice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-              </Grid>
-
-              <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
-                <ToggleButton Classes="flat" IsChecked="{Binding IsTestingMicrophone}" Content="Test microphone"
-                              ToolTip.Tip="Opens the microphone to show its level. Nothing is sent to the assistant." />
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsMicOpen}">
-                  <ProgressBar Width="180" Height="8" MinHeight="8" Minimum="0" Maximum="1" Value="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevel}"
-                               Foreground="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevelBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
-                  <TextBlock Classes="muted" FontFamily="{StaticResource MonoFont}" MinWidth="52" VerticalAlignment="Center"
-                             Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevelText}" />
-                </StackPanel>
+      <!-- Settings page -->
+      <Panel Grid.Row="1" IsVisible="{Binding IsSettingsPage}">
+        <TabControl Margin="24,8,24,0" MaxWidth="760"
+                    DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel" SelectedIndex="{Binding SelectedTab}" Padding="0,4,0,0">
+          <TabItem Header="Assistants" FontSize="14">
+            <ScrollViewer>
+              <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,8,16,0">
+                <ItemsControl ItemsSource="{Binding Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AssistantItemViewModel">
+                      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                        <StackPanel Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                            <TextBlock Classes="tag" Text="active" IsVisible="{Binding IsActive}" />
+                          </StackPanel>
+                          <TextBlock Classes="muted" Text="{Binding Details}" />
+                          <TextBlock Classes="muted" Text="{Binding Style}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+                                     IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="10,0,0,0">
+                          <Button Classes="flat" Content="Switch" Command="{Binding SwitchCommand}" IsVisible="{Binding CanSwitch}" />
+                          <Button Classes="flat" Content="Delete…" Command="{Binding DeleteCommand}"
+                                  ToolTip.Tip="Deletes this assistant with all its conversations and memories (asks for confirmation)" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="section" Text="Create a new assistant" />
+                <views:NewAssistantForm />
               </StackPanel>
+            </ScrollViewer>
+          </TabItem>
 
-              <CheckBox Margin="0,10,0,0" IsChecked="{Binding EchoCancellation}"
-                        Content="Echo cancellation (needed to interrupt the assistant on speakers)" />
-              <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
-                         Text="Uses Windows communications mode. Windows may lower other sounds while the microphone is open." />
+          <TabItem Header="Audio &amp; voices" FontSize="14">
+        <ScrollViewer>
+          <StackPanel Margin="0,0,16,0">
 
-              <TextBlock Classes="section" Text="Voices" />
-              <ItemsControl ItemsSource="{Binding Languages}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:VoiceLanguageViewModel">
-                    <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,8">
-                      <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
-                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding Voices}" SelectedItem="{Binding Selected}">
-                        <ComboBox.ItemTemplate>
-                          <DataTemplate x:DataType="speech:VoiceInfo"><TextBlock Text="{Binding DisplayName}" /></DataTemplate>
-                        </ComboBox.ItemTemplate>
-                      </ComboBox>
-                      <Button Grid.Column="2" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewCommand}"
-                              ToolTip.Tip="Play a sample with this voice" />
-                    </Grid>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-              <Grid ColumnDefinitions="140,*,Auto" Margin="0,4,0,0">
-                <TextBlock Text="Speaking rate" VerticalAlignment="Center" />
-                <Slider Grid.Column="1" Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.1"
-                        TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
-                <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
-              </Grid>
-              <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding VoiceError}"
-                         IsVisible="{Binding VoiceError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-              <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,6,0,0"
-                         Text="More voices: scripts\setup.ps1 -AllVoices. The voice follows the language you speak." />
+            <TextBlock Classes="section" Text="Audio devices" />
+            <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto">
+              <TextBlock Grid.Row="0" Text="Microphone" VerticalAlignment="Center" />
+              <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding Microphones}"
+                        SelectedItem="{Binding SelectedMicrophone}" PlaceholderText="No microphone found">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="audio:AudioDevice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Grid.Row="0" Grid.Column="2" Classes="flat" Margin="8,0,0,0" Command="{Binding RefreshDevicesCommand}"
+                      Content="↻" ToolTip.Tip="Rescan audio devices" />
+              <TextBlock Grid.Row="1" Text="Speaker" VerticalAlignment="Center" Margin="0,8,0,0" />
+              <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" Margin="0,8,0,0" ItemsSource="{Binding Speakers}"
+                        SelectedItem="{Binding SelectedSpeaker}" PlaceholderText="No speaker found">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="audio:AudioDevice"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+              <ToggleButton Classes="flat" IsChecked="{Binding IsTestingMicrophone}" Content="Test microphone"
+                            ToolTip.Tip="Opens the microphone to show its level. Nothing is sent to the assistant." />
+              <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsMicOpen}">
+                <ProgressBar Width="180" Height="8" MinHeight="8" Minimum="0" Maximum="1" Value="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevel}"
+                             Foreground="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevelBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
+                <TextBlock Classes="muted" FontFamily="{StaticResource MonoFont}" MinWidth="52" VerticalAlignment="Center"
+                           Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).MicLevelText}" />
+              </StackPanel>
             </StackPanel>
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
 
-      <!-- Memory overlay -->
-      <Border Grid.Row="1" Grid.RowSpan="2" IsVisible="{Binding ShowMemories}" Background="{StaticResource PanelBrush}"
-              BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="6"
-              Margin="24" Padding="18" HorizontalAlignment="Right" VerticalAlignment="Top" Width="520" MaxHeight="600">
-        <DockPanel>
-          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-            <Button DockPanel.Dock="Right" Classes="flat" Content="✕" Command="{Binding ToggleMemoriesCommand}" />
-            <TextBlock Text="Long-term memory" FontWeight="SemiBold" VerticalAlignment="Center" />
-          </DockPanel>
-          <TextBlock DockPanel.Dock="Top" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,10"
-                     Text="Facts the assistant learned about you. Stored only in the local database; delete anything you don't want kept." />
-          <ScrollViewer>
-            <ItemsControl ItemsSource="{Binding Memories}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:MemoryItemViewModel">
-                  <Grid ColumnDefinitions="*,Auto" Margin="0,4">
-                    <StackPanel>
-                      <TextBlock Text="{Binding Content}" TextWrapping="Wrap" />
-                      <TextBlock Classes="muted" Text="{Binding Created}" />
-                    </StackPanel>
-                    <Button Grid.Column="1" Classes="flat" Content="Delete" VerticalAlignment="Top" Margin="8,0,0,0"
-                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DeleteMemoryCommand}" CommandParameter="{Binding}" />
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
+            <CheckBox Margin="0,10,0,0" IsChecked="{Binding EchoCancellation}"
+                      Content="Echo cancellation (needed to interrupt the assistant on speakers)" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
+                       Text="Uses Windows communications mode. Windows may lower other sounds while the microphone is open." />
+
+            <TextBlock Classes="section" Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AssistantName, StringFormat='Voice of {0}'}" />
+            <TextBlock Text="{Binding VoiceName}" Margin="0,0,0,8" />
+            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="How fast the assistant speaks">
+              <TextBlock Text="Speed" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.05"
+                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Semitones lower or higher than the original voice">
+              <TextBlock Text="Pitch" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="-6" Maximum="6" SmallChange="1" LargeChange="1"
+                      TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Lower is flatter, higher is more varied intonation">
+              <TextBlock Text="Expressiveness" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05"
+                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Expressiveness}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding ExpressivenessText}" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Lower is more regular, higher is more natural timing">
+              <TextBlock Text="Rhythm" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="1.2" SmallChange="0.05" LargeChange="0.05"
+                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Rhythm}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding RhythmText}" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+              <Button Classes="flat" Content="▶  Preview" Command="{Binding PreviewVoiceCommand}" ToolTip.Tip="Play a sample with these settings" />
+              <Button Classes="flat" Content="Reset" Command="{Binding ResetVoiceStyleCommand}" ToolTip.Tip="Back to the voice's original settings" />
+            </StackPanel>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding VoiceError}"
+                       IsVisible="{Binding VoiceError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="The voice was chosen when the assistant was created; these settings tune how it sounds and are saved automatically." />
+          </StackPanel>
+        </ScrollViewer>
+          </TabItem>
+
+          <TabItem Header="Models" FontSize="14">
+            <ScrollViewer>
+              <StackPanel DataContext="{Binding Models}" x:DataType="vm:ModelsViewModel" Margin="0,8,16,0">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding StorageText}" />
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,10,0,0" IsVisible="{Binding CanInstallRecommended}">
+                  <Button Classes="flat" Command="{Binding InstallRecommendedCommand}" Content="Download recommended"
+                          ToolTip.Tip="The language model that fits your GPU, speech recognition, voice detection, memory and one voice per language" />
+                  <TextBlock Classes="muted" VerticalAlignment="Center" Text="{Binding RecommendedText}" />
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding Groups}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModelGroupViewModel">
+                      <StackPanel>
+                        <TextBlock Classes="section" Text="{Binding Title}" />
+                        <ItemsControl ItemsSource="{Binding Items}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ModelItemViewModel">
+                              <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                                <StackPanel Spacing="2">
+                                  <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding Title}" />
+                                    <TextBlock Classes="tag" Text="{Binding UsedByText}" IsVisible="{Binding IsUsed}" />
+                                    <TextBlock Classes="tag" Text="recommended" IsVisible="{Binding IsRecommended}" />
+                                  </StackPanel>
+                                  <TextBlock Classes="muted" Text="{Binding Detail}" />
+                                  <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsDownloading}">
+                                    <ProgressBar Width="220" Height="6" MinHeight="6" Minimum="0" Maximum="1" Value="{Binding Progress}"
+                                                 Foreground="{StaticResource AiBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Classes="muted" Text="{Binding ProgressText}" VerticalAlignment="Center" />
+                                  </StackPanel>
+                                  <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+                                             IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+                                  <Button Classes="flat" Content="Download" Command="{Binding DownloadCommand}" IsVisible="{Binding CanDownload}" />
+                                  <Button Classes="flat" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsDownloading}" />
+                                  <Button Classes="flat" Content="{Binding RemoveText}" Command="{Binding RemoveCommand}" IsVisible="{Binding IsInstalled}"
+                                          IsEnabled="{Binding CanRemove}" ToolTip.ShowOnDisabled="True"
+                                          ToolTip.Tip="{Binding UsedBy, StringFormat='In use by {0}. Delete those assistants to remove it.'}" />
+                                </StackPanel>
+                              </Grid>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="Downloads happen only when you click and can be cancelled and resumed. Everything else runs offline." />
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+      </Panel>
+
+      <!-- Memory page -->
+      <DockPanel Grid.Row="1" IsVisible="{Binding IsMemoryPage}" Margin="24,18,24,0" MaxWidth="760">
+        <TextBlock DockPanel.Dock="Top" Text="{Binding AssistantName, StringFormat='What {0} remembers about you'}"
+                   FontWeight="SemiBold" FontSize="15" Margin="0,0,0,6" />
+        <TextBlock DockPanel.Dock="Top" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Facts learned from your conversations with this assistant. Stored only in the local database; delete anything you don't want kept." />
+        <ScrollViewer>
+          <ItemsControl ItemsSource="{Binding Memories}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MemoryItemViewModel">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Content}" TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="{Binding Created}" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="flat" Content="Delete" VerticalAlignment="Top" Margin="8,0,0,0"
+                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DeleteMemoryCommand}" CommandParameter="{Binding}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
     </Grid>
+
+    <!-- ============ First launch: welcome, then name the assistant (modal) ============ -->
+    <Border Grid.ColumnSpan="2" IsVisible="{Binding ShowWelcome}" Background="#CC0E1015">
+      <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1"
+              CornerRadius="8" Padding="24" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Panel>
+          <StackPanel Spacing="10" IsVisible="{Binding WelcomeIntro}">
+            <Image Source="/Assets/welcome.png" Width="240" Height="240" HorizontalAlignment="Center" />
+            <TextBlock Text="Welcome to Local AI" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13" TextAlignment="Center"
+                       Text="Personal AI assistants that run entirely on your computer. Your conversations, voice and memories never leave it." />
+            <Button HorizontalAlignment="Center" Margin="0,8,0,0" Padding="20,8" Command="{Binding ContinueWelcomeCommand}" Content="Get started" />
+          </StackPanel>
+          <StackPanel Spacing="10" IsVisible="{Binding !WelcomeIntro}">
+            <TextBlock Text="Create your assistant" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13"
+                       Text="Give your AI a name and, optionally, describe its personality. You can create more assistants later in Settings." />
+            <views:NewAssistantForm DataContext="{Binding Settings.Assistants}" Margin="0,6,0,0" />
+          </StackPanel>
+        </Panel>
+      </Border>
+    </Border>
+
+    <!-- ============ Delete assistant: confirmation (modal) ============ -->
+    <Border Grid.ColumnSpan="2" Background="#CC0E1015"
+            IsVisible="{Binding Settings.Assistants.PendingDelete, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1"
+              CornerRadius="8" Padding="24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center"
+              DataContext="{Binding Settings.Assistants.PendingDelete}" x:DataType="vm:DeleteAssistantViewModel">
+        <StackPanel Spacing="10">
+          <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <TextBlock TextWrapping="Wrap" FontSize="13" Text="This permanently removes the assistant and everything it has stored:" />
+          <StackPanel Spacing="2" Margin="12,0,0,0">
+            <TextBlock FontSize="13" Text="{Binding ConversationsText, StringFormat='• {0}'}" />
+            <TextBlock FontSize="13" Text="{Binding MemoriesText, StringFormat='• {0}'}" />
+          </StackPanel>
+          <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13" Text="{Binding Consequence}" IsVisible="{Binding HasConsequence}" />
+          <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource WarnBrush}"
+                     Text="This cannot be undone. Downloaded models and voices are kept." />
+          <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+                     IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="CancelDeleteButton" Classes="flat" Content="Cancel" Command="{Binding CancelCommand}" />
+            <Button Classes="danger" Content="{Binding ConfirmText}" Command="{Binding ConfirmCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
   </Grid>
 </Window>

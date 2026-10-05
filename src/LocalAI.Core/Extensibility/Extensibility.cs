@@ -1,7 +1,7 @@
 namespace LocalAI.Core.Extensibility;
 
 // Extension points reserved for post-MVP modules. Nothing in the MVP implements or registers these:
-// the assistant cannot call tools and makes no network requests. See ARCHITECTURE.md ("Extension points").
+// the assistant cannot call tools and makes no network requests.
 
 /// <summary>A capability the assistant could invoke in the future (filesystem, terminal, ...).</summary>
 /// <remarks>

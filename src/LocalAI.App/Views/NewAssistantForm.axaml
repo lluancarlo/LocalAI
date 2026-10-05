@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LocalAI.App.ViewModels"
+             x:Class="LocalAI.App.Views.NewAssistantForm"
+             x:DataType="vm:AssistantsViewModel">
+  <StackPanel Spacing="6">
+    <TextBlock Text="Name" />
+    <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Diana" />
+    <TextBlock Text="AI style pre-prompt (optional)" Margin="0,8,0,0" />
+    <TextBox Text="{Binding NewStyle}" MaxLength="{Binding MaxStyleLength}" AcceptsReturn="True" TextWrapping="Wrap"
+             MinHeight="90" MaxHeight="180"
+             PlaceholderText="Personality, tone and characteristics. e.g. Warm and witty, explains things with analogies, a bit of humor, never verbose." />
+    <TextBlock Text="Language model" Margin="0,8,0,0" />
+    <ComboBox ItemsSource="{Binding ModelChoices}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+      <ComboBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:ModelChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+      </ComboBox.ItemTemplate>
+    </ComboBox>
+    <TextBlock Text="Voice" Margin="0,8,0,0" />
+    <Grid ColumnDefinitions="*,Auto">
+      <ComboBox ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:ModelChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
+              ToolTip.Tip="Play a sample (downloads the voice if needed)" />
+    </Grid>
+    <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
+               Text="The assistant always speaks and replies in its voice's language. Name, style, model and voice cannot be changed later; anything not downloaded yet is downloaded after creating." />
+    <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+               IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <Button HorizontalAlignment="Right" Margin="0,6,0,0" Command="{Binding CreateCommand}" Content="Create assistant" />
+  </StackPanel>
+</UserControl>
