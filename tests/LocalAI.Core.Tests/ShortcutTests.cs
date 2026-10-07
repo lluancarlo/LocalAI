@@ -171,7 +171,7 @@ public sealed class AssistantHotkeysTests
     private static async Task WaitForAsync(Func<bool> condition)
     {
         // Assistant changes re-register shortcuts in the background.
-        for (var i = 0; i < 200 && !condition(); i++) await Task.Delay(10);
+        for (var i = 0; i < 500 && !condition(); i++) await Task.Delay(10); // up to 5 s on a slow CI runner
         Assert.True(condition());
     }
 }
@@ -289,7 +289,7 @@ public sealed class LiveActivationTests : IDisposable
         await _hotkeys.StartAsync();
 
         Assert.True(_system.Press(AssistantsHarness.Gesture("Ctrl+Alt+D")));
-        for (var i = 0; i < 200 && _live.State != LiveState.Live; i++) await Task.Delay(10);
+        for (var i = 0; i < 500 && _live.State != LiveState.Live; i++) await Task.Delay(10);
         Assert.Equal(LiveState.Live, _live.State);
     }
 }

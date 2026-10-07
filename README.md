@@ -81,4 +81,5 @@ Set an assistant's shortcut in **Settings › Assistants**.
 
 ## License
 
-No license yet: all rights reserved.
+No license: all rights reserved. The source code is public to read, but you may not modify, copy or distribute it.
+Bundled third-party components keep their own licenses: see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
