@@ -38,7 +38,9 @@ public sealed class App : Application
             _desktop = desktop;
             var vm = ActivatorUtilities.CreateInstance<MainWindowViewModel>(_services);
             desktop.MainWindow = new MainWindow { DataContext = vm };
-            desktop.ShutdownRequested += (_, _) => Shutdown();
+            // Exit is raised however the app ends (tray Exit, Windows sign-out). ShutdownRequested is not raised by
+            // Shutdown() (tray Exit), so cleanup hooked there never ran.
+            desktop.Exit += (_, _) => Shutdown();
             _tray = new TrayIconController(this, _services.GetRequiredService<LiveActivation>(), ShowMainWindow, Exit);
             Program.Instance?.OnShowRequested(() => Dispatcher.UIThread.Post(ShowMainWindow));
 
