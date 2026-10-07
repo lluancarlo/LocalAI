@@ -1,0 +1,67 @@
+# Every push to master: run the unit tests, publish the app and replace the "latest" pre-release with the new zip.
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# A newer push makes an older build pointless.
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+permissions:
+  contents: write # create the release and its tag
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # The llama.cpp runtime (~580 MB download) only changes when the catalog changes.
+      - name: Cache the llama.cpp runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime/llama.cpp
+          key: llama-runtime-${{ hashFiles('src/LocalAI.Configuration/catalog.json') }}
+
+      # Integration tests need downloaded models and audio hardware; Desktop tests need an interactive session.
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          foreach ($project in 'LocalAI.Core.Tests', 'LocalAI.Memory.Tests', 'LocalAI.Infrastructure.Tests') {
+            dotnet test "tests/$project/$project.csproj" -c Release --filter "Category!=Desktop"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Publish and zip
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/publish.ps1
+
+      - name: Replace the "latest" release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          $zip = "publish/LocalAI-win-x64.zip"
+          Move-Item publish/LocalAI.zip $zip
+          $notes = @"
+          Automatic build of ``master`` at $sha.
+
+          $env:COMMIT_MESSAGE
+
+          **Install:** unzip anywhere writable (not under Program Files) and run ``LocalAI\LocalAI.exe``.
+          Models are downloaded from inside the app. Windows 11; an NVIDIA GPU is recommended.
+          "@
+          gh release delete latest --cleanup-tag --yes 2>$null
+          gh release create latest $zip --target $env:GITHUB_SHA --prerelease --title "Latest build ($sha)" --notes $notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
