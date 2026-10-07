@@ -45,10 +45,10 @@ public sealed class SqliteConversationStoreTests : IDisposable
 
     public void Dispose() => _fx.Dispose();
 
-    private Task<StoredMessage> Add(long conversationId, ChatRole role, string text, string? lang = null) =>
+    private Task<StoredMessage> Add(long conversationId, ChatRole role, string text, string? lang = null, DateTimeOffset? at = null) =>
         _store.AddMessageAsync(new StoredMessage
         {
-            ConversationId = conversationId, Role = role, Content = text, CreatedAt = DateTimeOffset.Now,
+            ConversationId = conversationId, Role = role, Content = text, CreatedAt = at ?? DateTimeOffset.Now,
             Language = lang, Source = InputSource.Text, Model = role == ChatRole.Assistant ? "m" : null,
         });
 
@@ -57,7 +57,8 @@ public sealed class SqliteConversationStoreTests : IDisposable
     {
         var a = await _store.CreateAsync("First");
         var b = await _store.CreateAsync("Second");
-        await Add(a.Id, ChatRole.User, "bump"); // a becomes most recent
+        // a becomes most recent. An explicit later time: on a fast machine all three writes share one millisecond.
+        await Add(a.Id, ChatRole.User, "bump", at: DateTimeOffset.Now.AddSeconds(1));
 
         var list = await _store.ListAsync();
         Assert.Equal([a.Id, b.Id], list.Select(c => c.Id));

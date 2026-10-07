@@ -36,6 +36,7 @@ if (Test-Path $out) {
 }
 dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained true -o $out -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+Copy-Item (Join-Path $root "THIRD-PARTY-NOTICES.md") $out # bundled components' licenses travel with every copy
 
 # Zip without data\: the user's database, settings, logs and models never go into the package.
 # Windows' bsdtar writes zip archives larger than 2 GB and much faster than Compress-Archive.
