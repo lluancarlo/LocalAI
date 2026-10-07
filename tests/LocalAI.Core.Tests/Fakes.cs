@@ -1,10 +1,13 @@
 using System.Runtime.CompilerServices;
 using LocalAI.Configuration;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Conversations;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
 using LocalAI.Core.Speech;
+using LocalAI.Core.Voice;
 using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Tests;
@@ -19,8 +22,11 @@ internal sealed class FakeLanguageModel : ILanguageModel
     public string? LastError { get; set; }
     public event EventHandler<LanguageModelState>? StateChanged;
 
+    public int LoadCount { get; private set; }
+
     public Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        LoadCount++;
         State = LanguageModelState.Ready;
         StateChanged?.Invoke(this, State);
         return Task.CompletedTask;
@@ -184,5 +190,104 @@ internal static class TestOptions
         var o = new LocalAiOptions();
         configure?.Invoke(o);
         return Options.Create(o);
+    }
+}
+
+internal sealed class InMemoryAssistantStore : IAssistantStore
+{
+    private readonly List<AssistantProfile> _items = [];
+
+    public Task<IReadOnlyList<AssistantProfile>> ListAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<AssistantProfile>>(_items.ToList());
+
+    public Task<AssistantProfile> CreateAsync(NewAssistant assistant, VoiceStyle voiceStyle, CancellationToken ct = default)
+    {
+        var profile = new AssistantProfile(_items.Count + 1, assistant.Name, assistant.StylePrompt, assistant.ModelId,
+            assistant.VoiceId, assistant.Language, voiceStyle, DateTimeOffset.Now);
+        _items.Add(profile);
+        return Task.FromResult(profile);
+    }
+
+    public Task SetVoiceStyleAsync(long id, VoiceStyle voiceStyle, CancellationToken ct = default)
+    {
+        var i = _items.FindIndex(a => a.Id == id);
+        _items[i] = _items[i] with { VoiceStyle = voiceStyle };
+        return Task.CompletedTask;
+    }
+
+    public Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default)
+    {
+        var i = _items.FindIndex(a => a.Id == id);
+        _items[i] = _items[i] with { Hotkey = hotkey };
+        return Task.CompletedTask;
+    }
+
+    public Task<AssistantDataSummary> GetDataSummaryAsync(long id, CancellationToken ct = default) =>
+        Task.FromResult(new AssistantDataSummary(0, 0, 0));
+
+    public Task DeleteAsync(long id, CancellationToken ct = default)
+    {
+        _items.RemoveAll(a => a.Id == id);
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>Global shortcuts without Windows: <see cref="Press"/> simulates a key press, <see cref="Taken"/> other apps' shortcuts.</summary>
+internal sealed class FakeGlobalHotkeys : IGlobalHotkeys
+{
+    private readonly Dictionary<HotkeyGesture, Action> _registered = [];
+
+    public HashSet<HotkeyGesture> Taken { get; } = [];
+    public IReadOnlyCollection<HotkeyGesture> Registered => _registered.Keys;
+
+    public IDisposable Register(HotkeyGesture gesture, Action pressed)
+    {
+        if (Taken.Contains(gesture)) throw new HotkeyUnavailableException(gesture, $"{gesture} is already used by another application or by Windows.");
+        if (!_registered.TryAdd(gesture, pressed)) throw new HotkeyUnavailableException(gesture, $"{gesture} is registered twice.");
+        return new Registration(() => _registered.Remove(gesture));
+    }
+
+    /// <summary>True if the shortcut was registered (and its handler ran).</summary>
+    public bool Press(HotkeyGesture gesture)
+    {
+        if (!_registered.TryGetValue(gesture, out var pressed)) return false;
+        pressed();
+        return true;
+    }
+
+    private sealed class Registration(Action dispose) : IDisposable
+    {
+        public void Dispose() => dispose();
+    }
+}
+
+internal sealed class FakeLiveVoice : ILiveVoice
+{
+    public bool IsContinuous { get; private set; }
+    public string? LastError { get; private set; }
+    /// <summary>When set, starting fails with this error (e.g. no microphone).</summary>
+    public string? FailToStart { get; set; }
+    public event EventHandler<VoiceState>? StateChanged;
+
+    public Task StartContinuousAsync()
+    {
+        if (IsContinuous) return Task.CompletedTask;
+        if (FailToStart != null)
+        {
+            LastError = FailToStart;
+            StateChanged?.Invoke(this, VoiceState.Error);
+            return Task.CompletedTask;
+        }
+        IsContinuous = true;
+        StateChanged?.Invoke(this, VoiceState.Listening);
+        return Task.CompletedTask;
+    }
+
+    public Task StopContinuousAsync()
+    {
+        if (!IsContinuous) return Task.CompletedTask;
+        IsContinuous = false;
+        StateChanged?.Invoke(this, VoiceState.Ready);
+        return Task.CompletedTask;
     }
 }

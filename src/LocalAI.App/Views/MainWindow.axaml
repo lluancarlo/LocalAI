@@ -282,6 +282,8 @@
           <TabItem Header="Assistants" FontSize="14">
             <ScrollViewer>
               <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,8,16,0">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,12"
+                           Text="Each assistant can have a shortcut that works from any application: press it to start a voice conversation with the assistant (the tray icon blinks while it listens), press it again to stop." />
                 <ItemsControl ItemsSource="{Binding Items}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:AssistantItemViewModel">
@@ -293,6 +295,15 @@
                           </StackPanel>
                           <TextBlock Classes="muted" Text="{Binding Details}" />
                           <TextBlock Classes="muted" Text="{Binding Style}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                            <TextBlock Classes="muted" Text="Shortcut:" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding HotkeyText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" VerticalAlignment="Center" />
+                            <Button Classes="flat" Padding="8,2" Content="{Binding RecordHotkeyText}" Command="{Binding RecordHotkeyCommand}"
+                                    ToolTip.Tip="Press a combination with Ctrl, Alt or Win, for example Ctrl+Alt+D" />
+                            <Button Classes="flat" Padding="8,2" Content="Remove" Command="{Binding ClearHotkeyCommand}" IsVisible="{Binding HasHotkey}" />
+                          </StackPanel>
+                          <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}" Text="{Binding HotkeyProblem}"
+                                     IsVisible="{Binding HotkeyProblem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                           <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
                                      IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>

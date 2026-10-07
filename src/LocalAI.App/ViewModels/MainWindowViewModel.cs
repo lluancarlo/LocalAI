@@ -33,6 +33,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly AssistantSession _session;
     private readonly IConversationStore _store;
     private readonly VoiceConversationController _voice;
+    private readonly LiveActivation _live;
     private readonly StartupService _startup;
     private readonly ILanguageModel _llm;
     private readonly LlamaCppEmbeddingService _embeddings;
@@ -51,7 +52,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _searchCts;
 
     public MainWindowViewModel(
-        AssistantSession session, IConversationStore store, VoiceConversationController voice, StartupService startup,
+        AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
         MemoryService memory, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
         LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
@@ -59,6 +60,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _session = session;
         _store = store;
         _voice = voice;
+        _live = live;
         _startup = startup;
         _llm = llm;
         _embeddings = embeddings;
@@ -74,6 +76,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _logger = logger;
         _preferredMode = _options.Voice.ReplyMode;
         _replyMode = _preferredMode == ReplyMode.ReadAloud ? ReplyMode.ReadAloud : ReplyMode.Text;
+        _lastNonLiveMode = _replyMode;
 
         _session.UserMessageAdded += (_, m) => Ui(() => OnUserMessage(m));
         _session.AssistantMessageStarted += (_, id) => Ui(() => OnAssistantStarted(id));
@@ -81,6 +84,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _session.TurnCompleted += (_, r) => Ui(() => OnTurnCompleted(r));
         _session.ConversationCreated += (_, c) => Ui(() => OnConversationCreated(c));
         _session.BusyChanged += (_, b) => Ui(() => IsBusy = b);
+        _session.ConversationChanged += (_, id) => Ui(() => OnSessionConversationChanged(id));
+        _live.StateChanged += (_, s) => Ui(() => OnLiveStateChanged(s));
+        _live.Failed += (_, reason) => Ui(() => BannerText = $"Could not start listening: {reason}");
         _voice.StateChanged += (_, s) => Ui(() => OnVoiceState(s));
         _voice.Warning += (_, w) => Ui(() => BannerText = w);
         _voice.Transcribed += (_, _) => Ui(() => BannerText = null);
@@ -145,6 +151,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string? _bannerText;
 
     private readonly ReplyMode _preferredMode;
+    /// <summary>The mode to return to when live mode started by a shortcut is turned off.</summary>
+    private ReplyMode _lastNonLiveMode;
+    /// <summary>True while the reply mode follows a shortcut rather than the user's choice (not saved as a preference).</summary>
+    private bool _modeFollowsShortcut;
 
     public bool IsContinuous => ReplyMode == ReplyMode.Live;
 
@@ -518,10 +528,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnReplyModeChanged(ReplyMode oldValue, ReplyMode newValue)
     {
+        if (newValue != ReplyMode.Live) _lastNonLiveMode = newValue;
         _voice.SetTyping(newValue == ReplyMode.Live && !string.IsNullOrWhiteSpace(InputText));
         if (newValue == ReplyMode.Live) _ = _voice.StartContinuousAsync();
         else if (oldValue == ReplyMode.Live) _ = _voice.StopContinuousAsync();
-        _settings.Set("Voice", "ReplyMode", newValue.ToString());
+        if (!_modeFollowsShortcut) _settings.Set("Voice", "ReplyMode", newValue.ToString());
+    }
+
+    /// <summary>Mirrors live mode turned on or off by an assistant's shortcut in the mode selector.</summary>
+    private void OnLiveStateChanged(LiveState state)
+    {
+        var target = state switch
+        {
+            LiveState.Live when ReplyMode != ReplyMode.Live => ReplyMode.Live,
+            LiveState.Off when ReplyMode == ReplyMode.Live => _lastNonLiveMode,
+            _ => (ReplyMode?)null,
+        };
+        if (target is not { } mode) return;
+        _modeFollowsShortcut = true;
+        try { ReplyMode = mode; }
+        finally { _modeFollowsShortcut = false; }
+    }
+
+    /// <summary>A shortcut opened a new conversation: show it (the window may be hidden, it is ready when shown).</summary>
+    private void OnSessionConversationChanged(long? conversationId)
+    {
+        if (conversationId != null || _session.CurrentConversationId != null || SelectedConversation == null) return;
+        _suppressSelection = true;
+        SelectedConversation = null;
+        _suppressSelection = false;
+        Messages.Clear();
+        _streaming = null;
+        ConversationTitle = "New conversation";
     }
 
     private void OnVoiceState(VoiceState s)

@@ -1,4 +1,5 @@
 using LocalAI.Configuration;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
 using LocalAI.Core.Speech;
@@ -25,6 +26,9 @@ public sealed class AssistantManager(
     private const string AutoModel = "auto";
 
     private readonly LocalAiOptions _options = options.Value;
+
+    /// <summary>Raised after an assistant was created, deleted or got a new shortcut.</summary>
+    public event EventHandler? AssistantsChanged;
 
     public Task<IReadOnlyList<AssistantProfile>> ListAsync(CancellationToken ct = default) => store.ListAsync(ct);
 
@@ -53,6 +57,7 @@ public sealed class AssistantManager(
 
         var profile = await store.CreateAsync(assistant with { Name = name, StylePrompt = style }, VoiceStyle.Default, ct).ConfigureAwait(false);
         logger.LogInformation("Created assistant {Id} (model {Model}, voice {Voice})", profile.Id, profile.ModelId, profile.VoiceId);
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
         await SwitchAsync(profile, ct).ConfigureAwait(false);
         return profile;
     }
@@ -111,6 +116,25 @@ public sealed class AssistantManager(
         }
         await store.DeleteAsync(profile.Id, ct).ConfigureAwait(false);
         logger.LogInformation("Deleted assistant {Id}", profile.Id);
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Sets (or clears, with null) the global shortcut of an assistant. Two assistants cannot share one.</summary>
+    public async Task<AssistantProfile> SetHotkeyAsync(AssistantProfile profile, HotkeyGesture? hotkey, CancellationToken ct = default)
+    {
+        var all = await store.ListAsync(ct).ConfigureAwait(false);
+        var current = all.FirstOrDefault(a => a.Id == profile.Id)
+                      ?? throw new AssistantValidationException($"{profile.Name} no longer exists.");
+        if (hotkey != null && all.FirstOrDefault(a => a.Id != profile.Id && a.Hotkey == hotkey) is { } owner)
+            throw new AssistantValidationException($"{hotkey} is already the shortcut of {owner.Name}.");
+        if (current.Hotkey == hotkey) return current;
+
+        await store.SetHotkeyAsync(profile.Id, hotkey, ct).ConfigureAwait(false);
+        var updated = current with { Hotkey = hotkey };
+        if (context.Current?.Id == profile.Id) context.Update(context.Current with { Hotkey = hotkey });
+        logger.LogInformation("Assistant {Id} shortcut set to {Hotkey}", profile.Id, hotkey?.ToString() ?? "none");
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
+        return updated;
     }
 
     /// <summary>Applies and saves a new voice style for the active assistant.</summary>

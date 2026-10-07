@@ -45,6 +45,19 @@ public sealed partial class MainWindow : Window
             };
         };
         Opened += (_, _) => InputBox.Focus();
+        Deactivated += (_, _) => Vm?.Settings.Assistants.CancelHotkeyRecording();
+    }
+
+    /// <summary>The app keeps running in the tray: closing the window (X, Alt+F4) only hides it. Exit is in the tray menu.</summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (e.CloseReason == WindowCloseReason.WindowClosing)
+        {
+            e.Cancel = true;
+            Vm?.Settings.Assistants.CancelHotkeyRecording();
+            Hide();
+        }
+        base.OnClosing(e);
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
@@ -68,6 +81,14 @@ public sealed partial class MainWindow : Window
     private void Window_KeyDown(object? sender, KeyEventArgs e)
     {
         if (Vm == null || Vm.ShowWelcome) return;
+        if (Vm.Settings.Assistants.IsRecordingHotkey)
+        {
+            // Recording a global shortcut: every key goes to the recorder, none triggers a window shortcut.
+            e.Handled = true;
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None) Vm.Settings.Assistants.CancelHotkeyRecording();
+            else if (HotkeyInput.TryRead(e, out var modifiers, out var key)) _ = Vm.Settings.Assistants.CompleteHotkeyRecordingAsync(modifiers, key);
+            return;
+        }
         if (Vm.Settings.Assistants.PendingDelete is { } pendingDelete)
         {
             // The confirmation popup is modal: Escape cancels it and no other shortcut runs behind it.

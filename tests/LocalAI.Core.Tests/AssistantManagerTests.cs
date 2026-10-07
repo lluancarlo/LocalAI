@@ -1,5 +1,6 @@
 using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Memory;
 using LocalAI.Core.Speech;
 using LocalAI.Tests;
@@ -105,35 +106,30 @@ public sealed class AssistantManagerTests
         Assert.Equal(marco.Id, _context.Current?.Id);
     }
 
-    private sealed class InMemoryAssistantStore : IAssistantStore
+    [Fact]
+    public async Task Shortcuts_are_saved_per_assistant_and_cannot_be_shared()
     {
-        private readonly List<AssistantProfile> _items = [];
+        HotkeyGesture.TryParse("Ctrl+Alt+D", out var ctrlAltD);
+        var diana = await _manager.CreateAsync(Draft("Diana"));
+        var marco = await _manager.CreateAsync(Draft("Marco"));
+        var changes = 0;
+        _manager.AssistantsChanged += (_, _) => changes++;
 
-        public Task<IReadOnlyList<AssistantProfile>> ListAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<AssistantProfile>>(_items.ToList());
+        var updated = await _manager.SetHotkeyAsync(diana, ctrlAltD);
+        Assert.Equal(ctrlAltD, updated.Hotkey);
+        Assert.Equal(ctrlAltD, (await _manager.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        Assert.Equal(1, changes);
 
-        public Task<AssistantProfile> CreateAsync(NewAssistant assistant, VoiceStyle voiceStyle, CancellationToken ct = default)
-        {
-            var profile = new AssistantProfile(_items.Count + 1, assistant.Name, assistant.StylePrompt, assistant.ModelId,
-                assistant.VoiceId, assistant.Language, voiceStyle, DateTimeOffset.Now);
-            _items.Add(profile);
-            return Task.FromResult(profile);
-        }
+        var error = await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.SetHotkeyAsync(marco, ctrlAltD));
+        Assert.Contains("Diana", error.Message, StringComparison.Ordinal);
 
-        public Task SetVoiceStyleAsync(long id, VoiceStyle voiceStyle, CancellationToken ct = default)
-        {
-            var i = _items.FindIndex(a => a.Id == id);
-            _items[i] = _items[i] with { VoiceStyle = voiceStyle };
-            return Task.CompletedTask;
-        }
+        await _manager.SetHotkeyAsync(diana, ctrlAltD); // unchanged: no notification
+        Assert.Equal(1, changes);
 
-        public Task<AssistantDataSummary> GetDataSummaryAsync(long id, CancellationToken ct = default) =>
-            Task.FromResult(new AssistantDataSummary(0, 0, 0));
-
-        public Task DeleteAsync(long id, CancellationToken ct = default)
-        {
-            _items.RemoveAll(a => a.Id == id);
-            return Task.CompletedTask;
-        }
+        await _manager.SetHotkeyAsync(diana, null);
+        Assert.Null((await _manager.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        await _manager.SetHotkeyAsync(marco, ctrlAltD);
+        Assert.Equal(ctrlAltD, _context.Current?.Hotkey); // Marco is the active assistant
+        Assert.Equal(3, changes);
     }
 }

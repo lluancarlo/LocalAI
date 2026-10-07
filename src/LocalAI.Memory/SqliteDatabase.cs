@@ -72,6 +72,10 @@ public sealed class SqliteDatabase
                 ELSE '' END;
         ALTER TABLE assistants DROP COLUMN voices;
         """,
+        // v4: optional global shortcut that turns a live voice conversation with the assistant on and off
+        """
+        ALTER TABLE assistants ADD COLUMN hotkey TEXT NOT NULL DEFAULT '';
+        """,
     ];
 
     public SqliteDatabase(string databasePath, ILogger<SqliteDatabase> logger)

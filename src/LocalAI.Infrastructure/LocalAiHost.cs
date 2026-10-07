@@ -1,10 +1,12 @@
 using System.Runtime.Versioning;
 using LocalAI.Audio;
+using LocalAI.Desktop;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Conversations;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Diagnostics;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
@@ -95,12 +97,19 @@ public static class LocalAiHost
             services.AddSingleton<IAudioPlayer, NullAudioPlayer>();
         }
 
+        // Desktop integration (global shortcuts)
+        if (OperatingSystem.IsWindows()) AddWindowsDesktop(services);
+        else services.AddSingleton<IGlobalHotkeys, NullGlobalHotkeys>();
+
         // Orchestration
         services.AddSingleton<PromptBuilder>();
         services.AddSingleton<SpeechOutput>();
         services.AddSingleton<AssistantManager>();
         services.AddSingleton<AssistantSession>();
         services.AddSingleton<VoiceConversationController>();
+        services.AddSingleton<ILiveVoice>(sp => sp.GetRequiredService<VoiceConversationController>());
+        services.AddSingleton<AssistantHotkeys>();
+        services.AddSingleton<LiveActivation>();
         services.AddSingleton<StartupService>();
         return services;
     }
@@ -114,6 +123,10 @@ public static class LocalAiHost
             sp.GetRequiredService<ILogger<WasapiAudioPlayer>>(),
             sp.GetRequiredService<IOptions<LocalAiOptions>>().Value.Audio.OutputDeviceId));
     }
+
+    [SupportedOSPlatform("windows")]
+    private static void AddWindowsDesktop(IServiceCollection services) =>
+        services.AddSingleton<IGlobalHotkeys, Win32GlobalHotkeys>();
 
     /// <summary>Structured local file logging. Logs never leave the machine and never contain conversation text or audio.</summary>
     public static void ConfigureLogging(ILoggingBuilder logging, IConfiguration configuration, string logsDirectory)

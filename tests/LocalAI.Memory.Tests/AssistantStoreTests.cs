@@ -1,6 +1,7 @@
 using LocalAI.Tests;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
 using LocalAI.Core.Speech;
@@ -31,6 +32,21 @@ public sealed class AssistantStoreTests : IDisposable
         _fx.Assistant.Set(diana);
         Assert.Equal("Diana's chat", Assert.Single(await conversations.ListAsync()).Title);
         Assert.Equal("User likes tea.", Assert.Single(await memories.ListAsync()).Content);
+    }
+
+    [Fact]
+    public async Task Shortcut_is_saved_and_cleared()
+    {
+        var store = new SqliteAssistantStore(_fx.Database);
+        var diana = _fx.Assistant.Current!;
+        Assert.Null(diana.Hotkey);
+        Assert.True(HotkeyGesture.TryParse("Ctrl+Alt+D", out var gesture));
+
+        await store.SetHotkeyAsync(diana.Id, gesture);
+        Assert.Equal(gesture, (await store.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+
+        await store.SetHotkeyAsync(diana.Id, null);
+        Assert.Null((await store.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
     }
 
     [Fact]
