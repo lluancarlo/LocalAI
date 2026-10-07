@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Speech;
 using LocalAI.Infrastructure;
 using LocalAI.Models;
@@ -17,7 +18,8 @@ public sealed record ModelChoice(ModelPackage Package, string Text);
 
 /// <summary>
 /// Settings › Assistants and the first-launch dialog: create (name, style, language model and voice), switch and
-/// delete assistants. Whatever the new assistant needs is downloaded right after it is created.
+/// delete assistants, and record each assistant's global shortcut. Whatever the new assistant needs is downloaded
+/// right after it is created.
 /// </summary>
 public sealed partial class AssistantsViewModel : ObservableObject
 {
@@ -29,10 +31,13 @@ public sealed partial class AssistantsViewModel : ObservableObject
     private readonly IAudioPlayer _player;
     private readonly LanguageData _languages;
     private readonly StartupService _startup;
+    private readonly AssistantHotkeys _hotkeys;
 
     public AssistantsViewModel(AssistantManager manager, AssistantContext context, ModelService models, ModelsViewModel modelsView,
-        ITextToSpeech tts, IAudioPlayer player, LanguageData languages, StartupService startup, ILogger<AssistantsViewModel> logger)
+        ITextToSpeech tts, IAudioPlayer player, LanguageData languages, StartupService startup, AssistantHotkeys hotkeys,
+        ILogger<AssistantsViewModel> logger)
     {
+        _hotkeys = hotkeys;
         _manager = manager;
         _context = context;
         _models = models;
@@ -44,6 +49,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
         Logger = logger;
         _context.Changed += (_, _) => Dispatcher.UIThread.Post(() => _ = RefreshAsync());
         _models.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshChoices);
+        _hotkeys.ProblemsChanged += (_, _) => Dispatcher.UIThread.Post(ShowHotkeyProblems);
         RefreshChoices();
     }
 
@@ -75,6 +81,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
     {
         RefreshChoices();
         var all = await _manager.ListAsync();
+        CancelHotkeyRecording();
         Items.Clear();
         foreach (var profile in all)
         {
@@ -82,6 +89,77 @@ public sealed partial class AssistantsViewModel : ObservableObject
             var voice = _models.Find(profile.VoiceId)?.DisplayName ?? profile.VoiceId;
             Items.Add(new AssistantItemViewModel(this, profile, profile.Id == _context.Current?.Id, $"{model} · {voice}"));
         }
+        ShowHotkeyProblems();
+    }
+
+    // ---------------- Global shortcuts ----------------
+
+    /// <summary>The assistant whose new shortcut is being recorded; the main window sends it the next key press.</summary>
+    private AssistantItemViewModel? _recording;
+
+    public bool IsRecordingHotkey => _recording != null;
+
+    internal void BeginHotkeyRecording(AssistantItemViewModel item)
+    {
+        CancelHotkeyRecording();
+        _recording = item;
+        item.IsRecordingHotkey = true;
+        item.Error = null;
+        // Release the registered shortcuts so pressing an existing one reaches the window instead of toggling live mode.
+        _ = RunHotkeyTaskAsync(_hotkeys.SuspendAsync);
+    }
+
+    public void CancelHotkeyRecording()
+    {
+        if (_recording is not { } item) return;
+        _recording = null;
+        item.IsRecordingHotkey = false;
+        _ = RunHotkeyTaskAsync(_hotkeys.ResumeAsync);
+    }
+
+    /// <summary>Saves the recorded combination, or explains why it cannot be a shortcut (recording continues then).</summary>
+    public async Task CompleteHotkeyRecordingAsync(HotkeyModifiers modifiers, string key)
+    {
+        if (_recording is not { } item) return;
+        if (!HotkeyGesture.TryCreate(modifiers, key, out var gesture, out var error))
+        {
+            item.Error = error;
+            return;
+        }
+        CancelHotkeyRecording();
+        await SetHotkeyAsync(item, gesture);
+    }
+
+    internal async Task SetHotkeyAsync(AssistantItemViewModel item, HotkeyGesture? gesture)
+    {
+        item.Error = null;
+        try
+        {
+            await Task.Run(() => _manager.SetHotkeyAsync(item.Profile, gesture));
+            await RefreshAsync();
+        }
+        catch (AssistantValidationException ex)
+        {
+            item.Error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not save the shortcut");
+            item.Error = $"Could not save the shortcut: {ex.Message}";
+        }
+    }
+
+    private void ShowHotkeyProblems()
+    {
+        var problems = _hotkeys.Problems;
+        foreach (var item in Items) item.HotkeyProblem = problems.GetValueOrDefault(item.Profile.Id);
+    }
+
+    // Called directly (not via Task.Run) so suspend/resume flags are set in click order; the last sync applies them.
+    private async Task RunHotkeyTaskAsync(Func<Task> action)
+    {
+        try { await action(); }
+        catch (Exception ex) { Logger.LogError(ex, "Could not update the global shortcuts"); }
     }
 
     private void RefreshChoices()
@@ -235,8 +313,32 @@ public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, As
     public string Style => string.IsNullOrEmpty(Profile.StylePrompt) ? "Default personality" : Profile.StylePrompt;
     public bool IsActive { get; } = isActive;
     public bool CanSwitch => !IsActive;
+    public bool HasHotkey => Profile.Hotkey != null;
+    public string HotkeyText => IsRecordingHotkey ? "Press the new shortcut… (Esc cancels)" : Profile.Hotkey?.ToString() ?? "none";
+    public string RecordHotkeyText => IsRecordingHotkey ? "Cancel" : HasHotkey ? "Change…" : "Set…";
 
     [ObservableProperty] private string? _error;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HotkeyText), nameof(RecordHotkeyText))]
+    private bool _isRecordingHotkey;
+
+    /// <summary>Why the shortcut does not work right now (e.g. another application already uses it).</summary>
+    [ObservableProperty] private string? _hotkeyProblem;
+
+    [RelayCommand]
+    private void RecordHotkey()
+    {
+        if (IsRecordingHotkey) owner.CancelHotkeyRecording();
+        else owner.BeginHotkeyRecording(this);
+    }
+
+    [RelayCommand]
+    private Task ClearHotkeyAsync()
+    {
+        owner.CancelHotkeyRecording();
+        return owner.SetHotkeyAsync(this, null);
+    }
 
     [RelayCommand]
     private async Task SwitchAsync()

@@ -1,11 +1,14 @@
 ﻿using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using LocalAI.App.Services;
 using LocalAI.App.ViewModels;
 using LocalAI.App.Views;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Voice;
 using LocalAI.Infrastructure;
@@ -19,6 +22,8 @@ public sealed class App : Application
 {
     private ServiceProvider? _services;
     private CancellationTokenSource? _startupCts;
+    private TrayIconController? _tray;
+    private IClassicDesktopStyleApplicationLifetime? _desktop;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -30,20 +35,38 @@ public sealed class App : Application
             var logger = _services.GetRequiredService<ILogger<App>>();
             InstallGlobalExceptionHandlers(logger);
 
+            _desktop = desktop;
             var vm = ActivatorUtilities.CreateInstance<MainWindowViewModel>(_services);
             desktop.MainWindow = new MainWindow { DataContext = vm };
             desktop.ShutdownRequested += (_, _) => Shutdown();
+            _tray = new TrayIconController(this, _services.GetRequiredService<LiveActivation>(), ShowMainWindow, Exit);
+            Program.Instance?.OnShowRequested(() => Dispatcher.UIThread.Post(ShowMainWindow));
 
             _startupCts = new CancellationTokenSource();
             var startup = _services.GetRequiredService<StartupService>();
+            var hotkeys = _services.GetRequiredService<AssistantHotkeys>();
             _ = Task.Run(async () =>
             {
                 await startup.StartAsync(_startupCts.Token).ConfigureAwait(false);
                 await Dispatcher.UIThread.InvokeAsync(vm.OnStartupCompleted);
+                // Shortcuts only once the engines are up: pressing one earlier would race the startup model load.
+                try { await hotkeys.StartAsync(_startupCts.Token).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogError(ex, "Could not register the assistant shortcuts"); }
             });
         }
         base.OnFrameworkInitializationCompleted();
     }
+
+    private void ShowMainWindow()
+    {
+        if (_desktop?.MainWindow is not { } window) return;
+        window.Show();
+        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
+        window.Activate();
+    }
+
+    /// <summary>Quits the app (tray menu). Closing the window only hides it.</summary>
+    private void Exit() => _desktop?.Shutdown();
 
     private static ServiceProvider BuildServices()
     {
@@ -81,6 +104,8 @@ public sealed class App : Application
     private void Shutdown()
     {
         if (_services == null) return;
+        _tray?.Dispose();
+        _tray = null;
         _startupCts?.Cancel();
         _services.GetRequiredService<AssistantSession>().CancelCurrentTurn();
         // Stop voice and the engine child processes before the process exits (they are also in a kill-on-close job).

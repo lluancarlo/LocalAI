@@ -19,7 +19,7 @@ public enum VoiceState { Off, Ready, Listening, Recording, Transcribing, Thinkin
 /// that interrupted becomes the next utterance. In continuous mode the user can also type: the microphone is ignored
 /// while text is being typed, and the typed message is answered aloud like a spoken one.
 /// </summary>
-public sealed class VoiceConversationController : IAsyncDisposable
+public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 {
     private readonly IAudioCapture _capture;
     private readonly IVoiceActivityDetectorFactory _vadFactory;

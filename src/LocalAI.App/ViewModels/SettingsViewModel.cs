@@ -219,6 +219,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         ScheduleStyleSave();
     }
 
-    /// <summary>Stops the microphone test when the panel closes.</summary>
-    public void OnClosed() => IsTestingMicrophone = false;
+    /// <summary>Stops the microphone test and any shortcut recording when the panel closes.</summary>
+    public void OnClosed()
+    {
+        IsTestingMicrophone = false;
+        Assistants.CancelHotkeyRecording();
+    }
 }

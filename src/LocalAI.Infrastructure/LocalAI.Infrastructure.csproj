@@ -6,6 +6,7 @@
     <ProjectReference Include="..\LocalAI.Models\LocalAI.Models.csproj" />
     <ProjectReference Include="..\LocalAI.Speech\LocalAI.Speech.csproj" />
     <ProjectReference Include="..\LocalAI.Audio\LocalAI.Audio.csproj" />
+    <ProjectReference Include="..\LocalAI.Desktop\LocalAI.Desktop.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />

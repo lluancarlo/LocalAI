@@ -18,6 +18,8 @@
 
 - **Your own assistants:** each with a name, personality, language model, voice, conversations and memories.
 - **Text or voice:** streaming chat, push-to-talk, read aloud, or hands-free Live mode that you can interrupt.
+- **Always at hand:** it runs in the notification area. Give each assistant a global shortcut to start and stop a
+  voice conversation from any application; the tray icon blinks while it listens.
 - **Long-term memory:** it learns facts about you and recalls them when relevant. You can see and delete each one.
 - **Fully offline:** llama.cpp (Gemma 4), Whisper, Piper and SQLite on your GPU. The Internet is used only to download
   models.
@@ -55,6 +57,22 @@ publish\LocalAI\LocalAI.exe
 ```
 
 On first launch you create your first assistant and the app downloads the models it needs.
+
+Closing the window keeps Local AI running in the notification area; use **Exit** in the tray icon's menu to quit.
+Set an assistant's shortcut in **Settings › Assistants**.
+
+## Privacy
+
+- **Offline:** conversations, voice and memories never leave your PC. The Internet is used only to download models.
+- **One folder:** everything the app creates (database, settings, logs, temporary files, models) is in `data\` next
+  to `LocalAI.exe`. Delete the folder to remove it all.
+- **Per assistant:** each assistant has its own conversations and memories. Deleting an assistant deletes them too.
+- **Logs** record what the app did, never what you said or typed.
+- **Outside the folder, Windows keeps its own records** of any program you run. These contain only the path of
+  `LocalAI.exe` and timestamps:
+  - the tray icon setting (`HKCU\Control Panel\NotifyIconSettings`);
+  - microphone access history (*Settings › Privacy › Microphone*);
+  - program launch data (`C:\Windows\Prefetch`).
 
 ## License
 

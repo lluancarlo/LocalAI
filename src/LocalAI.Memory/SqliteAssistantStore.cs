@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LocalAI.Core.Assistants;
+using LocalAI.Core.Desktop;
 using LocalAI.Core.Speech;
 using Microsoft.Data.Sqlite;
 using static LocalAI.Memory.SqliteDatabase;
@@ -12,7 +13,7 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT id, name, style_prompt, model_id, voice_id, language, voice_style, created_at FROM assistants ORDER BY id;";
+        cmd.CommandText = "SELECT id, name, style_prompt, model_id, voice_id, language, voice_style, created_at, hotkey FROM assistants ORDER BY id;";
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var list = new List<AssistantProfile>();
         while (await r.ReadAsync(ct).ConfigureAwait(false))
@@ -25,7 +26,8 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
                 r.GetString(4),
                 r.GetString(5),
                 ReadStyle(r.GetString(6)),
-                FromUnixMs(r.GetInt64(7))));
+                FromUnixMs(r.GetInt64(7)),
+                HotkeyGesture.TryParse(r.GetString(8), out var hotkey) ? hotkey : null));
         }
         return list;
     }
@@ -71,6 +73,16 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
         await using var cmd = c.CreateCommand();
         cmd.CommandText = "UPDATE assistants SET voice_style = $voiceStyle WHERE id = $id;";
         cmd.Parameters.AddWithValue("$voiceStyle", JsonSerializer.Serialize(voiceStyle));
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE assistants SET hotkey = $hotkey WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$hotkey", hotkey?.ToString() ?? "");
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
