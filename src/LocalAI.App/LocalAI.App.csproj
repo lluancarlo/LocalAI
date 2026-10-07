@@ -22,8 +22,22 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
   <!-- The llama.cpp runtime (fetched into the repository's runtime\ by scripts\publish.ps1) ships next to the executable. -->
+  <!-- Only llama-server is used: the other llama.cpp tools (llama-cli, llama-bench, ...) and their *-impl.dll stay out.
+       All ggml-*.dll backends stay: ggml loads them at run time. -->
   <ItemGroup>
-    <None Include="..\..\runtime\llama.cpp\**" Exclude="..\..\runtime\llama.cpp\**\*.partial"
+    <None Include="..\..\runtime\llama.cpp\**"
+          Exclude="..\..\runtime\llama.cpp\**\*.partial;..\..\runtime\llama.cpp\*.exe;..\..\runtime\llama.cpp\*-impl.dll"
           Link="runtime\llama.cpp\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\runtime\llama.cpp\llama-server.exe;..\..\runtime\llama.cpp\llama-server-impl.dll"
+          Link="runtime\llama.cpp\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Smaller package: no native debug symbols (libSkiaSharp.pdb alone is 80 MB) and no native files for other
+       platforms (the app is Windows x64 only; Whisper.net ships Linux/macOS/ARM/x86 builds). -->
+  <Target Name="DropUnneededPublishFiles" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="$([System.String]::Copy('%(RelativePath)').StartsWith('runtimes')) and !$([System.String]::Copy('%(RelativePath)').Contains('win-x64'))" />
+    </ItemGroup>
+  </Target>
 </Project>

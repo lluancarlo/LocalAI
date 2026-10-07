@@ -487,7 +487,7 @@
               CornerRadius="8" Padding="24" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
         <Panel>
           <StackPanel Spacing="10" IsVisible="{Binding WelcomeIntro}">
-            <Image Source="/Assets/welcome.png" Width="240" Height="240" HorizontalAlignment="Center" />
+            <Image Source="/Assets/mascot.png" Width="200" Height="200" HorizontalAlignment="Center" />
             <TextBlock Text="Welcome to Local AI" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
             <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13" TextAlignment="Center"
                        Text="Personal AI assistants that run entirely on your computer. Your conversations, voice and memories never leave it." />

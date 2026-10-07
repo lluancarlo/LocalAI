@@ -2,8 +2,6 @@
 
 <p align="center">
   <img src="docs/images/icon.png" alt="Local AI icon: a waving blue robot" width="128">
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/assistants.png" alt="A group of colorful robot assistants" width="128">
 </p>
 
 <p align="center">
