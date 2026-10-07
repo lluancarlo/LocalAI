@@ -1,6 +1,12 @@
 <h1 align="center">Local AI</h1>
 
 <p align="center">
+  <img src="docs/images/icon.png" alt="Local AI icon: a waving blue robot" width="128">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/assistants.png" alt="A group of colorful robot assistants" width="128">
+</p>
+
+<p align="center">
   <b>Personal AI assistants that run entirely on your Windows PC.</b><br>
   Chat or talk out loud. Conversations, voice and memories never leave your computer.
 </p>
