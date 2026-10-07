@@ -46,8 +46,11 @@
 
 ## Getting started
 
-You need Windows 11, the [.NET 10 SDK](https://dotnet.microsoft.com/download), an NVIDIA GPU (recommended) and about
-9 GB of disk space for models.
+**Download:** get `LocalAI-win-x64.zip` from the [latest release](https://github.com/lluancarlo/LocalAI/releases/tag/latest)
+(built from `master` on every push), unzip it anywhere writable and run `LocalAI\LocalAI.exe`.
+
+**Build it yourself:** you need Windows 11, the [.NET 10 SDK](https://dotnet.microsoft.com/download), an NVIDIA GPU
+(recommended) and about 9 GB of disk space for models.
 
 ```powershell
 git clone https://github.com/lluancarlo/LocalAI.git
@@ -55,6 +58,8 @@ cd LocalAI
 powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
 publish\LocalAI\LocalAI.exe
 ```
+
+`publish.ps1` also writes `publish\LocalAI.zip`, the same files without `data\`.
 
 On first launch you create your first assistant and the app downloads the models it needs.
 

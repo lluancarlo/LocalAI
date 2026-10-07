@@ -2,7 +2,8 @@
 .SYNOPSIS
   Builds the distributable app into publish\LocalAI: self-contained (no .NET install needed) with the llama.cpp
   runtime included and no models. Everything the app creates goes into publish\LocalAI\data; republishing replaces
-  the program files and keeps data\.
+  the program files and keeps data\. Also writes publish\LocalAI.zip (the same files without data\) to share or
+  attach to a release.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
@@ -36,7 +37,15 @@ if (Test-Path $out) {
 dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained true -o $out -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
+# Zip without data\: the user's database, settings, logs and models never go into the package.
+# Windows' bsdtar writes zip archives larger than 2 GB and much faster than Compress-Archive.
+$zipPath = Join-Path $root "publish\LocalAI.zip"
+if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+& "$env:SystemRoot\System32\tar.exe" -a -c -f $zipPath -C (Split-Path $out) --exclude "LocalAI/data" "LocalAI"
+if ($LASTEXITCODE -ne 0) { throw "Creating $zipPath failed" }
+
 Write-Host ""
 Write-Host "Published to $out"
+Write-Host "Zipped to $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB)) MB, without data\)"
 Write-Host "Copy that folder to any Windows PC and run LocalAI.exe. The folder must be writable (not under Program Files)."
 Write-Host "Everything the app creates is in its data folder: delete the folder to remove the app completely."

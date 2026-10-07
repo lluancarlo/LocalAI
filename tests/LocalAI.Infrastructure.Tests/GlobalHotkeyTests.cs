@@ -19,6 +19,7 @@ public sealed class GlobalHotkeyTests
     }
 
     [Fact]
+    [Trait("Category", "Desktop")] // needs an interactive Windows session (skipped in CI)
     public void Registers_unregisters_and_reports_a_combination_already_in_use()
     {
         if (!OperatingSystem.IsWindows()) return;
@@ -37,6 +38,7 @@ public sealed class GlobalHotkeyTests
     }
 
     [Fact]
+    [Trait("Category", "Desktop")] // needs an interactive Windows session (skipped in CI)
     public void Disposing_releases_every_shortcut()
     {
         if (!OperatingSystem.IsWindows()) return;
