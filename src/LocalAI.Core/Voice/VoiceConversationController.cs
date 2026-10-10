@@ -17,7 +17,8 @@ public enum VoiceState { Off, Ready, Listening, Recording, Transcribing, Thinkin
 /// them, <see cref="AssistantSession"/> answers and speaks. While the assistant thinks or speaks, the loop keeps
 /// listening; sustained user speech (echo-gated by <see cref="BargeInDetector"/>) cancels the turn, and the speech
 /// that interrupted becomes the next utterance. In continuous mode the user can also type: the microphone is ignored
-/// while text is being typed, and the typed message is answered aloud like a spoken one.
+/// while text is being typed, and the typed message is answered aloud like a spoken one. With Read selection on, each
+/// message in continuous mode carries the text the user last selected in another application (<see cref="LiveSelection"/>).
 /// </summary>
 public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 {
@@ -25,6 +26,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     private readonly IVoiceActivityDetectorFactory _vadFactory;
     private readonly ISpeechToText _stt;
     private readonly AssistantSession _session;
+    private readonly LiveSelection _selection;
     private readonly IOptionsMonitor<LocalAiOptions> _options;
     private readonly LanguageData _languages;
     private readonly ILogger<VoiceConversationController> _logger;
@@ -47,6 +49,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         IVoiceActivityDetectorFactory vadFactory,
         ISpeechToText stt,
         AssistantSession session,
+        LiveSelection selection,
         IOptionsMonitor<LocalAiOptions> options,
         LanguageData languages,
         ILogger<VoiceConversationController> logger)
@@ -55,6 +58,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         _vadFactory = vadFactory;
         _stt = stt;
         _session = session;
+        _selection = selection;
         _options = options;
         _languages = languages;
         _logger = logger;
@@ -126,6 +130,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         if (!EnsureSpeechReady()) return;
         _continuous = true;
         if (!await EnsureCaptureAsync().ConfigureAwait(false)) { _continuous = false; return; }
+        _selection.SetLive(true);
         SetState(VoiceState.Listening);
         _logger.LogInformation("Continuous voice mode started");
     }
@@ -134,6 +139,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     {
         if (!_continuous) return;
         _continuous = false;
+        _selection.SetLive(false);
         Interlocked.Increment(ref _turnGeneration);
         _session.CancelCurrentTurn();
         if (!_monitoring) await CloseCaptureAsync().ConfigureAwait(false);
@@ -200,7 +206,8 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         try
         {
             SetState(VoiceState.Thinking);
-            await _session.SubmitAsync(new TurnRequest(text, InputSource.Text, Speak: speak)).ConfigureAwait(false);
+            await _session.SubmitAsync(new TurnRequest(text, InputSource.Text, Speak: speak, SelectedText: TakeSelection()))
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -398,7 +405,9 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
             Transcribed?.Invoke(this, transcription);
 
             SetState(VoiceState.Thinking);
-            await _session.SubmitAsync(new TurnRequest(transcription.Text, InputSource.Voice, transcription.Language, Speak: true))
+            // The selection made while speaking (or since the previous message) goes with what was said.
+            await _session.SubmitAsync(new TurnRequest(transcription.Text, InputSource.Voice, transcription.Language, Speak: true,
+                    SelectedText: TakeSelection()))
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -411,6 +420,9 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
             if (generation == Volatile.Read(ref _turnGeneration)) SetState(IdleState);
         }
     }
+
+    /// <summary>Read selection only applies to the live conversation, not to push-to-talk.</summary>
+    private string? TakeSelection() => _continuous ? _selection.Take() : null;
 
     private void SetState(VoiceState state)
     {
@@ -431,6 +443,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         _continuous = false;
         _pttRecording = false;
         _monitoring = false;
+        _selection.SetLive(false);
         await CloseCaptureAsync().ConfigureAwait(false);
     }
 }

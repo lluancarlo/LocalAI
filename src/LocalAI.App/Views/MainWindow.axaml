@@ -59,6 +59,9 @@
     <Style Selector="RadioButton.mode.last">
       <Setter Property="CornerRadius" Value="0,16,16,0" />
     </Style>
+    <Style Selector="RadioButton.mode.first.last">
+      <Setter Property="CornerRadius" Value="16" />
+    </Style>
     <Style Selector="RadioButton.mode:checked /template/ ContentPresenter">
       <Setter Property="Background" Value="{StaticResource AiBrush}" />
       <Setter Property="Foreground" Value="#0E1015" />
@@ -103,6 +106,19 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Margin" Value="0,14,0,6" />
       <Setter Property="Foreground" Value="{StaticResource UserBrush}" />
+    </Style>
+    <!-- Settings: each section is a bordered card with its title at the top -->
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="18,14" />
+      <Setter Property="Margin" Value="0,0,0,18" />
+    </Style>
+    <Style Selector="Border.card TextBlock.section">
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Margin" Value="0,0,0,8" />
     </Style>
   </Window.Styles>
 
@@ -201,6 +217,15 @@
                     <TextBlock Classes="muted" Text="(stopped)" IsVisible="{Binding Interrupted}" Foreground="{StaticResource WarnBrush}" VerticalAlignment="Bottom" />
                     <TextBlock Classes="muted" Text="…" IsVisible="{Binding IsStreaming}" VerticalAlignment="Bottom" />
                   </StackPanel>
+                  <!-- Read selection: the text the user had selected in another application -->
+                  <Border IsVisible="{Binding HasSelectedText}" BorderBrush="{StaticResource MutedBrush}" BorderThickness="2,0,0,0"
+                          Padding="10,2" Margin="20,2,0,4">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="muted" Text="Selected text" FontSize="11" />
+                      <SelectableTextBlock Text="{Binding SelectedText}" TextWrapping="Wrap" MaxLines="8" TextTrimming="CharacterEllipsis"
+                                           FontFamily="{StaticResource MonoFont}" FontSize="12.5" Foreground="{StaticResource MutedBrush}" />
+                    </StackPanel>
+                  </Border>
                   <Grid ColumnDefinitions="Auto,*">
                     <TextBlock Grid.Column="0" Text="&gt;" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
                     <SelectableTextBlock Grid.Column="1" Text="{Binding Text}" TextWrapping="Wrap"
@@ -230,13 +255,13 @@
             <WrapPanel Orientation="Horizontal">
               <!-- Reply mode: Text / Read aloud / Live -->
               <StackPanel Orientation="Horizontal" Margin="0,0,10,6">
-                <RadioButton Classes="mode first" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
+                <RadioButton Classes="mode first" Classes.last="{Binding TextIsLast}" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
                              IsChecked="{Binding IsTextMode}" Content="Text" ToolTip.Tip="Replies are shown as text." />
-                <RadioButton Classes="mode" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
-                             IsChecked="{Binding IsReadAloudMode}" Content="Read aloud"
+                <RadioButton Classes="mode" Classes.last="{Binding ReadAloudIsLast}" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
+                             IsChecked="{Binding IsReadAloudMode}" IsVisible="{Binding ReadAloudOffered}" Content="Read aloud"
                              ToolTip.Tip="Replies are shown and read aloud. The microphone stays closed." />
                 <RadioButton Classes="mode last" Theme="{StaticResource {x:Type ToggleButton}}" GroupName="ReplyMode"
-                             IsChecked="{Binding IsLiveMode}" IsEnabled="{Binding VoiceAvailable}" Content="◉  Live"
+                             IsChecked="{Binding IsLiveMode}" IsEnabled="{Binding VoiceAvailable}" IsVisible="{Binding LiveOffered}" Content="◉  Live"
                              ToolTip.Tip="Live conversation: just talk (or type). The assistant answers aloud, listens again, and you can interrupt it at any time."
                              ToolTip.ShowOnDisabled="True" />
               </StackPanel>
@@ -251,6 +276,10 @@
                              Foreground="{Binding MicLevelBrush}" Background="{StaticResource PanelBorderBrush}" VerticalAlignment="Center" />
                 <TextBlock Classes="muted" Text="{Binding MicLevelText}" MinWidth="52" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
               </StackPanel>
+              <!-- Read selection: text selected in another application, waiting for the next message -->
+              <TextBlock Classes="muted" Margin="0,0,16,6" VerticalAlignment="Center" Foreground="{StaticResource AiBrush}"
+                         IsVisible="{Binding HasPendingSelection}" Text="{Binding PendingSelectionText}"
+                         ToolTip.Tip="{Binding PendingSelection}" />
             </WrapPanel>
           </StackPanel>
         </Border>
@@ -281,7 +310,29 @@
                     DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel" SelectedIndex="{Binding SelectedTab}" Padding="0,4,0,0">
           <TabItem Header="Assistants" FontSize="14">
             <ScrollViewer>
-              <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,8,16,0">
+              <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,12,16,12">
+                <!-- Ways to talk offered in the chat's mode selector -->
+                <Border Classes="card">
+                <StackPanel>
+                <TextBlock Classes="section" Text="Ways to talk" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,6"
+                           Text="Choose the modes offered under the message box. Text is always available." />
+                <CheckBox IsChecked="True" IsEnabled="False" Content="Text" ToolTip.Tip="Always available" ToolTip.ShowOnDisabled="True" />
+                <CheckBox IsChecked="{Binding ReadAloudEnabled}" Content="Read aloud"
+                          ToolTip.Tip="Replies are shown and read aloud. The microphone stays closed." />
+                <CheckBox IsChecked="{Binding LiveEnabled}" Content="Live"
+                          ToolTip.Tip="A spoken conversation: the microphone stays open and you can interrupt the assistant. Also needed for the assistants' shortcuts." />
+                <StackPanel Margin="28,0,0,0" IsEnabled="{Binding LiveEnabled}" IsVisible="{Binding SelectionSupported}">
+                  <CheckBox IsChecked="{Binding ReadSelection}" Content="Read selection" />
+                  <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
+                             Text="In Live mode, text you select with the mouse in another application (drag, double-click or triple-click) is sent with your next message as context. Some applications do not share their selected text." />
+                </StackPanel>
+                </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                <StackPanel>
+                <TextBlock Classes="section" Text="Assistants" />
                 <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,12"
                            Text="Each assistant can have a shortcut that works from any application: press it to start a voice conversation with the assistant (the tray icon blinks while it listens), press it again to stop." />
                 <ItemsControl ItemsSource="{Binding Items}">
@@ -295,7 +346,9 @@
                           </StackPanel>
                           <TextBlock Classes="muted" Text="{Binding Details}" />
                           <TextBlock Classes="muted" Text="{Binding Style}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
-                          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                          <TextBlock Classes="muted" Margin="0,4,0,0" Text="Shortcut unavailable" IsVisible="{Binding !LiveEnabled}"
+                                     ToolTip.Tip="Live mode is disabled" />
+                          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0" IsVisible="{Binding LiveEnabled}">
                             <TextBlock Classes="muted" Text="Shortcut:" VerticalAlignment="Center" />
                             <TextBlock Text="{Binding HotkeyText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" VerticalAlignment="Center" />
                             <Button Classes="flat" Padding="8,2" Content="{Binding RecordHotkeyText}" Command="{Binding RecordHotkeyCommand}"
@@ -316,16 +369,25 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                </StackPanel>
+                </Border>
+
+                <Border Classes="card">
+                <StackPanel>
                 <TextBlock Classes="section" Text="Create a new assistant" />
                 <views:NewAssistantForm />
+                </StackPanel>
+                </Border>
               </StackPanel>
             </ScrollViewer>
           </TabItem>
 
           <TabItem Header="Audio &amp; voices" FontSize="14">
         <ScrollViewer>
-          <StackPanel Margin="0,0,16,0">
+          <StackPanel Margin="0,12,16,12">
 
+            <Border Classes="card">
+            <StackPanel>
             <TextBlock Classes="section" Text="Audio devices" />
             <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto">
               <TextBlock Grid.Row="0" Text="Microphone" VerticalAlignment="Center" />
@@ -361,7 +423,11 @@
                       Content="Echo cancellation (needed to interrupt the assistant on speakers)" />
             <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
                        Text="Uses Windows communications mode. Windows may lower other sounds while the microphone is open." />
+            </StackPanel>
+            </Border>
 
+            <Border Classes="card">
+            <StackPanel>
             <TextBlock Classes="section" Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AssistantName, StringFormat='Voice of {0}'}" />
             <TextBlock Text="{Binding VoiceName}" Margin="0,0,0,8" />
             <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="How fast the assistant speaks">
@@ -396,22 +462,32 @@
                        IsVisible="{Binding VoiceError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,6,0,0"
                        Text="The voice was chosen when the assistant was created; these settings tune how it sounds and are saved automatically." />
+            </StackPanel>
+            </Border>
           </StackPanel>
         </ScrollViewer>
           </TabItem>
 
           <TabItem Header="Models" FontSize="14">
             <ScrollViewer>
-              <StackPanel DataContext="{Binding Models}" x:DataType="vm:ModelsViewModel" Margin="0,8,16,0">
+              <StackPanel DataContext="{Binding Models}" x:DataType="vm:ModelsViewModel" Margin="0,12,16,12">
+                <Border Classes="card">
+                <StackPanel>
+                <TextBlock Classes="section" Text="Storage" />
                 <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding StorageText}" />
                 <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,10,0,0" IsVisible="{Binding CanInstallRecommended}">
                   <Button Classes="flat" Command="{Binding InstallRecommendedCommand}" Content="Download recommended"
                           ToolTip.Tip="The language model that fits your GPU, speech recognition, voice detection, memory and one voice per language" />
                   <TextBlock Classes="muted" VerticalAlignment="Center" Text="{Binding RecommendedText}" />
                 </StackPanel>
+                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="Downloads happen only when you click and can be cancelled and resumed. Everything else runs offline." />
+                </StackPanel>
+                </Border>
                 <ItemsControl ItemsSource="{Binding Groups}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ModelGroupViewModel">
+                      <Border Classes="card">
                       <StackPanel>
                         <TextBlock Classes="section" Text="{Binding Title}" />
                         <ItemsControl ItemsSource="{Binding Items}">
@@ -445,11 +521,10 @@
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
                       </StackPanel>
+                      </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
-                           Text="Downloads happen only when you click and can be cancelled and resumed. Everything else runs offline." />
               </StackPanel>
             </ScrollViewer>
           </TabItem>

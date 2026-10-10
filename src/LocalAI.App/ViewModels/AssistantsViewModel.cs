@@ -8,18 +8,21 @@ using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Desktop;
 using LocalAI.Core.Speech;
+using LocalAI.Core.Voice;
 using LocalAI.Infrastructure;
 using LocalAI.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LocalAI.App.ViewModels;
 
 public sealed record ModelChoice(ModelPackage Package, string Text);
 
 /// <summary>
-/// Settings › Assistants and the first-launch dialog: create (name, style, language model and voice), switch and
-/// delete assistants, and record each assistant's global shortcut. Whatever the new assistant needs is downloaded
-/// right after it is created.
+/// Settings › Assistants and the first-launch dialog: the ways to talk offered in the chat (Text is always offered;
+/// Read aloud and Live can be turned off, Live with its Read selection option), and create (name, style, language model
+/// and voice), switch and delete assistants, and record each assistant's global shortcut. Whatever the new assistant
+/// needs is downloaded right after it is created.
 /// </summary>
 public sealed partial class AssistantsViewModel : ObservableObject
 {
@@ -32,11 +35,20 @@ public sealed partial class AssistantsViewModel : ObservableObject
     private readonly LanguageData _languages;
     private readonly StartupService _startup;
     private readonly AssistantHotkeys _hotkeys;
+    private readonly LiveSelection _selection;
+    private readonly UserSettingsStore _settings;
+    private readonly VoiceOptions _voice;
 
     public AssistantsViewModel(AssistantManager manager, AssistantContext context, ModelService models, ModelsViewModel modelsView,
         ITextToSpeech tts, IAudioPlayer player, LanguageData languages, StartupService startup, AssistantHotkeys hotkeys,
-        ILogger<AssistantsViewModel> logger)
+        LiveSelection selection, UserSettingsStore settings, IOptions<LocalAiOptions> options, ILogger<AssistantsViewModel> logger)
     {
+        _selection = selection;
+        _settings = settings;
+        _voice = options.Value.Voice;
+        _readAloudEnabled = _voice.ReadAloudEnabled;
+        _liveEnabled = _voice.LiveEnabled;
+        _readSelection = _voice.ReadSelection;
         _hotkeys = hotkeys;
         _manager = manager;
         _context = context;
@@ -87,9 +99,49 @@ public sealed partial class AssistantsViewModel : ObservableObject
         {
             var model = _models.Find(profile.ModelId)?.DisplayName ?? "Best installed model";
             var voice = _models.Find(profile.VoiceId)?.DisplayName ?? profile.VoiceId;
-            Items.Add(new AssistantItemViewModel(this, profile, profile.Id == _context.Current?.Id, $"{model} · {voice}"));
+            Items.Add(new AssistantItemViewModel(this, profile, profile.Id == _context.Current?.Id, $"{model} · {voice}")
+            {
+                LiveEnabled = LiveEnabled,
+            });
         }
         ShowHotkeyProblems();
+    }
+
+    // ---------------- Ways to talk ----------------
+
+    /// <summary>Raised when the offered ways to talk change (the chat updates its mode selector).</summary>
+    public event EventHandler? WaysToTalkChanged;
+
+    [ObservableProperty] private bool _readAloudEnabled;
+    [ObservableProperty] private bool _liveEnabled;
+    [ObservableProperty] private bool _readSelection;
+
+    /// <summary>Whether this platform can read text selected in other applications.</summary>
+    public bool SelectionSupported => _selection.IsSupported;
+
+    partial void OnReadAloudEnabledChanged(bool value)
+    {
+        _voice.ReadAloudEnabled = value;
+        _settings.Set("Voice", "ReadAloudEnabled", value);
+        WaysToTalkChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    partial void OnLiveEnabledChanged(bool value)
+    {
+        _voice.LiveEnabled = value;
+        _settings.Set("Voice", "LiveEnabled", value);
+        if (!value) CancelHotkeyRecording();
+        foreach (var item in Items) item.LiveEnabled = value;
+        // Shortcuts start live mode: register them only while it is offered.
+        _ = RunHotkeyTaskAsync(_hotkeys.RefreshAsync);
+        WaysToTalkChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    partial void OnReadSelectionChanged(bool value)
+    {
+        _voice.ReadSelection = value;
+        _settings.Set("Voice", "ReadSelection", value);
+        _selection.Refresh(); // starts or stops watching right away if live mode is on
     }
 
     // ---------------- Global shortcuts ----------------
@@ -314,6 +366,9 @@ public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, As
     public bool IsActive { get; } = isActive;
     public bool CanSwitch => !IsActive;
     public bool HasHotkey => Profile.Hotkey != null;
+
+    /// <summary>Shortcuts start live mode, so they can only be set (and only work) while live mode is offered.</summary>
+    [ObservableProperty] private bool _liveEnabled = true;
     public string HotkeyText => IsRecordingHotkey ? "Press the new shortcut… (Esc cancels)" : Profile.Hotkey?.ToString() ?? "none";
     public string RecordHotkeyText => IsRecordingHotkey ? "Cancel" : HasHotkey ? "Change…" : "Set…";
 

@@ -19,6 +19,7 @@ public sealed partial class MessageViewModel : ObservableObject
     public static MessageViewModel From(StoredMessage m, string assistantName) =>
         new(m.Role, m.Content, m.CreatedAt, m.Source, m.Language, assistantName)
         {
+            SelectedText = m.SelectedText,
             Interrupted = m.MetadataJson?.Contains("\"interrupted\":true", StringComparison.Ordinal) == true,
         };
 
@@ -27,6 +28,9 @@ public sealed partial class MessageViewModel : ObservableObject
     public DateTimeOffset Timestamp { get; }
     public InputSource Source { get; }
     public string? Language { get; }
+    /// <summary>Text the user selected in another application and sent with this message (Read selection).</summary>
+    public string? SelectedText { get; init; }
+    public bool HasSelectedText => !string.IsNullOrEmpty(SelectedText);
 
     public bool IsUser => Role == ChatRole.User;
     public bool IsAssistant => Role == ChatRole.Assistant;

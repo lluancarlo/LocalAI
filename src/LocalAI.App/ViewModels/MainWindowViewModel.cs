@@ -34,6 +34,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IConversationStore _store;
     private readonly VoiceConversationController _voice;
     private readonly LiveActivation _live;
+    private readonly LiveSelection _selection;
     private readonly StartupService _startup;
     private readonly ILanguageModel _llm;
     private readonly LlamaCppEmbeddingService _embeddings;
@@ -52,7 +53,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _searchCts;
 
     public MainWindowViewModel(
-        AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live, StartupService startup,
+        AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live,
+        LiveSelection selection, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
         MemoryService memory, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
         LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
@@ -61,6 +63,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _store = store;
         _voice = voice;
         _live = live;
+        _selection = selection;
         _startup = startup;
         _llm = llm;
         _embeddings = embeddings;
@@ -75,7 +78,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _options = options.Value;
         _logger = logger;
         _preferredMode = _options.Voice.ReplyMode;
-        _replyMode = _preferredMode == ReplyMode.ReadAloud ? ReplyMode.ReadAloud : ReplyMode.Text;
+        _replyMode = _preferredMode == ReplyMode.ReadAloud && ReadAloudOffered ? ReplyMode.ReadAloud : ReplyMode.Text;
         _lastNonLiveMode = _replyMode;
 
         _session.UserMessageAdded += (_, m) => Ui(() => OnUserMessage(m));
@@ -100,6 +103,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
         Settings.Changed += (_, _) => Ui(UpdateStatus);
         Settings.Assistants.DownloadsStarted += (_, _) => Ui(ShowDownloads);
+        Settings.Assistants.WaysToTalkChanged += (_, _) => Ui(OnWaysToTalkChanged);
+        _selection.PendingChanged += (_, _) => Ui(() => PendingSelection = _selection.Pending);
         _llm.StateChanged += (_, _) => Ui(OnModelsChanged);
         _models.Changed += (_, _) => Ui(OnModelsChanged);
         _assistant.Changed += (_, _) => Ui(OnAssistantChanged);
@@ -108,7 +113,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     [ObservableProperty] private string _assistantName = "Local AI";
-    [ObservableProperty] private bool _showWelcome;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanToggleLive))] private bool _showWelcome;
     [ObservableProperty] private bool _welcomeIntro = true;
     private bool _startupCompleted;
 
@@ -134,7 +139,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsContinuous), nameof(IsTextMode), nameof(IsReadAloudMode), nameof(IsLiveMode))]
     private ReplyMode _replyMode;
     [ObservableProperty] private bool _isRecording;
-    [ObservableProperty] private bool _voiceAvailable;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanToggleLive))] private bool _voiceAvailable;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChatPage), nameof(IsMemoryPage), nameof(IsSettingsPage), nameof(IsDiagnosticsPage))]
     private AppPage _selectedPage = AppPage.Chat;
@@ -157,6 +162,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool _modeFollowsShortcut;
 
     public bool IsContinuous => ReplyMode == ReplyMode.Live;
+
+    // Ways to talk offered in the mode selector (Settings > Assistants). Text is always offered.
+    public bool ReadAloudOffered => _options.Voice.ReadAloudEnabled;
+    public bool LiveOffered => _options.Voice.LiveEnabled;
+    /// <summary>Text is the last pill of the selector (rounded on the right) when nothing else is offered.</summary>
+    public bool TextIsLast => !ReadAloudOffered && !LiveOffered;
+    public bool ReadAloudIsLast => !LiveOffered;
+
+    /// <summary>Text selected in another application, waiting to go with the next message in live mode (Read selection).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPendingSelection), nameof(PendingSelectionText))]
+    private string? _pendingSelection;
+
+    public bool HasPendingSelection => PendingSelection != null;
+    public string PendingSelectionText => $"Selection ready ({PendingSelection?.Length ?? 0:N0} characters): sent with your next message";
 
     public bool IsTextMode
     {
@@ -211,7 +231,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         _startupCompleted = true;
         UpdateStatus();
-        if (_preferredMode == ReplyMode.Live && VoiceAvailable) ReplyMode = ReplyMode.Live;
+        if (_preferredMode == ReplyMode.Live && LiveOffered && VoiceAvailable) ReplyMode = ReplyMode.Live;
         OfferModelDownload();
     }
 
@@ -533,6 +553,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (newValue == ReplyMode.Live) _ = _voice.StartContinuousAsync();
         else if (oldValue == ReplyMode.Live) _ = _voice.StopContinuousAsync();
         if (!_modeFollowsShortcut) _settings.Set("Voice", "ReplyMode", newValue.ToString());
+    }
+
+    /// <summary>Whether the tray menu can turn live mode on (it can always turn it off).</summary>
+    public bool CanToggleLive => LiveOffered && VoiceAvailable && !ShowWelcome;
+
+    /// <summary>Tray menu: turns live mode on, or back to the previous mode, like the mode selector does.</summary>
+    public void ToggleLive()
+    {
+        if (IsLiveMode) ReplyMode = _lastNonLiveMode;
+        else if (CanToggleLive) ReplyMode = ReplyMode.Live;
+    }
+
+    /// <summary>A way to talk was turned on or off in the settings: a mode no longer offered falls back to Text.</summary>
+    private void OnWaysToTalkChanged()
+    {
+        OnPropertyChanged(nameof(ReadAloudOffered));
+        OnPropertyChanged(nameof(LiveOffered));
+        OnPropertyChanged(nameof(TextIsLast));
+        OnPropertyChanged(nameof(ReadAloudIsLast));
+        OnPropertyChanged(nameof(CanToggleLive));
+        if (!ReadAloudOffered && _lastNonLiveMode == ReplyMode.ReadAloud) _lastNonLiveMode = ReplyMode.Text;
+        if ((ReplyMode == ReplyMode.ReadAloud && !ReadAloudOffered) || (ReplyMode == ReplyMode.Live && !LiveOffered))
+            ReplyMode = ReplyMode.Text;
     }
 
     /// <summary>Mirrors live mode turned on or off by an assistant's shortcut in the mode selector.</summary>

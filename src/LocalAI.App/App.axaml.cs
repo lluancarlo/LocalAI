@@ -41,7 +41,12 @@ public sealed class App : Application
             // Exit is raised however the app ends (tray Exit, Windows sign-out). ShutdownRequested is not raised by
             // Shutdown() (tray Exit), so cleanup hooked there never ran.
             desktop.Exit += (_, _) => Shutdown();
-            _tray = new TrayIconController(this, _services.GetRequiredService<LiveActivation>(), ShowMainWindow, Exit);
+            _tray = new TrayIconController(this, _services.GetRequiredService<LiveActivation>(),
+                () => (vm.CanToggleLive, vm.IsLiveMode), vm.ToggleLive, ShowMainWindow, Exit);
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(MainWindowViewModel.CanToggleLive) or nameof(MainWindowViewModel.IsLiveMode)) _tray?.Update();
+            };
             Program.Instance?.OnShowRequested(() => Dispatcher.UIThread.Post(ShowMainWindow));
 
             _startupCts = new CancellationTokenSource();

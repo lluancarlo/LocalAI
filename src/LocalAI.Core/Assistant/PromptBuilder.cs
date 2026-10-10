@@ -29,13 +29,25 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
     /// <summary>Rough token estimate (≈3.5 chars/token for European languages); only used for budgeting.</summary>
     public static int EstimateTokens(string text) => (int)Math.Ceiling(text.Length / 3.5) + 4;
 
+    /// <summary>
+    /// A user turn as the model sees it: the text the user selected in another application (if any) quoted before
+    /// what they said or typed.
+    /// </summary>
+    public static string WithSelection(string userText, string? selectedText) =>
+        string.IsNullOrWhiteSpace(selectedText)
+            ? userText
+            : $"Text I selected on my screen:\n\"\"\"\n{selectedText.Trim()}\n\"\"\"\n\n{userText}";
+
+    /// <param name="selectedText">Text the user selected in another application for this message (Read selection).</param>
     public IReadOnlyList<ChatMessage> Build(
         IReadOnlyList<StoredMessage> history,
         string userText,
         IReadOnlyList<ScoredMemory> memories,
         bool spoken,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? selectedText = null)
     {
+        userText = WithSelection(userText, selectedText);
         var profile = assistant.Current;
         var system = new StringBuilder(_options.SystemPrompt.Replace("{name}", profile?.Name ?? "Assistant", StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(profile?.StylePrompt))
@@ -63,9 +75,10 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
         {
             var m = history[i];
             if (m.Role == ChatRole.System || string.IsNullOrWhiteSpace(m.Content)) continue;
-            budget -= EstimateTokens(m.Content);
+            var content = m.Role == ChatRole.User ? WithSelection(m.Content, m.SelectedText) : m.Content;
+            budget -= EstimateTokens(content);
             if (budget < 0) break;
-            selected.Add(new ChatMessage(m.Role, m.Content));
+            selected.Add(new ChatMessage(m.Role, content));
         }
         selected.Reverse();
 

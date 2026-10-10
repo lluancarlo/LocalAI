@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Windows desktop integration: global shortcuts (later screen capture, UI Automation, overlays). -->
+  <!-- Windows desktop integration: global shortcuts, text selected in other applications (UI Automation). -->
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

@@ -76,6 +76,10 @@ public sealed class SqliteDatabase
         """
         ALTER TABLE assistants ADD COLUMN hotkey TEXT NOT NULL DEFAULT '';
         """,
+        // v5: text the user selected in another application and sent with a message (Read selection)
+        """
+        ALTER TABLE messages ADD COLUMN selected_text TEXT;
+        """,
     ];
 
     public SqliteDatabase(string databasePath, ILogger<SqliteDatabase> logger)

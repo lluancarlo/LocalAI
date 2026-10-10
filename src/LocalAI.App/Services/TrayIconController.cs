@@ -9,7 +9,8 @@ using LocalAI.Core.Voice;
 namespace LocalAI.App.Services;
 
 /// <summary>
-/// The notification-area icon: always present while the app runs. Click or "Open" shows the window, "Exit" quits.
+/// The notification-area icon: always present while the app runs. Click or "Open" shows the window, "Live mode" turns
+/// the live voice conversation on and off (checked while it is on), "Exit" quits.
 /// While a live voice conversation is on, the icon blinks a green dot (the assistant is listening); while a shortcut
 /// is starting one (switching assistant, loading its model), it shows a steady amber dot.
 /// </summary>
@@ -21,6 +22,8 @@ internal sealed class TrayIconController : IDisposable
     private static readonly Color StartingColor = Color.Parse("#E0AF68");
 
     private readonly LiveActivation _live;
+    private readonly Func<(bool CanStart, bool IsLive)> _liveMode;
+    private readonly NativeMenuItem _liveItem;
     private readonly TrayIcon _tray;
     private readonly WindowIcon _normalIcon;
     private readonly WindowIcon _liveIcon;
@@ -28,9 +31,13 @@ internal sealed class TrayIconController : IDisposable
     private readonly DispatcherTimer _blink;
     private bool _blinkLit;
 
-    public TrayIconController(Application application, LiveActivation live, Action showWindow, Action exit)
+    /// <param name="liveMode">Whether live mode can be turned on now (offered, microphone ready), and whether it is on.</param>
+    /// <param name="toggleLive">Turns live mode on or off (runs on the UI thread).</param>
+    public TrayIconController(Application application, LiveActivation live, Func<(bool CanStart, bool IsLive)> liveMode,
+        Action toggleLive, Action showWindow, Action exit)
     {
         _live = live;
+        _liveMode = liveMode;
         using (var baseImage = new Bitmap(OpenAppIcon()))
         {
             _liveIcon = WithDot(baseImage, LiveColor);
@@ -40,6 +47,8 @@ internal sealed class TrayIconController : IDisposable
 
         var open = new NativeMenuItem("Open " + AppName);
         open.Click += (_, _) => showWindow();
+        _liveItem = new NativeMenuItem("Live mode") { ToggleType = MenuItemToggleType.CheckBox };
+        _liveItem.Click += (_, _) => toggleLive();
         var quit = new NativeMenuItem("Exit");
         quit.Click += (_, _) => exit();
 
@@ -47,7 +56,7 @@ internal sealed class TrayIconController : IDisposable
         {
             Icon = _normalIcon,
             ToolTipText = AppName,
-            Menu = new NativeMenu { Items = { open, new NativeMenuItemSeparator(), quit } },
+            Menu = new NativeMenu { Items = { open, _liveItem, new NativeMenuItemSeparator(), quit } },
             IsVisible = true,
         };
         _tray.Clicked += (_, _) => showWindow();
@@ -70,8 +79,13 @@ internal sealed class TrayIconController : IDisposable
     private void OnLiveFailed(object? sender, string reason) =>
         Dispatcher.UIThread.Post(() => _tray.ToolTipText = $"{AppName}: could not start listening. {reason}");
 
-    private void Update()
+    /// <summary>Refreshes the icon, its tooltip and the Live mode menu item. Call on the UI thread.</summary>
+    public void Update()
     {
+        var (canStart, isLive) = _liveMode();
+        _liveItem.IsChecked = isLive;
+        _liveItem.IsEnabled = isLive || canStart;
+
         var name = _live.Assistant?.Name ?? AppName;
         switch (_live.State)
         {
