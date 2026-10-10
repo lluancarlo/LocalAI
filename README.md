@@ -21,7 +21,7 @@
 </p>
 
 - **Your own assistants:** each with a name, personality, language model, voice, conversations and memories.
-- **Text or voice:** streaming chat, push-to-talk, read aloud, or hands-free Live mode that you can interrupt.
+- **Text or voice:** three reply modes, from silent chat to a hands-free spoken conversation (see below).
 - **Always at hand:** it runs in the notification area. Give each assistant a global shortcut to start and stop a
   voice conversation from any application; the tray icon blinks while it listens.
 - **Long-term memory:** it learns facts about you and recalls them when relevant. You can see and delete each one.
@@ -47,6 +47,44 @@
     <td align="center">Models managed in the app</td>
   </tr>
 </table>
+
+## Three ways to talk
+
+Pick a mode with the **Text · Read aloud · Live** switch under the message box. The app remembers your choice.
+
+<table>
+  <tr>
+    <th width="33%">⌨️ Text</th>
+    <th width="33%">🔊 Read aloud</th>
+    <th width="33%">🎙️ Live</th>
+  </tr>
+  <tr valign="top">
+    <td>
+      <b>Quiet chat.</b> You type and the reply appears as streaming text. Nothing is played and the microphone
+      stays closed.
+    </td>
+    <td>
+      <b>Chat with a voice.</b> You type and the reply appears as text while the assistant's voice reads it to you.
+      The microphone stays closed.
+    </td>
+    <td>
+      <b>A spoken conversation.</b> The microphone stays open: just talk. The assistant answers aloud and then
+      listens again. Speak over it to interrupt it at any time. You can still type, and typed messages are answered
+      aloud too.
+    </td>
+  </tr>
+  <tr valign="top">
+    <td><i>Best for:</i> work, shared rooms, long answers.</td>
+    <td><i>Best for:</i> listening while you do something else.</td>
+    <td><i>Best for:</i> hands-free, back-and-forth conversation.</td>
+  </tr>
+</table>
+
+- **Push-to-talk** works in Text and Read aloud modes. Hold **● Hold to talk** (or **Ctrl+Space**) while you speak.
+  The assistant replies aloud.
+- **Live from anywhere:** an assistant's global shortcut switches Live mode on and off from any application. The
+  tray icon blinks while the assistant listens.
+- **Esc** stops the current reply in every mode. Live mode needs a microphone and the speech recognition model.
 
 ## Getting started
 
