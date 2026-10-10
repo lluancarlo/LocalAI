@@ -94,6 +94,22 @@ public sealed class SqliteConversationStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Persists_the_text_selected_with_a_message()
+    {
+        var c = await _store.CreateAsync("Chat");
+        await _store.AddMessageAsync(new StoredMessage
+        {
+            ConversationId = c.Id, Role = ChatRole.User, Content = "What does this mean?", CreatedAt = DateTimeOffset.Now,
+            Source = InputSource.Voice, SelectedText = "ON DELETE CASCADE",
+        });
+        await Add(c.Id, ChatRole.Assistant, "It deletes the children too.");
+
+        var messages = await new SqliteConversationStore(_fx.Reopen(), _fx.Assistant).GetMessagesAsync(c.Id);
+        Assert.Equal("ON DELETE CASCADE", messages[0].SelectedText);
+        Assert.Null(messages[1].SelectedText);
+    }
+
+    [Fact]
     public async Task Recent_messages_are_the_newest_in_chronological_order()
     {
         var c = await _store.CreateAsync("Chat");

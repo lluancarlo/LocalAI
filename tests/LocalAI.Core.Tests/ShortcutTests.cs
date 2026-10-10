@@ -8,6 +8,7 @@ using LocalAI.Core.Memory;
 using LocalAI.Core.Voice;
 using LocalAI.Tests;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Tests;
 
@@ -65,10 +66,11 @@ internal sealed class AssistantsHarness
     public AssistantContext Context { get; } = new();
     public FakeLanguageModel Llm { get; } = new();
     public AssistantManager Manager { get; }
+    public IOptions<LocalAiOptions> Options { get; } = TestOptions.Create();
 
     public AssistantsHarness()
     {
-        var options = TestOptions.Create();
+        var options = Options;
         var memory = new MemoryService(new InMemoryMemoryStore(), new NoMemoryRetriever(), new FakeEmbeddings(), Llm, options,
             NullLogger<MemoryService>.Instance);
         Manager = new AssistantManager(Store, Context, Llm, new FakeTts(), memory,
@@ -94,7 +96,7 @@ public sealed class AssistantHotkeysTests
     private readonly AssistantHotkeys _hotkeys;
 
     public AssistantHotkeysTests() =>
-        _hotkeys = new AssistantHotkeys(_system, _assistants.Manager, NullLogger<AssistantHotkeys>.Instance);
+        _hotkeys = new AssistantHotkeys(_system, _assistants.Manager, _assistants.Options, NullLogger<AssistantHotkeys>.Instance);
 
     private static HotkeyGesture G(string text) => AssistantsHarness.Gesture(text);
 
@@ -168,6 +170,23 @@ public sealed class AssistantHotkeysTests
         Assert.Empty(_system.Registered);
     }
 
+    [Fact]
+    public async Task No_shortcut_is_registered_while_live_mode_is_disabled()
+    {
+        await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        _assistants.Options.Value.Voice.LiveEnabled = false;
+        await _hotkeys.StartAsync();
+        Assert.Empty(_system.Registered);
+
+        _assistants.Options.Value.Voice.LiveEnabled = true;
+        await _hotkeys.RefreshAsync();
+        Assert.Equal([G("Ctrl+Alt+D")], _system.Registered);
+
+        _assistants.Options.Value.Voice.LiveEnabled = false;
+        await _hotkeys.RefreshAsync();
+        Assert.Empty(_system.Registered);
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         // Assistant changes re-register shortcuts in the background.
@@ -195,7 +214,7 @@ public sealed class LiveActivationTests : IDisposable
         var speech = new SpeechOutput(new FakeTts(), new FakePlayer(), Languages, NullLogger<SpeechOutput>.Instance);
         _session = new AssistantSession(_assistants.Llm, new InMemoryConversationStore(), new PromptBuilder(options, _assistants.Context),
             new HeuristicLanguageDetector(Languages), memory, speech, options, NullLogger<AssistantSession>.Instance);
-        _hotkeys = new AssistantHotkeys(_system, _assistants.Manager, NullLogger<AssistantHotkeys>.Instance);
+        _hotkeys = new AssistantHotkeys(_system, _assistants.Manager, _assistants.Options, NullLogger<AssistantHotkeys>.Instance);
         _live = new LiveActivation(_hotkeys, _assistants.Manager, _assistants.Context, _session, _voice, NullLogger<LiveActivation>.Instance);
         _live.StateChanged += (_, s) => { lock (_states) _states.Add(s); };
     }

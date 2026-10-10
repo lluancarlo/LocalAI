@@ -12,7 +12,8 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Assistant;
 
-public sealed record TurnRequest(string Text, InputSource Source, string? Language = null, bool Speak = false);
+/// <param name="SelectedText">Text the user selected in another application, sent as context (Read selection).</param>
+public sealed record TurnRequest(string Text, InputSource Source, string? Language = null, bool Speak = false, string? SelectedText = null);
 
 public enum TurnOutcome { Completed, Cancelled, Failed }
 
@@ -147,12 +148,13 @@ public sealed class AssistantSession : IDisposable
             CreatedAt = DateTimeOffset.Now,
             Language = language,
             Source = request.Source,
+            SelectedText = string.IsNullOrWhiteSpace(request.SelectedText) ? null : request.SelectedText,
         }, CancellationToken.None).ConfigureAwait(false);
         UserMessageAdded?.Invoke(this, userMessage);
 
         var memories = await _memory.RecallAsync(request.Text, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
-        var prompt = _promptBuilder.Build(history, request.Text, memories, speak, DateTimeOffset.Now);
+        var prompt = _promptBuilder.Build(history, request.Text, memories, speak, DateTimeOffset.Now, userMessage.SelectedText);
 
         var options = new GenerationOptions
         {

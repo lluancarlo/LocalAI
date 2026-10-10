@@ -51,6 +51,7 @@
 ## Three ways to talk
 
 Pick a mode with the **Text · Read aloud · Live** switch under the message box. The app remembers your choice.
+In **Settings › Assistants › Ways to talk** you can turn Read aloud and Live off; Text is always available.
 
 <table>
   <tr>
@@ -82,9 +83,39 @@ Pick a mode with the **Text · Read aloud · Live** switch under the message box
 
 - **Push-to-talk** works in Text and Read aloud modes. Hold **● Hold to talk** (or **Ctrl+Space**) while you speak.
   The assistant replies aloud.
-- **Live from anywhere:** an assistant's global shortcut switches Live mode on and off from any application. The
-  tray icon blinks while the assistant listens.
+- **Live from anywhere:** an assistant's global shortcut switches Live mode on and off from any application, and so
+  does **Live mode** in the tray icon's menu. The tray icon blinks while the assistant listens. Shortcuts are
+  unavailable while Live is turned off.
 - **Esc** stops the current reply in every mode. Live mode needs a microphone and the speech recognition model.
+
+## Ask about what's on your screen
+
+**Read selection** lets you point the assistant at anything you are reading, in any application: an error in Visual
+Studio, a function in VS Code or Notepad++, a log line in Unity, a paragraph in your browser.
+
+1. Turn Live mode on (switch, tray menu or the assistant's shortcut).
+2. Start talking, and select the text with the mouse while you speak: drag over it, or double- or triple-click.
+3. When you stop talking, what you said and the selected text are sent together, so you can just ask
+   *"why does this fail?"*, *"what does this function do?"* or *"translate this"*.
+
+The chat shows the selected text as a quote above your message, and it stays in the conversation, so follow-up
+questions ("and how do I fix it?") still see it. Only the latest selection is sent, once, with your next message
+(spoken or typed); a hint under the message box shows when one is waiting. Very long selections are cut at 8,000
+characters.
+
+Turn it on in **Settings › Assistants › Ways to talk**, under Live. It is off by default.
+
+How the text is read:
+
+- First silently, through Windows UI Automation: browsers, Word, Notepad and most standard Windows apps.
+- Applications that do not share their text that way (Notepad++, Unity, VS Code, parts of Visual Studio) get a
+  **Ctrl+C**, and your clipboard is put back right after. Your copied text is restored exactly; if the clipboard holds
+  something else (files, an image), the copy is skipped so you never lose it. Formatting of copied text is not
+  restored, only the text.
+- To stay harmless, no Ctrl+C is sent in terminals (it would stop the running program), while a key or mouse button is
+  held, or when you dragged a scroll bar, title bar, tab, button or similar control.
+- Password fields and Local AI's own window are ignored. Applications running as administrator cannot be read unless
+  Local AI runs as administrator too.
 
 ## Getting started
 
@@ -105,7 +136,8 @@ publish\LocalAI\LocalAI.exe
 
 On first launch you create your first assistant and the app downloads the models it needs.
 
-Closing the window keeps Local AI running in the notification area; use **Exit** in the tray icon's menu to quit.
+Closing the window keeps Local AI running in the notification area. The tray icon's menu opens the window, turns
+**Live mode** on and off, and **Exit** quits.
 Set an assistant's shortcut in **Settings › Assistants**.
 
 ## Privacy
@@ -114,12 +146,34 @@ Set an assistant's shortcut in **Settings › Assistants**.
 - **One folder:** everything the app creates (database, settings, logs, temporary files, models) is in `data\` next
   to `LocalAI.exe`. Delete the folder to remove it all.
 - **Per assistant:** each assistant has its own conversations and memories. Deleting an assistant deletes them too.
-- **Logs** record what the app did, never what you said or typed.
+- **Logs** record what the app did, never what you said, typed or selected.
+- **Read selection** is off by default. When on, the app reads selected text only while Live mode is on, and ignores
+  password fields. In applications that need the Ctrl+C fallback, the selection briefly passes through the Windows
+  clipboard: your clipboard is restored, but Windows clipboard history (Win+V) or a clipboard manager may still record
+  the copied selection.
 - **Outside the folder, Windows keeps its own records** of any program you run. These contain only the path of
   `LocalAI.exe` and timestamps:
   - the tray icon setting (`HKCU\Control Panel\NotifyIconSettings`);
   - microphone access history (*Settings › Privacy › Microphone*);
   - program launch data (`C:\Windows\Prefetch`).
+
+## Built with
+
+| Area | Technologies |
+|---|---|
+| Platform | C# on [.NET 10](https://dotnet.microsoft.com/), Windows 11 x64, published self-contained (no .NET install needed) |
+| User interface | [Avalonia UI](https://avaloniaui.net/) (Fluent theme, Inter font), MVVM with [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) |
+| Language model | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` with CUDA, running Google [Gemma 4](https://huggingface.co/google) models (GGUF, QAT) |
+| Memory | [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) embeddings on llama.cpp, stored in [SQLite](https://www.sqlite.org/) ([Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/)) |
+| Speech recognition | [Whisper.net](https://github.com/sandrohanea/whisper.net) ([whisper.cpp](https://github.com/ggml-org/whisper.cpp)) with Whisper large-v3-turbo on CUDA |
+| Speech synthesis and voice detection | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with [Piper](https://github.com/rhasspy/piper) voices and [Silero VAD](https://github.com/snakers4/silero-vad) |
+| Audio | [NAudio](https://github.com/naudio/NAudio) (WASAPI capture and playback, echo cancellation through Windows communications mode) |
+| Windows integration | Win32 global hotkeys, low-level mouse hook and UI Automation (Read selection), notification-area icon |
+| Infrastructure | Microsoft.Extensions (dependency injection, configuration, options, logging), [Serilog](https://serilog.net/) file logs, [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) for voice archives |
+| Tests and delivery | [xUnit](https://xunit.net/), GitHub Actions (tests and a `latest` release on every push to `master`) |
+
+Models are downloaded from inside the app, language models only from [Hugging Face](https://huggingface.co/).
+Licenses of bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 

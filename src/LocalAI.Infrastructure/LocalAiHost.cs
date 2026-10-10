@@ -97,13 +97,18 @@ public static class LocalAiHost
             services.AddSingleton<IAudioPlayer, NullAudioPlayer>();
         }
 
-        // Desktop integration (global shortcuts)
+        // Desktop integration (global shortcuts, text selected in other applications)
         if (OperatingSystem.IsWindows()) AddWindowsDesktop(services);
-        else services.AddSingleton<IGlobalHotkeys, NullGlobalHotkeys>();
+        else
+        {
+            services.AddSingleton<IGlobalHotkeys, NullGlobalHotkeys>();
+            services.AddSingleton<ITextSelectionMonitor, NullTextSelectionMonitor>();
+        }
 
         // Orchestration
         services.AddSingleton<PromptBuilder>();
         services.AddSingleton<SpeechOutput>();
+        services.AddSingleton<LiveSelection>();
         services.AddSingleton<AssistantManager>();
         services.AddSingleton<AssistantSession>();
         services.AddSingleton<VoiceConversationController>();
@@ -125,8 +130,11 @@ public static class LocalAiHost
     }
 
     [SupportedOSPlatform("windows")]
-    private static void AddWindowsDesktop(IServiceCollection services) =>
+    private static void AddWindowsDesktop(IServiceCollection services)
+    {
         services.AddSingleton<IGlobalHotkeys, Win32GlobalHotkeys>();
+        services.AddSingleton<ITextSelectionMonitor, Win32TextSelectionMonitor>();
+    }
 
     /// <summary>Structured local file logging. Logs never leave the machine and never contain conversation text or audio.</summary>
     public static void ConfigureLogging(ILoggingBuilder logging, IConfiguration configuration, string logsDirectory)

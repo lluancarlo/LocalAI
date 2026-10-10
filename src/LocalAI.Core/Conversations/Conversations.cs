@@ -16,6 +16,8 @@ public sealed record StoredMessage
     public string? Language { get; init; }
     public string? Model { get; init; }
     public InputSource Source { get; init; }
+    /// <summary>Text the user selected in another application and sent with this message as context (Read selection).</summary>
+    public string? SelectedText { get; init; }
     /// <summary>Free-form JSON (generation stats, interruption flag, ...).</summary>
     public string? MetadataJson { get; init; }
 }

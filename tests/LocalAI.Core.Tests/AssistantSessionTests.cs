@@ -72,6 +72,34 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
+    public async Task Selected_text_is_stored_with_the_message_and_quoted_in_the_prompt()
+    {
+        using var session = CreateSession();
+        await session.SubmitAsync(new TurnRequest("What does this mean?", InputSource.Voice, "en", SelectedText: "ON DELETE CASCADE"));
+
+        var prompt = _llm.Requests[^1];
+        Assert.Contains("ON DELETE CASCADE", prompt[^1].Content, StringComparison.Ordinal);
+        Assert.Contains("What does this mean?", prompt[^1].Content, StringComparison.Ordinal);
+        Assert.True(prompt[^1].Content.IndexOf("ON DELETE CASCADE", StringComparison.Ordinal) <
+                    prompt[^1].Content.IndexOf("What does this mean?", StringComparison.Ordinal));
+        var user = (await _store.GetMessagesAsync(session.CurrentConversationId!.Value))[0];
+        Assert.Equal("What does this mean?", user.Content); // the stored text is what the user said
+        Assert.Equal("ON DELETE CASCADE", user.SelectedText);
+    }
+
+    [Fact]
+    public async Task A_follow_up_question_still_sees_the_earlier_selection()
+    {
+        using var session = CreateSession();
+        await session.SubmitAsync(new TurnRequest("Translate this.", InputSource.Voice, "en", SelectedText: "Buongiorno a tutti"));
+        await session.SubmitAsync(new TurnRequest("And more formally?", InputSource.Voice, "en"));
+
+        var prompt = _llm.Requests[^1];
+        Assert.Contains(prompt, m => m.Role == ChatRole.User && m.Content.Contains("Buongiorno a tutti", StringComparison.Ordinal));
+        Assert.Equal("And more formally?", prompt[^1].Content);
+    }
+
+    [Fact]
     public async Task Cancellation_stops_generation_and_keeps_partial_reply_marked_interrupted()
     {
         using var session = CreateSession();

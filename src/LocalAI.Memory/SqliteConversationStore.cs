@@ -71,8 +71,8 @@ public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext 
         await using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO messages(conversation_id, role, content, created_at, language, model, source, metadata)
-            VALUES ($c, $r, $content, $at, $lang, $model, $src, $meta) RETURNING id;
+            INSERT INTO messages(conversation_id, role, content, created_at, language, model, source, metadata, selected_text)
+            VALUES ($c, $r, $content, $at, $lang, $model, $src, $meta, $sel) RETURNING id;
             UPDATE conversations SET updated_at = $at WHERE id = $c;
             """;
         cmd.Parameters.AddWithValue("$c", message.ConversationId);
@@ -83,6 +83,7 @@ public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext 
         cmd.Parameters.AddWithValue("$model", (object?)message.Model ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$src", message.Source.ToString());
         cmd.Parameters.AddWithValue("$meta", (object?)message.MetadataJson ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$sel", (object?)message.SelectedText ?? DBNull.Value);
         var id = (long)(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return message with { Id = id, CreatedAt = FromUnixMs(ToUnixMs(message.CreatedAt)) };
@@ -100,7 +101,7 @@ public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext 
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT * FROM (
-                SELECT id, conversation_id, role, content, created_at, language, model, source, metadata
+                SELECT id, conversation_id, role, content, created_at, language, model, source, metadata, selected_text
                 FROM messages WHERE conversation_id = $c ORDER BY id DESC LIMIT $limit
             ) ORDER BY id ASC;
             """;
@@ -121,6 +122,7 @@ public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext 
                 Model = r.IsDBNull(6) ? null : r.GetString(6),
                 Source = Enum.Parse<InputSource>(r.GetString(7)),
                 MetadataJson = r.IsDBNull(8) ? null : r.GetString(8),
+                SelectedText = r.IsDBNull(9) ? null : r.GetString(9),
             });
         }
         return list;

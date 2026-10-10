@@ -94,6 +94,17 @@ public enum ReplyMode { Text, ReadAloud, Live }
 public sealed class VoiceOptions
 {
     public ReplyMode ReplyMode { get; set; } = ReplyMode.Text;
+    /// <summary>Offer the Read aloud mode. Text is always offered.</summary>
+    public bool ReadAloudEnabled { get; set; } = true;
+    /// <summary>Offer the Live mode. When off, the assistants' global shortcuts are not registered either.</summary>
+    public bool LiveEnabled { get; set; } = true;
+    /// <summary>
+    /// "Read selection": in live mode, text the user selects with the mouse in another application is sent as context
+    /// with the next message.
+    /// </summary>
+    public bool ReadSelection { get; set; }
+    /// <summary>Longest selection sent to the model; longer selections are cut.</summary>
+    public int SelectionMaxChars { get; set; } = 8000;
     /// <summary>Silero speech probability threshold.</summary>
     public float VadThreshold { get; set; } = 0.5f;
     /// <summary>Audio kept before speech onset so the first syllable is not clipped.</summary>

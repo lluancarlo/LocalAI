@@ -1,16 +1,20 @@
+using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Desktop;
 
 /// <summary>
 /// Keeps one global shortcut registered per assistant that has one, re-registering whenever assistants change.
-/// A shortcut another application already uses is reported in <see cref="Problems"/> instead of failing.
+/// A shortcut another application already uses is reported in <see cref="Problems"/> instead of failing. Shortcuts start
+/// live mode, so none is registered while live mode is disabled (<see cref="VoiceOptions.LiveEnabled"/>).
 /// </summary>
 public sealed class AssistantHotkeys : IDisposable
 {
     private readonly IGlobalHotkeys _hotkeys;
     private readonly AssistantManager _manager;
+    private readonly IOptions<LocalAiOptions> _options;
     private readonly ILogger<AssistantHotkeys> _logger;
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly List<IDisposable> _registrations = [];
@@ -19,10 +23,11 @@ public sealed class AssistantHotkeys : IDisposable
     private bool _suspended;
     private bool _disposed;
 
-    public AssistantHotkeys(IGlobalHotkeys hotkeys, AssistantManager manager, ILogger<AssistantHotkeys> logger)
+    public AssistantHotkeys(IGlobalHotkeys hotkeys, AssistantManager manager, IOptions<LocalAiOptions> options, ILogger<AssistantHotkeys> logger)
     {
         _hotkeys = hotkeys;
         _manager = manager;
+        _options = options;
         _logger = logger;
         _manager.AssistantsChanged += OnAssistantsChanged;
     }
@@ -56,6 +61,9 @@ public sealed class AssistantHotkeys : IDisposable
         return SyncAsync(CancellationToken.None);
     }
 
+    /// <summary>Applies a change of <see cref="VoiceOptions.LiveEnabled"/>: registers or releases every shortcut.</summary>
+    public Task RefreshAsync() => SyncAsync(CancellationToken.None);
+
     private void OnAssistantsChanged(object? sender, EventArgs e) => _ = SyncSafelyAsync();
 
     private async Task SyncSafelyAsync()
@@ -73,7 +81,8 @@ public sealed class AssistantHotkeys : IDisposable
             if (!_started || _suspended || _disposed) return;
 
             var problems = new Dictionary<long, string>();
-            foreach (var assistant in await _manager.ListAsync(ct).ConfigureAwait(false))
+            var assistants = _options.Value.Voice.LiveEnabled ? await _manager.ListAsync(ct).ConfigureAwait(false) : [];
+            foreach (var assistant in assistants)
             {
                 if (assistant.Hotkey is not { } gesture) continue;
                 var id = assistant.Id;
