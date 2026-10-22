@@ -113,6 +113,27 @@ public sealed class LiveTurnTests
         Assert.Equal(0, live.Stt.Calls);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Leaving_live_mode_can_let_the_reply_finish_speaking(bool keepReply)
+    {
+        await using var live = await LiveHarness.StartAsync(_ => "Tell me about the project.");
+        live.Llm.TokenDelay = TimeSpan.FromMilliseconds(100);
+        var completed = new List<TurnOutcome>();
+        live.Session.TurnCompleted += (_, r) => { lock (completed) completed.Add(r.Outcome); };
+        live.Speech(20);
+        live.Silence(12);
+        await live.WaitUntilAsync(() => live.Session.IsBusy);
+
+        await live.Voice.StopContinuousAsync(keepReply); // e.g. the user picks Text in the mode selector
+
+        await live.WaitUntilAsync(() => !live.Session.IsBusy);
+        lock (completed) Assert.Equal(keepReply ? TurnOutcome.Completed : TurnOutcome.Cancelled, Assert.Single(completed));
+        Assert.Equal(keepReply ? 1 : 0, live.Player.Enqueued); // spoken to the end, or cut
+        Assert.Equal(VoiceState.Ready, live.Voice.State);
+    }
+
     [Fact]
     public async Task Without_waiting_for_unfinished_sentences_every_pause_is_answered()
     {

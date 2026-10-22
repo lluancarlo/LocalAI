@@ -312,6 +312,86 @@ public sealed class MemoryVaultTests
         Assert.True((await _m.Vault.RecallAsync("pagination", CancellationToken.None)).IsEmpty);
     }
 
+    private const string IdentityFile = "lia/lia-identity.md";
+
+    private async Task<AssistantProfile> LiaAsync(string style = "Warm and witty.\n\n### Tone\n- Casual")
+    {
+        var lia = await _m.Assistants.CreateAsync(new NewAssistant("Lia", style, "gemma-4-12b", "pt_BR-dii-high", "pt"),
+            new VoiceStyle { Speed = 1.1, Expressiveness = 0.75 });
+        _m.Context.Set(lia);
+        return lia;
+    }
+
+    [Fact]
+    public async Task The_identity_note_says_who_the_assistant_is_with_its_settings()
+    {
+        var lia = await LiaAsync();
+
+        Assert.True(await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None));
+
+        var text = _m.Storage.Files[IdentityFile];
+        Assert.Contains("type: identity", text, StringComparison.Ordinal);
+        Assert.Contains("model: \"gemma-4-12b\"", text, StringComparison.Ordinal);
+        Assert.Contains("voice: \"pt_BR-dii-high\"", text, StringComparison.Ordinal);
+        Assert.Contains("voice-speed: 1.1", text, StringComparison.Ordinal);
+        Assert.Contains("voice-expressiveness: 0.75", text, StringComparison.Ordinal);
+        Assert.Contains("# Lia - Identity", text, StringComparison.Ordinal);
+        Assert.Contains("## Who Lia is\nLia is a personal AI", text, StringComparison.Ordinal);
+        Assert.Contains("## Personality and style\nWarm and witty.\n\n### Tone\n- Casual", text, StringComparison.Ordinal);
+        Assert.Contains("[[lia-profile]]", text, StringComparison.Ordinal);
+        Assert.Equal(NoteKind.Identity, Assert.Single(_m.Index.Notes).Kind);
+
+        // Up to date: not written again.
+        Assert.False(await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task The_identity_note_follows_a_new_shortcut_but_keeps_the_users_edits()
+    {
+        var lia = await LiaAsync();
+        await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None);
+        _m.Storage.Files[IdentityFile] += "My own line about Lia.\n";
+
+        Assert.True(Desktop.HotkeyGesture.TryParse("Ctrl+Alt+L", out var ctrlAltL));
+        await _m.Assistants.SetHotkeyAsync(lia.Id, ctrlAltL);
+        Assert.True(await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None));
+        Assert.Contains("shortcut: \"Ctrl+Alt+L\"", _m.Storage.Files[IdentityFile], StringComparison.Ordinal);
+        Assert.Contains("My own line about Lia.", _m.Storage.Files[IdentityFile], StringComparison.Ordinal); // outside the markers
+
+        // The user rewrote the generated part: it is theirs now and defines who the assistant is.
+        _m.Storage.Files[IdentityFile] = _m.Storage.Files[IdentityFile].Replace("Warm and witty.", "Calm and formal.", StringComparison.Ordinal);
+        await _m.Assistants.SetHotkeyAsync(lia.Id, null);
+        Assert.False(await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None));
+        Assert.Contains("Calm and formal.", _m.Storage.Files[IdentityFile], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_long_pasted_text_is_searched_by_its_start_and_its_end()
+    {
+        var pasted = "Start of the log. " + new string('x', 20_000) + " What failed here?";
+        var query = MemoryVault.SearchQuery(pasted);
+        Assert.True(query.Length <= MemoryVault.MaxQueryChars + 5);
+        Assert.StartsWith("Start of the log.", query, StringComparison.Ordinal);
+        Assert.EndsWith("What failed here?", query, StringComparison.Ordinal);
+        Assert.Equal("short question", MemoryVault.SearchQuery("short question"));
+    }
+
+    [Fact]
+    public async Task Recall_brings_the_identity_for_the_prompt()
+    {
+        var lia = await LiaAsync("# Role\nWarm and witty.");
+        Assert.Null((await _m.Vault.RecallAsync("hello", CancellationToken.None)).Identity); // not written yet
+
+        await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None);
+        var memory = await _m.Vault.RecallAsync("warm witty personality", CancellationToken.None);
+
+        Assert.Contains("Warm and witty.", memory.Identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("type: identity", memory.Identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Lia - Identity", memory.Identity, StringComparison.Ordinal); // the note's title
+        Assert.Contains("# Role", memory.Identity, StringComparison.Ordinal); // a heading of the style stays
+        Assert.DoesNotContain(memory.Passages, p => p.NoteTitle == "lia-identity"); // already in the prompt
+    }
+
     [Fact]
     public async Task Deleting_a_conversation_or_an_assistant_deletes_their_notes()
     {
@@ -372,7 +452,7 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
         _session = new AssistantSession(_llm, _m.Conversations, new PromptBuilder(options, _m.Context), new HeuristicLanguageDetector(Languages),
             _m.Vault, speech, options, NullLogger<AssistantSession>.Instance);
         _worker = new MemoryWorker(_m.Vault, _m.Index, _m.Storage, _m.Assistants, _activity, _session, _m.Context, _llm, options, _time,
-            NullLogger<MemoryWorker>.Instance);
+            NullLogger<MemoryWorker>.Instance, _m.Work);
         _worker.JobFinished += (_, e) => { lock (_outcomes) _outcomes.Add($"{e.Job.Kind}:{e.Outcome}"); };
     }
 
@@ -433,6 +513,54 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
             Assert.Equal(working.Count / 2, working.Count(w => w));
         }
         Assert.False(_worker.IsWorking);
+    }
+
+    [Fact]
+    public async Task Finishing_an_assistant_does_all_its_memory_work_at_once()
+    {
+        var (nova, _) = await ConversationAsync(); // just talked: the idle loop would still wait
+        var steps = new List<string>();
+        _m.Work.Changed += (_, _) => { lock (steps) steps.Add(_m.Work.Current?.Text ?? ""); };
+
+        var jobs = await _worker.FinishAsync(nova.Id, CancellationToken.None);
+
+        Assert.True(jobs >= 3);
+        Assert.Contains(_m.Storage.Files.Keys, k => k.StartsWith("nova/conversations/", StringComparison.Ordinal));
+        Assert.Contains("Likes tea", _m.Storage.Files["nova/nova-profile.md"], StringComparison.Ordinal); // merged now, not in 5 minutes
+        Assert.True(_m.Storage.Files.ContainsKey("nova/nova-identity.md"));
+        Assert.DoesNotContain(_m.Index.Jobs, j => j.AssistantId == nova.Id && j.Kind != MemoryJobKind.IndexNote);
+        lock (steps) Assert.Contains(steps, s => s.StartsWith("Nova · Conversation note:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Stopping_the_finish_leaves_the_work_queued()
+    {
+        var (nova, _) = await ConversationAsync();
+        _llm.TokenDelay = TimeSpan.FromMilliseconds(30);
+        _llm.Responder = _ => Enumerable.Range(0, 100).Select(_ => " ").Append("{\"summary\": \"S\", \"facts\": []}");
+        using var cts = new CancellationTokenSource();
+        _worker.JobStarted += (_, job) => { if (job.Kind == MemoryJobKind.SummarizeConversation) cts.CancelAfter(100); };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _worker.FinishAsync(nova.Id, cts.Token));
+
+        Assert.Contains(_m.Index.Jobs, j => j.Kind == MemoryJobKind.SummarizeConversation); // done later
+        Assert.DoesNotContain(_m.Storage.Files.Keys, k => k.Contains("/conversations/", StringComparison.Ordinal));
+        Assert.Null(_m.Work.Current);
+    }
+
+    [Fact]
+    public async Task Writes_the_identity_notes_of_existing_and_new_assistants()
+    {
+        var (nova, _) = await ConversationAsync();
+        _time.Advance(MemoryWorker.IdleDelay + TimeSpan.FromSeconds(1));
+        _worker.Start();
+        await UntilAsync(() => _m.Storage.Files.ContainsKey("nova/nova-identity.md")); // existing assistant, at start
+
+        await _m.Assistants.CreateAsync(new NewAssistant("Lia", "Calm.", "m", "v", "pt"), VoiceStyle.Default);
+        await _worker.QueueIdentityNotesAsync(); // the app does this when an assistant is created
+        await UntilAsync(() => _m.Storage.Files.ContainsKey("lia/lia-identity.md"));
+        Assert.Contains("Calm.", _m.Storage.Files["lia/lia-identity.md"], StringComparison.Ordinal);
+        Assert.Equal(nova.Name, NoteDocument.Parse(_m.Storage.Files["nova/nova-identity.md"]).GetFrontmatter("assistant"));
     }
 
     [Fact]

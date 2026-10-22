@@ -15,6 +15,7 @@ public sealed class StatusBrushConverter : IValueConverter
     private static readonly IBrush Warning = new SolidColorBrush(Color.Parse("#E0AF68"));
     private static readonly IBrush Error = new SolidColorBrush(Color.Parse("#F7768E"));
     private static readonly IBrush Background = new SolidColorBrush(Color.Parse(StatusColors.Background));
+    private static readonly IBrush Idle = new SolidColorBrush(Color.Parse("#8A90A0"));
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
     {
@@ -22,6 +23,7 @@ public sealed class StatusBrushConverter : IValueConverter
         StatusLevel.Warning => Warning,
         StatusLevel.Error => Error,
         StatusLevel.Background => Background,
+        StatusLevel.Idle => Idle,
         _ => Busy,
     };
 

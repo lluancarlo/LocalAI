@@ -151,14 +151,14 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         _logger.LogInformation("Continuous voice mode started");
     }
 
-    public async Task StopContinuousAsync()
+    public async Task StopContinuousAsync(bool keepReply = false)
     {
         if (!_continuous) return;
         _continuous = false;
         _selection.SetLive(false);
         Interlocked.Increment(ref _turnGeneration);
         ClearTurn();
-        _session.CancelCurrentTurn();
+        if (!keepReply) _session.CancelCurrentTurn();
         if (!_monitoring) await CloseCaptureAsync().ConfigureAwait(false);
         SetState(VoiceState.Ready);
         _logger.LogInformation("Continuous voice mode stopped");

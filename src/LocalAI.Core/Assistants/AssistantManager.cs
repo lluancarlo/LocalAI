@@ -28,6 +28,9 @@ public sealed class AssistantManager(
     /// <summary>Raised after an assistant was created, deleted or got a new shortcut.</summary>
     public event EventHandler? AssistantsChanged;
 
+    /// <summary>Raised when an assistant's AI is asked to turn on (the button, a live shortcut), before anything loads.</summary>
+    public event EventHandler<AssistantProfile>? ModelRequested;
+
     private readonly Lock _switchGate = new();
     private readonly SemaphoreSlim _voiceGate = new(1, 1);
     private int _switchGeneration;
@@ -138,6 +141,7 @@ public sealed class AssistantManager(
     /// <summary>Turns the assistant's AI on: loads its language model (unloading another assistant's; one runs at a time).</summary>
     public async Task LoadModelAsync(AssistantProfile profile, CancellationToken ct = default)
     {
+        ModelRequested?.Invoke(this, profile);
         if (IsModelLoaded(profile)) return;
         ApplyToOptions(profile);
         await llm.UnloadAsync(ct).ConfigureAwait(false);

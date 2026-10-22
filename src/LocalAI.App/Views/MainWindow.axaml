@@ -176,7 +176,7 @@
                     ToolTip.Tip="Loads or unloads this assistant's language model (one runs at a time)" />
             <!-- Status on top, the model below, both centered in the space right of the button -->
             <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="8,0,0,0">
-              <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+              <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" ToolTip.Tip="{Binding AiStatusTip}">
                 <Ellipse Width="8" Height="8" Fill="{Binding AiStatusBrush}" VerticalAlignment="Center" />
                 <TextBlock Text="{Binding AiStatusText}" VerticalAlignment="Center" />
               </StackPanel>
@@ -328,7 +328,24 @@
 
       <!-- Diagnostics page -->
       <ScrollViewer Grid.Row="1" IsVisible="{Binding IsDiagnosticsPage}" Padding="24,18">
-        <SelectableTextBlock Text="{Binding DiagnosticsText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" Foreground="{StaticResource TextBrush}" />
+        <StackPanel>
+          <!-- Slow motion makes the steps in the status bar easy to follow -->
+          <Border Classes="card" HorizontalAlignment="Left" MaxWidth="760">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="section" Text="Watch the work" />
+              <TextBlock Classes="muted" TextWrapping="Wrap"
+                         Text="The status bar shows each step of a reply (blue) and of the memory work in the background (yellow): searching the notes, summarizing, merging the profile, embedding and saving." />
+              <CheckBox IsChecked="{Binding SlowMotion}" Content="Slow motion: pause 2 seconds at every step"
+                        ToolTip.Tip="Replies and memory work are slower while this is on. It turns off when the app closes." />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Classes="flat" Padding="10,4" Content="Process memory now" Command="{Binding ProcessMemoryNowCommand}"
+                        ToolTip.Tip="Writes the current conversation's note, then merges the profile and updates the identity note, without waiting for the conversation to go quiet" />
+                <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="520" Text="{Binding ProcessMemoryStatus}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          <SelectableTextBlock Text="{Binding DiagnosticsText}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" Foreground="{StaticResource TextBrush}" />
+        </StackPanel>
       </ScrollViewer>
 
       <!-- Settings page -->
@@ -391,10 +408,7 @@
                     <DataTemplate x:DataType="vm:AssistantItemViewModel">
                       <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
                         <StackPanel Spacing="2">
-                          <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                            <TextBlock Classes="tag" Text="active" IsVisible="{Binding IsActive}" />
-                          </StackPanel>
+                          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                           <TextBlock Classes="muted" Text="{Binding Details}" />
                           <TextBlock Classes="muted" Text="{Binding Style}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
                           <TextBlock Classes="muted" Margin="0,4,0,0" Text="Shortcut unavailable" IsVisible="{Binding !LiveEnabled}"
@@ -412,6 +426,8 @@
                                      IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="10,0,0,0">
+                          <Button Classes="flat" Content="Open directory" Command="{Binding OpenFolderCommand}"
+                                  ToolTip.Tip="Opens the folder with this assistant's notes: identity, profile and conversations (in your Obsidian vault if you chose one in Settings › Memory)" />
                           <Button Classes="flat" Content="Delete…" Command="{Binding DeleteCommand}"
                                   ToolTip.Tip="Deletes this assistant with all its conversations and memories (asks for confirmation)" />
                         </StackPanel>

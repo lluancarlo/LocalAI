@@ -24,7 +24,7 @@
   expressiveness, rhythm), chosen when you create it, plus its own conversations and memories. The voice settings
   start at the values the voice was made for, and their ranges follow the chosen voice.
 - **One click away:** one tab per assistant at the top of the window, **＋** to add a new one. The dot on a tab shows
-  its AI: green on, yellow loading (its model or its voice), red off. Switching tabs never loads a model: the
+  its AI: green on, yellow loading (its model or its voice) or saving its memory before turning off, red off. Switching tabs never loads a model: the
   **Turn on / Turn off** button above the conversations does (one model runs at a time; assistants with the same model
   share it). While the AI is off, Send is disabled.
 - **Speaks your language:** every assistant replies in the language you write or speak, always with its own voice.
@@ -97,7 +97,9 @@ In **Settings › Assistants › Ways to talk** you can turn Read aloud and Live
 - **Live from anywhere:** an assistant's global shortcut switches Live mode on and off from any application, and so
   does **Live mode** in the tray icon's menu. The tray icon blinks while the assistant listens. Shortcuts are
   unavailable while Live is turned off.
-- **Esc** stops the current reply in every mode. Live mode needs a microphone and the speech recognition model.
+- **Esc** stops the current reply in every mode, and so does **Stop**, which takes the place of Send while a reply runs.
+  Switching from Live to another mode closes the microphone but lets the reply being spoken finish; turning Live off
+  with the shortcut stops it. Live mode needs a microphone and the speech recognition model.
 
 ### A natural conversation
 
@@ -149,10 +151,14 @@ Each assistant learns from every conversation and keeps it as plain Markdown not
 ```
 local-ai/
   nova/
+    nova-identity.md                                 who the assistant is
     nova-profile.md                                  what it knows about you
     conversations/2026-10-22-orders-api-pagination.md  one note per conversation
 ```
 
+- **Identity:** who the assistant is: what it does, the personality and style you gave it, and its model, voice,
+  voice settings and shortcut as note properties. Written when the assistant is created and kept up to date; it is
+  what the assistant reads to know who it is, so editing it changes how the assistant acts.
 - **Profile:** about you, preferences, skills, projects and routine, merged and kept up to date from your
   conversations.
 - **Conversation notes:** summary, decisions, open items and the facts learned, with links you can follow in
@@ -164,12 +170,19 @@ local-ai/
   outside the generated part is never touched. Notes you delete come back the next time the conversation is
   processed; delete the conversation in the app to remove its note for good.
 - **Never in your way:** notes are written in the background, a few minutes after a conversation goes quiet or when
-  you open another one, and only while the assistant is idle. The moment you type or speak, that work stops and
-  waits. While it runs, the status dot at the bottom of the window and a dot on the tray icon turn yellow (in Live
-  mode the tray icon blinks red instead: the assistant is listening).
+  you open another one, and only while the assistant is idle. **Turn off** finishes the work left for that
+  assistant first (its tab turns yellow, "Saving memory"), then unloads its model; **Turn on** meanwhile stops it and
+  the rest waits for later. **Exit** in the tray does the same for the assistants whose AI is on before closing
+  (choose Exit again to close right away). The moment you type or speak, that work stops and
+  waits. While it runs, the status bar at the bottom of the window turns yellow and names each step (summarizing,
+  merging the profile, embedding, saving), and a dot on the tray icon turns yellow (in Live mode the tray icon blinks
+  red instead: the assistant is listening). The steps of a reply show there in blue (searching the notes, building
+  the prompt, generating, speaking, saving). To watch them, turn on **slow motion** in Diagnostics, and press
+  **Process memory now** to write the current conversation's notes right away.
 - **Where:** in the app folder by default. In **Settings › Memory** choose your Obsidian vault and the notes move
   into its `local-ai` folder, next to your own notes. There you can also pick the language of new notes (English by
-  default; the assistant reads them whatever language you talk in).
+  default; the assistant reads them whatever language you talk in). **Open directory** next to each assistant in
+  **Settings › Assistants** opens its folder, in the vault when you chose one.
 
 **Settings › Memory** shows what the active assistant remembers (its profile and conversation notes), with buttons to
 open them in Obsidian or in their folder.
@@ -194,7 +207,7 @@ publish\LocalAI\LocalAI.exe
 On first launch you create your first assistant and the app downloads the models it needs.
 
 Closing the window keeps Local AI running in the notification area. The tray icon's menu opens the window, turns
-**Live mode** on and off, and **Exit** quits.
+**Live mode** on and off, and **Exit** quits (first saving the memory of the assistants whose AI is on).
 Set an assistant's shortcut in **Settings › Assistants**.
 
 In **Settings › Audio**, *System default* follows whatever device Windows uses (it changes when you plug in a

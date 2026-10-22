@@ -242,10 +242,10 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
         return Task.CompletedTask;
     }
 
-    public Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default)
+    public Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default, long? assistantId = null)
     {
         lock (_gate)
-            return Task.FromResult(Jobs.Where(j => JobTimes[j.Id] <= now).OrderBy(j => JobTimes[j.Id]).ThenBy(j => j.Id).FirstOrDefault());
+            return Task.FromResult(Jobs.Where(j => JobTimes[j.Id] <= now && (assistantId == null || j.AssistantId == assistantId)).OrderBy(j => JobTimes[j.Id]).ThenBy(j => j.Id).FirstOrDefault());
     }
 
     public Task CompleteJobAsync(long jobId, CancellationToken ct = default)
@@ -290,17 +290,20 @@ internal sealed class MemoryHarness
     public FakeEmbeddings Embeddings { get; } = new();
     public Microsoft.Extensions.Options.IOptions<LocalAiOptions> Options { get; }
     public MemoryVault Vault { get; }
+    public LocalAI.Core.Assistant.WorkActivity Work { get; }
 
     public MemoryHarness(FakeLanguageModel? llm = null, InMemoryConversationStore? conversations = null, AssistantContext? context = null,
-        InMemoryAssistantStore? assistants = null, Microsoft.Extensions.Options.IOptions<LocalAiOptions>? options = null)
+        InMemoryAssistantStore? assistants = null, Microsoft.Extensions.Options.IOptions<LocalAiOptions>? options = null,
+        LocalAI.Core.Assistant.WorkActivity? work = null)
     {
+        Work = work ?? new LocalAI.Core.Assistant.WorkActivity();
         Llm = llm ?? new FakeLanguageModel();
         Conversations = conversations ?? new InMemoryConversationStore();
         Context = context ?? new AssistantContext();
         Assistants = assistants ?? new InMemoryAssistantStore();
         Options = options ?? TestOptions.Create();
         Vault = new MemoryVault(Storage, Index, Assistants, Conversations, Llm, Embeddings, Context, LanguageData.LoadDefault(), Options,
-            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<MemoryVault>.Instance);
+            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<MemoryVault>.Instance, Work);
     }
 }
 
@@ -457,7 +460,7 @@ internal sealed class FakeLiveVoice : ILiveVoice
         return Task.CompletedTask;
     }
 
-    public Task StopContinuousAsync()
+    public Task StopContinuousAsync(bool keepReply = false)
     {
         if (!IsContinuous) return Task.CompletedTask;
         IsContinuous = false;

@@ -105,6 +105,20 @@ public sealed class AssistantManagerTests
     }
 
     [Fact]
+    public async Task Turning_an_ai_on_is_announced_even_when_its_model_is_loaded()
+    {
+        // Turning an AI on stops the memory work of an AI that is turning off (AssistantPower), whose model is still loaded.
+        _llm.LoadsModel = () => _options.Llm.Model;
+        var nova = await _manager.CreateAsync(Draft("Nova"));
+        var requested = new List<string>();
+        _manager.ModelRequested += (_, a) => requested.Add(a.Name);
+
+        await _manager.LoadModelAsync(nova);
+
+        Assert.Equal(["Nova"], requested);
+    }
+
+    [Fact]
     public async Task The_voice_style_chosen_at_creation_is_kept_and_applied_on_switch()
     {
         var deep = new VoiceStyle { Pitch = -3, Speed = 0.9 };

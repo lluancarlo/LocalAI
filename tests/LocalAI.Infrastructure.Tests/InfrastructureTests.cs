@@ -309,9 +309,10 @@ public sealed class LlamaServerTests
     {
         var args = LlamaServerProcess.BuildArguments(new LlamaServerStartInfo
         {
-            ExecutablePath = "x", ModelPath = "e.gguf", Embedding = true, GpuLayers = 0,
+            ExecutablePath = "x", ModelPath = "e.gguf", Embedding = true, GpuLayers = 0, ContextSize = 2048,
         }, 1);
         Assert.Contains("--embedding", args);
+        Assert.Contains("--ubatch-size 2048", string.Join(' ', args), StringComparison.Ordinal); // a whole input in one batch
         Assert.DoesNotContain("--reasoning", args);
         Assert.DoesNotContain("--load-mode", args); // CPU: keep mmap
         Assert.Contains("--n-gpu-layers 0", string.Join(' ', args), StringComparison.Ordinal);

@@ -9,11 +9,14 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Memory.Vault;
 
-/// <summary>What the memory adds to a prompt: the user's profile and the most relevant passages of past notes.</summary>
-public sealed record MemoryContext(string? Profile, IReadOnlyList<NoteChunk> Passages)
+/// <summary>
+/// What the memory adds to a prompt: the user's profile, the most relevant passages of past notes and the identity
+/// note (who the assistant is; null until it is written, then the assistant's style is used instead).
+/// </summary>
+public sealed record MemoryContext(string? Profile, IReadOnlyList<NoteChunk> Passages, string? Identity = null)
 {
     public static readonly MemoryContext Empty = new(null, []);
-    public bool IsEmpty => string.IsNullOrWhiteSpace(Profile) && Passages.Count == 0;
+    public bool IsEmpty => string.IsNullOrWhiteSpace(Profile) && Passages.Count == 0 && string.IsNullOrWhiteSpace(Identity);
 }
 
 /// <summary>
@@ -33,10 +36,23 @@ public sealed class MemoryVault(
     LanguageData languages,
     IOptions<LocalAiOptions> options,
     TimeProvider time,
-    ILogger<MemoryVault> logger)
+    ILogger<MemoryVault> logger,
+    WorkActivity? activity = null)
 {
+    private readonly WorkActivity _activity = activity ?? new WorkActivity();
+
+    /// <summary>Shows a step of the background memory work (slow motion pauses here).</summary>
+    private Task StepAsync(string text, CancellationToken ct) => _activity.StepAsync(WorkKind.Memory, text, ct);
+
     /// <summary>Longest section kept as one passage; longer ones are split at paragraphs.</summary>
     private const int MaxChunkChars = 1200;
+    /// <summary>
+    /// Longest search query: a long pasted text is searched by its start and its end (where the question usually is).
+    /// The embedding model reads at most 2048 tokens.
+    /// </summary>
+    internal const int MaxQueryChars = 2000;
+    /// <summary>Longest identity sent to the model (the style the user writes is at most 2000 characters).</summary>
+    private const int MaxIdentityChars = 6000;
     private readonly MemoryOptions _options = options.Value.Memory;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
@@ -65,6 +81,7 @@ public sealed class MemoryVault(
     {
         if (await FindAssistantAsync(assistantId, ct).ConfigureAwait(false) is not { } assistant) return false;
         if (await conversations.GetAsync(conversationId, ct).ConfigureAwait(false) is not { } conversation) return false;
+        await StepAsync("Conversation note: reading the conversation", ct).ConfigureAwait(false);
         var messages = await conversations.GetMessagesAsync(conversationId, ct).ConfigureAwait(false);
         if (!messages.Any(m => m.Role == ChatRole.Assistant)) return false;
 
@@ -80,10 +97,12 @@ public sealed class MemoryVault(
             return false;
         }
 
+        await StepAsync("Conversation note: the model summarizes the conversation", ct).ConfigureAwait(false);
         var raw = await llm.GenerateAsync(NoteFormats.ConversationPrompt(assistant.Name, _options.NotesLanguage, messages), Background, ct)
             .ConfigureAwait(false);
         var summary = NoteFormats.ParseConversation(raw) ?? throw new InvalidDataException("The conversation summary was not valid JSON.");
         var block = NoteFormats.RenderConversation(summary, Headings);
+        await StepAsync("Conversation note: saving the note", ct).ConfigureAwait(false);
 
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -148,6 +167,7 @@ public sealed class MemoryVault(
         if (document is { HasGeneratedBlock: false }) return false; // the whole profile is the user's
 
         var since = profileNote?.UpdatedAt ?? DateTimeOffset.MinValue;
+        await StepAsync("Profile: collecting the new facts", ct).ConfigureAwait(false);
         var newFacts = new List<string>();
         foreach (var note in await index.ListNotesAsync(assistantId, ct).ConfigureAwait(false))
         {
@@ -160,6 +180,7 @@ public sealed class MemoryVault(
         var generated = NoteFormats.ReadProfile(profileNote?.GeneratedText, AnyHeadings).AllItems.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var userItems = current.AllItems.Where(i => !generated.Contains(i)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        await StepAsync($"Profile: the model merges {newFacts.Count} new facts", ct).ConfigureAwait(false);
         var raw = await llm.GenerateAsync(NoteFormats.ProfilePrompt(_options.NotesLanguage, current, userItems, newFacts), Background, ct)
             .ConfigureAwait(false);
         var merged = NoteFormats.ParseProfile(raw) ?? throw new InvalidDataException("The profile was not valid JSON.");
@@ -179,6 +200,7 @@ public sealed class MemoryVault(
         var text = storage.Read(path);
         var document = text != null ? NoteDocument.Parse(text) : null;
 
+        await StepAsync("Moving old memories into the profile", ct).ConfigureAwait(false);
         var facts = await index.TakeLegacyFactsAsync(assistantId, ct).ConfigureAwait(false);
         if (facts.Count == 0) return;
         if (document is { HasGeneratedBlock: false })
@@ -198,6 +220,7 @@ public sealed class MemoryVault(
         ProfileContent profile, CancellationToken ct)
     {
         var block = NoteFormats.RenderProfile(profile, Headings);
+        await StepAsync("Profile: saving the note", ct).ConfigureAwait(false);
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -232,6 +255,65 @@ public sealed class MemoryVault(
         NotesChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    // ---------------- Identity ----------------
+
+    /// <summary>
+    /// Writes the identity note (who the assistant is) when it is missing or out of date, e.g. after the shortcut
+    /// changed. A note whose generated block the user edited keeps their text: it then defines who the assistant is.
+    /// Returns true when the file was written.
+    /// </summary>
+    public async Task<bool> WriteIdentityNoteAsync(long assistantId, CancellationToken ct)
+    {
+        if (await FindAssistantAsync(assistantId, ct).ConfigureAwait(false) is not { } assistant) return false;
+        await StepAsync("Identity note: checking it is up to date", ct).ConfigureAwait(false);
+        var folder = await AssistantFolderAsync(assistant, ct).ConfigureAwait(false);
+        var path = VaultLayout.IdentityPath(folder);
+        var block = NoteFormats.RenderIdentity(assistant, Path.GetFileNameWithoutExtension(VaultLayout.ProfilePath(folder)), Headings);
+
+        await _writeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var note = await index.FindNoteAsync(assistant.Id, path, ct).ConfigureAwait(false);
+            var current = storage.Read(path);
+            var document = current != null ? NoteDocument.Parse(current) : null;
+            // Without an index entry (e.g. a rebuilt index) the file's block counts as the app's, like any note.
+            if (document != null && IsUserOwned(document, note ?? NewNoteFromFile(assistant.Id, folder, path, current!)))
+                return false;
+
+            var title = $"{assistant.Name} - {Headings.Identity}";
+            var updated = (document ?? NoteDocument.Create([], title, block)) with { Generated = block };
+            foreach (var (key, value) in NoteFormats.IdentityProperties(assistant)) updated = updated.WithFrontmatter(key, value);
+            if (document == null)
+            {
+                updated = updated.WithFrontmatter("aliases", $"[{NoteDocument.Quote(title)}]")
+                    .WithFrontmatter("tags", $"[local-ai, local-ai/{folder}]");
+            }
+            if (updated.Render() == current) return false;
+
+            await StepAsync("Identity note: saving the note", ct).ConfigureAwait(false);
+
+            var text = updated.WithFrontmatter("updated", Now()).Render();
+            storage.Write(path, text);
+            var saved = await index.SaveNoteAsync(new VaultNote
+            {
+                Id = note?.Id ?? 0,
+                AssistantId = assistant.Id,
+                Path = path,
+                Kind = NoteKind.Identity,
+                GeneratedText = block,
+                UpdatedAt = time.GetLocalNow(),
+            }, ct).ConfigureAwait(false);
+            await IndexAsync(saved, text, ct).ConfigureAwait(false);
+            logger.LogInformation("Wrote the identity note of assistant {Id}", assistant.Id);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+        NotesChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     // ---------------- Index ----------------
 
     /// <summary>
@@ -255,6 +337,7 @@ public sealed class MemoryVault(
             await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
             changed = true;
         }
+        await StepAsync("Index: checking the notes for changes", ct).ConfigureAwait(false);
         foreach (var path in storage.ListNotes(folder))
         {
             if (storage.Read(path) is not { } text) continue;
@@ -298,14 +381,16 @@ public sealed class MemoryVault(
     private static VaultNote NewNoteFromFile(long assistantId, string folder, string path, string text)
     {
         var document = NoteDocument.Parse(text);
-        var isProfile = path == VaultLayout.ProfilePath(folder);
+        var kind = path == VaultLayout.ProfilePath(folder) ? NoteKind.Profile
+            : path == VaultLayout.IdentityPath(folder) ? NoteKind.Identity
+            : NoteKind.Conversation;
         long? conversationId = long.TryParse(document.GetFrontmatter("conversation"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
         return new VaultNote
         {
             AssistantId = assistantId,
             Path = path,
-            Kind = isProfile ? NoteKind.Profile : NoteKind.Conversation,
-            ConversationId = isProfile ? null : conversationId,
+            Kind = kind,
+            ConversationId = kind == NoteKind.Conversation ? conversationId : null,
             // A note the app did not write (or wrote before the index existed): its block counts as generated, so
             // only later edits count as the user's.
             GeneratedText = document.Generated,
@@ -316,10 +401,12 @@ public sealed class MemoryVault(
     private async Task IndexAsync(VaultNote note, string text, CancellationToken ct)
     {
         var chunks = Chunk(note, text);
+        var name = Path.GetFileNameWithoutExtension(note.Path);
         if (embeddings.IsAvailable)
         {
             for (var i = 0; i < chunks.Count; i++)
             {
+                await StepAsync($"Index: embedding passage {i + 1} of {chunks.Count} ({name})", ct).ConfigureAwait(false);
                 try
                 {
                     var vector = await embeddings.EmbedAsync($"{chunks[i].NoteTitle}: {chunks[i].Heading}\n{chunks[i].Text}",
@@ -330,6 +417,7 @@ public sealed class MemoryVault(
                 catch (Exception ex) { logger.LogWarning(ex, "Embedding a note passage failed; it is found by keywords only"); }
             }
         }
+        await StepAsync($"Index: saving {chunks.Count} passages to the search index ({name})", ct).ConfigureAwait(false);
         await index.ReplaceChunksAsync(note.Id, chunks, ct).ConfigureAwait(false);
         await index.SaveNoteAsync(note with { FileHash = NoteDocument.Hash(text) }, ct).ConfigureAwait(false);
     }
@@ -385,7 +473,10 @@ public sealed class MemoryVault(
             var budget = _options.MemoryTokenBudget;
             var folder = await AssistantFolderAsync(assistant, ct).ConfigureAwait(false);
             var profilePath = VaultLayout.ProfilePath(folder);
-            var profile = ProfileText(storage.Read(profilePath));
+            await _activity.StepAsync(WorkKind.Reply, "Memory (RAG): reading the identity and the profile", ct).ConfigureAwait(false);
+            var identity = NoteText(storage.Read(VaultLayout.IdentityPath(folder)));
+            if (identity?.Length > MaxIdentityChars) identity = identity[..MaxIdentityChars] + "…";
+            var profile = NoteText(storage.Read(profilePath));
             if (profile != null)
             {
                 var max = (int)(budget * 0.4 * 3.5);
@@ -393,11 +484,15 @@ public sealed class MemoryVault(
                 budget -= PromptBuilder.EstimateTokens(profile);
             }
 
-            var profileId = (await index.FindNoteAsync(assistant.Id, profilePath, ct).ConfigureAwait(false))?.Id;
-            var chunks = (await index.ListChunksAsync(assistant.Id, ct).ConfigureAwait(false)).Where(c => c.NoteId != profileId).ToList();
+            // The profile and the identity are in the prompt already: passages come from the other notes.
+            var inPrompt = (await index.ListNotesAsync(assistant.Id, ct).ConfigureAwait(false))
+                .Where(n => n.Kind != NoteKind.Conversation).Select(n => n.Id).ToHashSet();
+            var chunks = (await index.ListChunksAsync(assistant.Id, ct).ConfigureAwait(false)).Where(c => !inPrompt.Contains(c.NoteId)).ToList();
             var passages = new List<NoteChunk>();
             if (chunks.Count > 0 && !string.IsNullOrWhiteSpace(query))
             {
+                await _activity.StepAsync(WorkKind.Reply, $"Memory (RAG): searching {chunks.Count} passages by meaning and words", ct)
+                    .ConfigureAwait(false);
                 foreach (var chunk in await RankAsync(assistant.Id, query, chunks, ct).ConfigureAwait(false))
                 {
                     var cost = PromptBuilder.EstimateTokens(chunk.Text) + 8;
@@ -409,7 +504,7 @@ public sealed class MemoryVault(
             }
             if (profile != null || passages.Count > 0)
                 logger.LogInformation("Recalled the profile ({Profile}) and {Count} note passages", profile != null, passages.Count);
-            return new MemoryContext(profile, passages);
+            return new MemoryContext(profile, passages, identity);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -419,19 +514,31 @@ public sealed class MemoryVault(
         }
     }
 
-    /// <summary>The profile's content for the prompt: the generated block and the user's own text, without frontmatter.</summary>
-    private static string? ProfileText(string? text)
+    /// <summary>A note's content for the prompt (profile, identity): the generated block and the user's own text, without frontmatter.</summary>
+    private static string? NoteText(string? text)
     {
         if (text == null) return null;
         var document = NoteDocument.Parse(text);
-        var body = string.Join('\n', (document.Before + (document.Generated ?? "") + "\n" + document.After).Split('\n')
-            .Where(l => !l.StartsWith("# ", StringComparison.Ordinal))).Trim();
+        // Only the note's title goes: a "# " heading the user wrote in the text (e.g. in the style) stays.
+        var lines = (document.Before + (document.Generated ?? "") + "\n" + document.After).Split('\n').ToList();
+        var title = lines.FindIndex(l => l.StartsWith("# ", StringComparison.Ordinal));
+        if (title >= 0) lines.RemoveAt(title);
+        var body = string.Join('\n', lines).Trim();
         return body.Length == 0 ? null : body;
+    }
+
+    /// <summary>The query as searched: at most <see cref="MaxQueryChars"/>, its start and its end.</summary>
+    internal static string SearchQuery(string query)
+    {
+        if (query.Length <= MaxQueryChars) return query;
+        var half = MaxQueryChars / 2;
+        return query[..half] + "\n...\n" + query[^half..];
     }
 
     /// <summary>Reciprocal rank fusion of the semantic and the full-text ranking.</summary>
     private async Task<IReadOnlyList<NoteChunk>> RankAsync(long assistantId, string query, List<NoteChunk> chunks, CancellationToken ct)
     {
+        query = SearchQuery(query);
         const double k = 60;
         var scores = new Dictionary<long, double>();
         if (embeddings.IsAvailable)

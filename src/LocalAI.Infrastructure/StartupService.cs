@@ -87,6 +87,8 @@ public sealed class StartupService(
         });
         await Task.WhenAll(ttsTask, sttTask, embTask).ConfigureAwait(false);
         // Background memory work (notes, profile, index) once the engines are up; it always yields to the assistant.
+        // A new assistant (or a new shortcut) gets its identity note written there.
+        assistants.AssistantsChanged += (_, _) => _ = memory.QueueIdentityNotesAsync();
         memory.Start();
         logger.LogInformation("Startup complete in {Ms:F0} ms", total.Elapsed.TotalMilliseconds);
     }

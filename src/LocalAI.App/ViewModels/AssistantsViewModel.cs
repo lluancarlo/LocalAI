@@ -479,6 +479,17 @@ public sealed partial class AssistantsViewModel : ObservableObject
     }
 
     /// <summary>Opens the confirmation popup with what deleting the assistant would remove.</summary>
+    /// <summary>
+    /// Opens the assistant's folder of notes (identity, profile, conversations): in data\memory, or in the Obsidian
+    /// vault chosen in Settings › Memory.
+    /// </summary>
+    internal async Task OpenFolderAsync(AssistantItemViewModel item)
+    {
+        var folder = _vault.FullPath(await _vault.AssistantFolderAsync(item.Profile));
+        Directory.CreateDirectory(folder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+    }
+
     internal async Task RequestDeleteAsync(AssistantItemViewModel item)
     {
         var summary = await Task.Run(() => _manager.GetDataSummaryAsync(item.Profile));
@@ -554,6 +565,18 @@ public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, As
     {
         owner.CancelHotkeyRecording();
         return owner.SetHotkeyAsync(this, null);
+    }
+
+    [RelayCommand]
+    private async Task OpenFolderAsync()
+    {
+        Error = null;
+        try { await owner.OpenFolderAsync(this); }
+        catch (Exception ex)
+        {
+            owner.Logger.LogError(ex, "Could not open the assistant's folder");
+            Error = $"Could not open the folder: {ex.Message}";
+        }
     }
 
     [RelayCommand]

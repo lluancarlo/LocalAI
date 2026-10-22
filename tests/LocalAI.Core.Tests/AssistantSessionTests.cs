@@ -264,6 +264,17 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
+    public void The_identity_note_takes_the_place_of_the_style()
+    {
+        var context = new LocalAI.Core.Assistants.AssistantContext();
+        context.Set(Profile("it"));
+        var memory = new MemoryContext(null, [], "## Personality and style\nTalks like a sea captain.");
+        var system = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", memory, false, DateTimeOffset.Now)[0].Content;
+        Assert.Contains("Talks like a sea captain.", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("Speaks like a pirate.", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Reminds_the_reply_language_in_the_last_user_turn()
     {
         var context = new LocalAI.Core.Assistants.AssistantContext();

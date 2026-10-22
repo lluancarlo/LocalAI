@@ -81,9 +81,11 @@ public static class LocalAiHost
         services.AddSingleton<FileVaultStorage>();
         services.AddSingleton<IVaultStorage>(sp => sp.GetRequiredService<FileVaultStorage>());
         services.AddSingleton<IVaultIndex, SqliteVaultIndex>();
+        services.AddSingleton<WorkActivity>();
         services.AddSingleton<MemoryVault>();
         services.AddSingleton<IAssistantActivity, AssistantActivity>();
         services.AddSingleton<MemoryWorker>();
+        services.AddSingleton<AssistantPower>();
 
         // Speech
         services.AddSingleton<ISpeechToText, WhisperSpeechToText>();

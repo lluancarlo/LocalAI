@@ -23,7 +23,7 @@ public sealed record LanguageProfile
     public IReadOnlyList<string> UnfinishedEndings { get; init; } = [];
 }
 
-/// <summary>Section titles of the memory notes (conversation notes and the profile).</summary>
+/// <summary>Section titles and fixed sentences of the memory notes (conversation notes, the profile, the identity).</summary>
 public sealed record MemoryHeadings
 {
     public string Summary { get; init; } = "Summary";
@@ -36,6 +36,19 @@ public sealed record MemoryHeadings
     public string Projects { get; init; } = "Projects";
     public string Routine { get; init; } = "Routine";
     public string Profile { get; init; } = "Profile";
+
+    // The identity note: who the assistant is. {name} is the assistant's name, {profile} the profile note's title.
+    public string Identity { get; init; } = "Identity";
+    public string WhoIs { get; init; } = "Who {name} is";
+    public string Personality { get; init; } = "Personality and style";
+    public string Memory { get; init; } = "Memory";
+    public string IdentityIntro { get; init; } =
+        "{name} is a personal AI that runs fully offline on this computer, in Local AI. {name} talks with the user by " +
+        "text and by voice, replies in the language the user writes or speaks, always with the same voice, and " +
+        "remembers the user through the notes in this folder.";
+    public string NoPersonality { get; init; } = "No personality was defined at creation: {name} answers in a helpful, precise and concise way.";
+    public string IdentityMemory { get; init; } =
+        "What {name} knows about the user is in [[{profile}]]. Each conversation has its own note in the conversations folder.";
 }
 
 /// <summary>languages.json (shipped next to the executable): per-language text data, kept out of the code.</summary>

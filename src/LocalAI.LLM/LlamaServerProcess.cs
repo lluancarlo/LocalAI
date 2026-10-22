@@ -133,7 +133,13 @@ public sealed class LlamaServerProcess : IAsyncDisposable
         // Measured on Gemma 4 12B: 2.4 s vs 3.8 s load, 1.4 GB vs 7.2 GB resident RAM, same tok/s.
         // Partial/CPU inference keeps mmap (weights are used from host memory anyway).
         if (info.GpuLayers < 0 && !info.FitToMemory) args.AddRange(["--load-mode", "none"]);
-        if (info.Embedding) args.Add("--embedding");
+        if (info.Embedding)
+        {
+            // An embedding input is processed in one physical batch: let it be as long as the context (the default 512
+            // tokens rejects longer passages with "input is too large to process").
+            var context = info.ContextSize.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            args.AddRange(["--embedding", "--batch-size", context, "--ubatch-size", context]);
+        }
         else if (info.DisableReasoning) args.AddRange(["--reasoning", "off"]);
         return args;
     }

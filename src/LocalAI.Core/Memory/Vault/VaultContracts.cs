@@ -1,6 +1,6 @@
 namespace LocalAI.Core.Memory.Vault;
 
-public enum NoteKind { Profile, Conversation }
+public enum NoteKind { Identity, Profile, Conversation }
 
 /// <summary>What the index knows about one note file of an assistant.</summary>
 public sealed record VaultNote
@@ -32,7 +32,7 @@ public sealed record NoteChunk
     public string? EmbeddingModel { get; init; }
 }
 
-public enum MemoryJobKind { MigrateLegacyFacts, SummarizeConversation, ConsolidateProfile, IndexNote }
+public enum MemoryJobKind { MigrateLegacyFacts, SummarizeConversation, ConsolidateProfile, IndexNote, WriteIdentity }
 
 public sealed record MemoryJob(long Id, MemoryJobKind Kind, long AssistantId, long? ConversationId, string? Path, int Attempts);
 
@@ -85,7 +85,8 @@ public interface IVaultIndex
     /// <summary>Queues a job unless the same one is already waiting (then its start time is kept).</summary>
     Task EnqueueAsync(MemoryJobKind kind, long assistantId, long? conversationId, string? path, DateTimeOffset notBefore,
         CancellationToken ct = default);
-    Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default);
+    /// <summary>The next job due at <paramref name="now"/>, of <paramref name="assistantId"/> only when given.</summary>
+    Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default, long? assistantId = null);
     Task CompleteJobAsync(long jobId, CancellationToken ct = default);
     /// <summary>Puts the job back for later; <paramref name="failed"/> counts it as a failed attempt.</summary>
     Task PostponeJobAsync(long jobId, DateTimeOffset notBefore, bool failed, CancellationToken ct = default);

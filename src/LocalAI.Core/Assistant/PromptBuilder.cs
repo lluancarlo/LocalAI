@@ -55,7 +55,10 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
         userText = WithSelection(userText, selectedText);
         var profile = assistant.Current;
         var system = new StringBuilder(_options.SystemPrompt.Replace("{name}", profile?.Name ?? "Assistant", StringComparison.Ordinal));
-        if (!string.IsNullOrWhiteSpace(profile?.StylePrompt))
+        // The identity note says who the assistant is (the user may have edited it); until it exists, the style itself.
+        if (!string.IsNullOrWhiteSpace(memory.Identity))
+            system.Append("\n\nYour identity note (who you are and how you act; follow it):\n").Append(memory.Identity.Trim());
+        else if (!string.IsNullOrWhiteSpace(profile?.StylePrompt))
             system.Append("\n\nPersonality and style defined by the user:\n").Append(profile.StylePrompt);
         system.Append(CultureInfo.InvariantCulture, $"\nCurrent local date/time: {now:yyyy-MM-dd HH:mm} ({now:dddd}).");
 

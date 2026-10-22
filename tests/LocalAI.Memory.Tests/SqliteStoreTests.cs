@@ -263,6 +263,10 @@ public sealed class SqliteVaultIndexTests : IDisposable
         Assert.Equal(MemoryJobKind.ConsolidateProfile, (await _index.NextJobAsync(now.AddMinutes(6)))!.Kind);
         await _index.CompleteJobAsync((await _index.NextJobAsync(now.AddMinutes(6)))!.Id);
         Assert.Equal(1, (await _index.NextJobAsync(now.AddMinutes(11)))!.Attempts);
+
+        // One assistant's jobs only (its AI turning off).
+        Assert.NotNull(await _index.NextJobAsync(now.AddMinutes(11), assistantId: Nova));
+        Assert.Null(await _index.NextJobAsync(now.AddMinutes(11), assistantId: Nova + 1000));
     }
 
     [Fact]

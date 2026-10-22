@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
 
@@ -186,6 +188,48 @@ public static class NoteFormats
         foreach (var fact in facts.Select(f => f.Trim()).Where(f => f.Length > 0))
             if (present.Add(fact)) about.Add(fact);
         return profile with { About = about };
+    }
+
+    // ---------------- Identity ----------------
+
+    /// <summary>
+    /// The identity note's generated block: who the assistant is, its personality (the style the user wrote at
+    /// creation) and where its memory is. Model, voice and settings go in the frontmatter (<see cref="IdentityProperties"/>).
+    /// </summary>
+    public static string RenderIdentity(AssistantProfile assistant, string profileTitle, MemoryHeadings h)
+    {
+        string Fill(string text) => text.Replace("{name}", assistant.Name, StringComparison.Ordinal)
+            .Replace("{profile}", profileTitle, StringComparison.Ordinal);
+        var personality = string.IsNullOrWhiteSpace(assistant.StylePrompt)
+            ? Fill(h.NoPersonality)
+            : assistant.StylePrompt.ReplaceLineEndings("\n").Trim();
+        return NoteSections.Render(
+        [
+            (Fill(h.WhoIs), Fill(h.IdentityIntro), []),
+            (h.Personality, personality, []),
+            (h.Memory, Fill(h.IdentityMemory), []),
+        ]);
+    }
+
+    /// <summary>The identity note's frontmatter (Obsidian shows it as the note's properties).</summary>
+    public static IReadOnlyList<(string Key, string Value)> IdentityProperties(AssistantProfile assistant)
+    {
+        var s = assistant.VoiceStyle;
+        string Number(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+        return
+        [
+            ("type", "identity"),
+            ("assistant", NoteDocument.Quote(assistant.Name)),
+            ("model", NoteDocument.Quote(assistant.ModelId)),
+            ("voice", NoteDocument.Quote(assistant.VoiceId)),
+            ("voice-language", NoteDocument.Quote(assistant.Language)),
+            ("voice-speed", Number(s.Speed)),
+            ("voice-pitch", Number(s.Pitch)),
+            ("voice-expressiveness", Number(s.Expressiveness)),
+            ("voice-rhythm", Number(s.Rhythm)),
+            ("shortcut", NoteDocument.Quote(assistant.Hotkey?.ToString() ?? "")),
+            ("created", assistant.CreatedAt.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture)),
+        ];
     }
 
     public static string RenderProfile(ProfileContent p, MemoryHeadings h) => NoteSections.Render(

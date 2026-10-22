@@ -10,6 +10,7 @@ namespace LocalAI.Core.Memory.Vault;
 /// <code>
 /// local-ai/
 ///   jessica/
+///     jessica-identity.md
 ///     jessica-profile.md
 ///     conversations/2026-10-22-read-selection.md
 /// </code>
@@ -49,6 +50,10 @@ public static class VaultLayout
 
     public static string ProfilePath(string assistantFolder) =>
         $"{assistantFolder}/{assistantFolder}-profile{NoteExtension}";
+
+    /// <summary>The note on who the assistant is: its personality, model, voice and memory.</summary>
+    public static string IdentityPath(string assistantFolder) =>
+        $"{assistantFolder}/{assistantFolder}-identity{NoteExtension}";
 
     /// <summary>
     /// A new conversation note's path: date and title. <paramref name="exists"/> tells which paths are taken, so a

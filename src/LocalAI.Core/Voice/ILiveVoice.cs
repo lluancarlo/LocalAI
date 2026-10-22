@@ -12,5 +12,9 @@ public interface ILiveVoice
 
     Task StartContinuousAsync();
 
-    Task StopContinuousAsync();
+    /// <summary>
+    /// Leaves the live conversation. What the user is still saying is dropped; with <paramref name="keepReply"/> a reply
+    /// already being made goes on (and speaks) until it ends or is stopped, else it stops too.
+    /// </summary>
+    Task StopContinuousAsync(bool keepReply = false);
 }

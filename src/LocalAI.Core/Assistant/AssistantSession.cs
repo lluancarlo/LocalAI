@@ -41,6 +41,7 @@ public sealed class AssistantSession : IDisposable
     private readonly ILanguageDetector _languageDetector;
     private readonly MemoryVault _memory;
     private readonly AssistantManager? _assistants;
+    private readonly WorkActivity _activity;
     private readonly SpeechOutput _speech;
     private readonly LocalAiOptions _options;
     private readonly ILogger<AssistantSession> _logger;
@@ -58,9 +59,11 @@ public sealed class AssistantSession : IDisposable
         SpeechOutput speech,
         IOptions<LocalAiOptions> options,
         ILogger<AssistantSession> logger,
-        AssistantManager? assistants = null)
+        AssistantManager? assistants = null,
+        WorkActivity? activity = null)
     {
         _assistants = assistants;
+        _activity = activity ?? new WorkActivity();
         _llm = llm;
         _store = store;
         _promptBuilder = promptBuilder;
@@ -118,6 +121,7 @@ public sealed class AssistantSession : IDisposable
         }
         finally
         {
+            _activity.End(WorkKind.Reply);
             _turnCts = null;
             SetBusy(false);
             _turnGate.Release();
@@ -148,6 +152,7 @@ public sealed class AssistantSession : IDisposable
         }
         if (language != null) _lastUserLanguage = language;
 
+        await _activity.StepAsync(WorkKind.Reply, "Saving your message", ct).ConfigureAwait(false);
         var conversationId = await EnsureConversationAsync(request.Text, ct).ConfigureAwait(false);
         var history = await _store.GetRecentMessagesAsync(conversationId, 60, ct).ConfigureAwait(false);
 
@@ -169,6 +174,7 @@ public sealed class AssistantSession : IDisposable
             : request.Text;
         var memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
+        await _activity.StepAsync(WorkKind.Reply, "Building the prompt", ct).ConfigureAwait(false);
         var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, language);
 
         var options = new GenerationOptions
@@ -188,6 +194,8 @@ public sealed class AssistantSession : IDisposable
 
         try
         {
+            await _activity.StepAsync(WorkKind.Reply, speak ? "Generating the reply and speaking it" : "Generating the reply", ct)
+                .ConfigureAwait(false);
             await foreach (var chunk in _llm.StreamAsync(prompt, options, ct).ConfigureAwait(false))
             {
                 if (chunk.Stats != null) stats = chunk.Stats;
@@ -197,7 +205,11 @@ public sealed class AssistantSession : IDisposable
                 AssistantDelta?.Invoke(this, new AssistantDeltaEventArgs(conversationId, chunk.Text));
             }
             utterance?.Complete();
-            if (utterance != null) await utterance.Completion.ConfigureAwait(false);
+            if (utterance != null)
+            {
+                await _activity.StepAsync(WorkKind.Reply, "Speaking the reply", ct).ConfigureAwait(false);
+                await utterance.Completion.ConfigureAwait(false);
+            }
             if (ct.IsCancellationRequested) outcome = TurnOutcome.Cancelled;
         }
         catch (OperationCanceledException)
@@ -222,6 +234,7 @@ public sealed class AssistantSession : IDisposable
         StoredMessage? assistantMessage = null;
         if (reply.Length > 0)
         {
+            await _activity.StepAsync(WorkKind.Reply, "Saving the reply", CancellationToken.None).ConfigureAwait(false);
             assistantMessage = await _store.AddMessageAsync(new StoredMessage
             {
                 ConversationId = conversationId,

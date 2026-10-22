@@ -20,7 +20,14 @@
       "memoryHeadings": {
         "summary": "Resumo", "decisions": "Decisões", "openItems": "Pendências", "factsLearned": "Fatos aprendidos",
         "about": "Sobre", "preferences": "Preferências", "skills": "Habilidades", "projects": "Projetos", "routine": "Rotina",
-        "profile": "Perfil"
+        "profile": "Perfil",
+        "identity": "Identidade",
+        "whoIs": "Quem é {name}",
+        "personality": "Personalidade e estilo",
+        "memory": "Memória",
+        "identityIntro": "{name} é uma IA pessoal que roda totalmente offline neste computador, no Local AI. Conversa com o usuário por texto e por voz, responde no idioma em que o usuário escreve ou fala, sempre com a mesma voz, e se lembra do usuário pelas notas desta pasta.",
+        "noPersonality": "Nenhuma personalidade foi definida na criação: {name} responde de forma útil, precisa e concisa.",
+        "identityMemory": "O que {name} sabe sobre o usuário está em [[{profile}]]. Cada conversa tem a sua nota na pasta conversations."
       },
       "reactions": ["Aham.", "Sei.", "Entendo.", "Certo."],
       "fillers": ["Então, deixa eu ver...", "Bom, deixa eu pensar...", "Deixa eu ver aqui...", "Só um instante..."],
@@ -45,7 +52,14 @@
       "memoryHeadings": {
         "summary": "Riepilogo", "decisions": "Decisioni", "openItems": "Da fare", "factsLearned": "Cose imparate",
         "about": "Chi sono", "preferences": "Preferenze", "skills": "Competenze", "projects": "Progetti", "routine": "Abitudini",
-        "profile": "Profilo"
+        "profile": "Profilo",
+        "identity": "Identità",
+        "whoIs": "Chi è {name}",
+        "personality": "Personalità e stile",
+        "memory": "Memoria",
+        "identityIntro": "{name} è un'IA personale che funziona completamente offline su questo computer, in Local AI. Parla con l'utente per testo e a voce, risponde nella lingua in cui l'utente scrive o parla, sempre con la stessa voce, e si ricorda dell'utente grazie alle note di questa cartella.",
+        "noPersonality": "Nessuna personalità è stata definita alla creazione: {name} risponde in modo utile, preciso e conciso.",
+        "identityMemory": "Quello che {name} sa dell'utente è in [[{profile}]]. Ogni conversazione ha la sua nota nella cartella conversations."
       },
       "reactions": ["Sì.", "Certo.", "Capisco.", "Ah, ecco."],
       "fillers": ["Allora, vediamo...", "Un attimo...", "Vediamo un po'...", "Fammi pensare..."],
@@ -68,7 +82,14 @@
       "memoryHeadings": {
         "summary": "Summary", "decisions": "Decisions", "openItems": "Open items", "factsLearned": "Facts learned",
         "about": "About", "preferences": "Preferences", "skills": "Skills", "projects": "Projects", "routine": "Routine",
-        "profile": "Profile"
+        "profile": "Profile",
+        "identity": "Identity",
+        "whoIs": "Who {name} is",
+        "personality": "Personality and style",
+        "memory": "Memory",
+        "identityIntro": "{name} is a personal AI that runs fully offline on this computer, in Local AI. {name} talks with the user by text and by voice, replies in the language the user writes or speaks, always with the same voice, and remembers the user through the notes in this folder.",
+        "noPersonality": "No personality was defined at creation: {name} answers in a helpful, precise and concise way.",
+        "identityMemory": "What {name} knows about the user is in [[{profile}]]. Each conversation has its own note in the conversations folder."
       },
       "reactions": ["Mm-hmm.", "Uh-huh.", "Right.", "I see."],
       "fillers": ["Hmm, let me see...", "Hmm, one moment...", "Let me think..."],

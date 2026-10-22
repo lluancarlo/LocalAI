@@ -20,8 +20,11 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.App.ViewModels;
 
-/// <summary>Ok (green), Busy (blue: starting, loading the model), Background (yellow: memory work in the background), Warning, Error.</summary>
-public enum StatusLevel { Ok, Busy, Warning, Error, Background }
+/// <summary>
+/// Ok (green), Busy (blue: starting, the steps of a reply), Background (yellow: memory work in the background), Warning,
+/// Error, Idle (gray: nothing running).
+/// </summary>
+public enum StatusLevel { Ok, Busy, Warning, Error, Background, Idle }
 
 /// <summary>Colors shared by the status dot and the tray icon.</summary>
 public static class StatusColors
@@ -56,6 +59,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly LocalAiPaths _paths;
     private readonly LocalAiOptions _options;
     private readonly ILogger<MainWindowViewModel> _logger;
+    private readonly WorkActivity _work;
+    private readonly AssistantPower _power;
+    private readonly MemoryWorker _memoryWorker;
     private MessageViewModel? _streaming;
     private bool _suppressSelection;
     private GenerationStats? _lastStats;
@@ -66,8 +72,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         LiveSelection selection, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
         MemoryVault memory, MemoryWorker memoryWorker, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
-        LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
+        LocalAiPaths paths, IOptions<LocalAiOptions> options, WorkActivity work, AssistantPower power, ILogger<MainWindowViewModel> logger)
     {
+        _work = work;
+        _power = power;
+        _memoryWorker = memoryWorker;
         _session = session;
         _store = store;
         _voice = voice;
@@ -109,6 +118,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _startup.StatusChanged += (_, s) => Ui(() => OnSubsystem(s));
         _memory.NotesChanged += (_, _) => Ui(() => _ = LoadMemoriesAsync());
         memoryWorker.WorkingChanged += (_, working) => Ui(() => OnWorkingChanged(working));
+        _work.Changed += (_, _) => Ui(ApplyStatus);
+        _power.Changed += (_, _) => Ui(UpdateAssistantTabs);
         _voice.InputLevel += (_, db) => Ui(() => OnInputLevel(db));
         _voice.CaptureChanged += (_, open) => Ui(() =>
         {
@@ -359,25 +370,61 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DiagnosticsText = BuildDiagnostics();
     }
 
+    /// <summary>The AI's state: a warning or an error is shown on the AI line above the conversations, not in the status bar.</summary>
     private void SetStatus(StatusLevel level, string text)
     {
-        _baseStatus = (level, text);
+        AiStatusTip = level is StatusLevel.Warning or StatusLevel.Error ? text : null;
         ApplyStatus();
     }
 
-    /// <summary>The status without background work; background work turns a green status yellow.</summary>
-    private (StatusLevel Level, string Text) _baseStatus = (StatusLevel.Busy, "Starting…");
+    /// <summary>The last step of the memory work, kept on screen while the work continues between two steps.</summary>
+    private string? _lastMemoryStep;
 
+    /// <summary>
+    /// The status bar shows only work: the steps of a reply (blue) and of the memory work in the background (yellow),
+    /// else that nothing runs. Whether an assistant's AI is on shows on its tab.
+    /// </summary>
     private void ApplyStatus()
     {
-        var (level, text) = _baseStatus;
-        if (IsBackgroundWorking && level == StatusLevel.Ok)
+        var step = _work.Current;
+        if (step is { Kind: WorkKind.Memory }) _lastMemoryStep = step.Text;
+        (StatusLevel, StatusText) = step != null ? (step.Kind == WorkKind.Memory ? StatusLevel.Background : StatusLevel.Busy, step.Text)
+            : IsBackgroundWorking ? (StatusLevel.Background, _lastMemoryStep ?? "Updating memory")
+            : !_startupCompleted ? (StatusLevel.Busy, "Starting…")
+            : (StatusLevel.Idle, "Idle");
+    }
+
+    /// <summary>Details of the AI's warning or error (hover text of the AI line), or null.</summary>
+    [ObservableProperty] private string? _aiStatusTip;
+
+    // ---------------- Watching the work (Diagnostics) ----------------
+
+    /// <summary>Pauses two seconds at every step of the work, so the status bar can be followed.</summary>
+    public bool SlowMotion
+    {
+        get => _work.SlowMotion > TimeSpan.Zero;
+        set
         {
-            level = StatusLevel.Background;
-            text += " · updating memory…";
+            _work.SlowMotion = value ? TimeSpan.FromSeconds(2) : TimeSpan.Zero;
+            OnPropertyChanged();
         }
-        StatusLevel = level;
-        StatusText = text;
+    }
+
+    [ObservableProperty] private string? _processMemoryStatus;
+
+    /// <summary>Writes the current conversation's note, the profile and the identity note now.</summary>
+    [RelayCommand]
+    private async Task ProcessMemoryNowAsync()
+    {
+        ProcessMemoryStatus = !_options.Memory.Enabled ? "The memory is turned off (Settings › Memory)."
+            : !AiOn ? "Turn the AI on first: the language model writes the notes. The steps start once it is on."
+            : "Queued: the steps start a few seconds after the assistant is idle.";
+        try { await _memoryWorker.ProcessNowAsync(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not queue the memory work");
+            ProcessMemoryStatus = $"Could not queue the memory work: {ex.Message}";
+        }
     }
 
     /// <summary>True while memory work runs in the background (stays on briefly between jobs, so it does not flicker).</summary>
@@ -646,7 +693,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (newValue != ReplyMode.Live) _lastNonLiveMode = newValue;
         _voice.SetTyping(newValue == ReplyMode.Live && !string.IsNullOrWhiteSpace(InputText));
         if (newValue == ReplyMode.Live) _ = _voice.StartContinuousAsync();
-        else if (oldValue == ReplyMode.Live) _ = _voice.StopContinuousAsync();
+        // The reply being spoken goes on in the new mode; Stop (the Send button) or Esc ends it.
+        else if (oldValue == ReplyMode.Live) _ = _voice.StopContinuousAsync(keepReply: true);
         if (!_modeFollowsShortcut) _settings.Set("Voice", "ReplyMode", newValue.ToString());
     }
 
@@ -773,16 +821,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             tab.IsOnline = _manager.IsModelLoaded(_profiles.FirstOrDefault(p => p.Id == tab.Id));
             // Yellow while anything of the active assistant loads: its language model or its voice.
             tab.IsLoading = tab.IsActive && (_llm.State == LanguageModelState.Loading || _manager.IsLoadingVoice);
+            tab.IsSavingMemory = tab.Id == _power.FinishingAssistantId;
         }
 
         var current = _assistant.Current;
         AiOn = _manager.IsActiveModelLoaded;
         AiLoading = current != null && _llm.State == LanguageModelState.Loading;
+        AiSavingMemory = current != null && _power.FinishingAssistantId == current.Id;
         var model = AiOn && _llm.Info is { } info ? info.DisplayName
             : current == null ? ""
             : _models.Find(current.ModelId)?.DisplayName ?? "Best installed model";
         AnyLoading = AiLoading || (current != null && _manager.IsLoadingVoice);
-        AiStatusText = AiLoading ? "Starting" : AnyLoading ? "Loading voice" : AiOn ? "On" : "Off";
+        AiStatusText = AiSavingMemory ? "Saving memory" : AiLoading ? "Starting" : AnyLoading ? "Loading voice" : AiOn ? "On"
+            : current != null && _llm.State == LanguageModelState.Failed ? "Failed"
+            : "Off";
         AiModelText = model;
     }
 
@@ -805,27 +857,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
     /// <summary>The active assistant's language model, shown under the on/off status.</summary>
     [ObservableProperty] private string _aiModelText = "";
 
-    public string AiButtonText => AiOn || AiLoading ? "⏻  Turn off" : "⏻  Turn on";
-    public IBrush AiStatusBrush => AnyLoading ? LoadingBrush : AiOn ? LevelOk : LevelClip;
+    /// <summary>
+    /// The active assistant's AI is turning off: its memory work runs first (yellow, steps in the status bar). The
+    /// button then turns it back on.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AiButtonText), nameof(AiStatusBrush))]
+    private bool _aiSavingMemory;
+
+    public string AiButtonText => !AiSavingMemory && (AiOn || AiLoading) ? "⏻  Turn off" : "⏻  Turn on";
+    public IBrush AiStatusBrush => AnyLoading || AiSavingMemory ? LoadingBrush : AiOn ? LevelOk : LevelClip;
 
     private static readonly IBrush LoadingBrush = new SolidColorBrush(Color.Parse(StatusColors.Background));
 
     /// <summary>
     /// The button above the conversations: turns the active assistant's AI (its language model) on or off. Only this
     /// loads or unloads a model; switching tabs never does. One model runs at a time, so turning one on unloads another
-    /// assistant's.
+    /// assistant's. Turning off first finishes the assistant's memory work; meanwhile the button turns it back on
+    /// (concurrent: it must stay clickable while turning off runs).
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ToggleAiAsync()
     {
         if (_assistant.Current is not { } current) return;
         try
         {
-            if (AiOn || AiLoading)
+            if (!AiSavingMemory && (AiOn || AiLoading))
             {
                 Stop();
                 if (IsLiveMode) ReplyMode = _lastNonLiveMode; // live mode needs the model
-                await Task.Run(() => _manager.UnloadModelAsync());
+                // The memory work left for the assistant runs first (the model writes the notes), then it unloads.
+                await Task.Run(() => _power.TurnOffAsync(current));
             }
             else
             {

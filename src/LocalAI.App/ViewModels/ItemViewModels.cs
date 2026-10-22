@@ -85,12 +85,17 @@ public sealed partial class AssistantTabViewModel(long id, string name, string? 
     [NotifyPropertyChangedFor(nameof(StatusBrush), nameof(StatusText))]
     private bool _isLoading;
 
+    /// <summary>Its AI is turning off: its memory work runs first (yellow dot).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusBrush), nameof(StatusText))]
+    private bool _isSavingMemory;
+
     private static readonly IBrush Online = new SolidColorBrush(Color.Parse("#9ECE6A"));
     private static readonly IBrush Loading = new SolidColorBrush(Color.Parse(StatusColors.Background));
     private static readonly IBrush Offline = new SolidColorBrush(Color.Parse("#F7768E"));
 
-    public IBrush StatusBrush => IsLoading ? Loading : IsOnline ? Online : Offline;
-    public string StatusText => IsLoading ? "Loading…" : IsOnline ? "AI on" : "AI off";
+    public IBrush StatusBrush => IsLoading || IsSavingMemory ? Loading : IsOnline ? Online : Offline;
+    public string StatusText => IsSavingMemory ? "Saving memory before turning off…" : IsLoading ? "Loading…" : IsOnline ? "AI on" : "AI off";
 }
 
 /// <summary>A conversation note on the Memory page.</summary>

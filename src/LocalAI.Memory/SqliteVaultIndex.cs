@@ -252,15 +252,16 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
         await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default)
+    public async Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default, long? assistantId = null)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT id, kind, assistant_id, conversation_id, path, attempts FROM memory_jobs
-            WHERE not_before <= $now ORDER BY not_before, id LIMIT 1;
+            WHERE not_before <= $now AND ($a IS NULL OR assistant_id = $a) ORDER BY not_before, id LIMIT 1;
             """;
         cmd.Parameters.AddWithValue("$now", ToUnixMs(now));
+        cmd.Parameters.AddWithValue("$a", (object?)assistantId ?? DBNull.Value);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         if (!await r.ReadAsync(ct).ConfigureAwait(false)) return null;
         return new MemoryJob(r.GetInt64(0), Enum.Parse<MemoryJobKind>(r.GetString(1)), r.GetInt64(2),

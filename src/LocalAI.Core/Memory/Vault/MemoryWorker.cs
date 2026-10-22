@@ -97,6 +97,7 @@ public sealed class MemoryWorker : IAsyncDisposable
     private readonly MemoryOptions _options;
     private readonly TimeProvider _time;
     private readonly ILogger<MemoryWorker> _logger;
+    private readonly WorkActivity _work;
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _wake = new(0, int.MaxValue);
     /// <summary>Held while a job runs, so <see cref="PauseAsync"/> can wait for it to end.</summary>
@@ -107,11 +108,13 @@ public sealed class MemoryWorker : IAsyncDisposable
     private (long ConversationId, long AssistantId)? _currentConversation;
     private Task? _loop;
     private volatile bool _paused;
+    private int _finishing;
 
     public MemoryWorker(MemoryVault vault, IVaultIndex index, IVaultStorage storage, IAssistantStore assistants,
         IAssistantActivity activity, AssistantSession session, AssistantContext context, ILanguageModel llm,
-        IOptions<LocalAiOptions> options, TimeProvider time, ILogger<MemoryWorker> logger)
+        IOptions<LocalAiOptions> options, TimeProvider time, ILogger<MemoryWorker> logger, WorkActivity? work = null)
     {
+        _work = work ?? new WorkActivity();
         _vault = vault;
         _index = index;
         _storage = storage;
@@ -181,6 +184,88 @@ public sealed class MemoryWorker : IAsyncDisposable
         foreach (var a in await _assistants.ListAsync(ct).ConfigureAwait(false))
             await _index.EnqueueAsync(MemoryJobKind.IndexNote, a.Id, null, null, _time.GetUtcNow(), ct).ConfigureAwait(false);
         Wake();
+    }
+
+    /// <summary>
+    /// Queues the identity note of every assistant (written only where missing or out of date): after an assistant was
+    /// created or got a new shortcut.
+    /// </summary>
+    public async Task QueueIdentityNotesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            foreach (var a in await _assistants.ListAsync(ct).ConfigureAwait(false))
+                await _index.EnqueueAsync(MemoryJobKind.WriteIdentity, a.Id, null, null, _time.GetUtcNow(), ct).ConfigureAwait(false);
+            Wake();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not queue the identity notes"); }
+    }
+
+    /// <summary>
+    /// Processes the active assistant's memory now instead of waiting for the conversation to go quiet: the current
+    /// conversation's note, then the profile and the identity note (Settings › Diagnostics). Still only once idle.
+    /// </summary>
+    public async Task ProcessNowAsync(CancellationToken ct = default)
+    {
+        if (_context.Current is not { } assistant) return;
+        var now = _time.GetUtcNow();
+        if (_session.CurrentConversationId is { } conversationId)
+            await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, assistant.Id, conversationId, null, now, ct).ConfigureAwait(false);
+        await _index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, assistant.Id, null, null, now.AddMilliseconds(1), ct).ConfigureAwait(false);
+        await _index.EnqueueAsync(MemoryJobKind.WriteIdentity, assistant.Id, null, null, now.AddMilliseconds(2), ct).ConfigureAwait(false);
+        Wake();
+    }
+
+    /// <summary>
+    /// Does all the memory work left for <paramref name="assistantId"/> now, without waiting for idle time: the notes
+    /// of its conversations, then its profile, its identity note and the index. Used before its AI is turned off
+    /// (the language model writes the notes) and before the app exits. Cancelling stops the running job and leaves
+    /// the rest queued. Returns the number of jobs that ran.
+    /// </summary>
+    public async Task<int> FinishAsync(long assistantId, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _finishing);
+        CancelJob(); // a job of the idle loop gives way
+        try
+        {
+            await _running.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var now = _time.GetUtcNow();
+                // Like the idle loop, only conversations since notes exist (the first run), but quiet or not.
+                var since = await _index.GetStateAsync(NotesSinceKey, ct).ConfigureAwait(false) is { } stored &&
+                            DateTimeOffset.TryParse(stored, System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.None, out var parsed) ? parsed : now;
+                var conversations = await _index.ConversationsNeedingNotesAsync(since, now, ct).ConfigureAwait(false);
+                foreach (var (conversationId, _) in conversations.Where(c => c.AssistantId == assistantId))
+                    await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, assistantId, conversationId, null, now, ct).ConfigureAwait(false);
+                if (_currentConversation is { } current && current.AssistantId == assistantId)
+                    await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, assistantId, current.ConversationId, null, now, ct).ConfigureAwait(false);
+                await _index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, assistantId, null, null, now.AddMilliseconds(1), ct).ConfigureAwait(false);
+                await _index.EnqueueAsync(MemoryJobKind.WriteIdentity, assistantId, null, null, now.AddMilliseconds(2), ct).ConfigureAwait(false);
+
+                var ran = 0;
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _stop.Token);
+                // Jobs that still wait (e.g. postponed after a failure) stay queued: only the ones due now run.
+                while (await _index.NextJobAsync(now.AddMilliseconds(2), ct, assistantId).ConfigureAwait(false) is { } job)
+                {
+                    await RunJobAsync(job, linked.Token).ConfigureAwait(false);
+                    ct.ThrowIfCancellationRequested();
+                    ran++;
+                }
+                return ran;
+            }
+            finally
+            {
+                _running.Release();
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _finishing);
+            Wake();
+        }
     }
 
     // ---------------- Triggers ----------------
@@ -266,7 +351,7 @@ public sealed class MemoryWorker : IAsyncDisposable
                         await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, assistantId, conversationId, null, now, stop).ConfigureAwait(false);
                 }
 
-                if (_paused || !IsIdleLongEnough(now) || await _index.NextJobAsync(now, stop).ConfigureAwait(false) is not { } job)
+                if (_paused || _finishing > 0 || !IsIdleLongEnough(now) || await _index.NextJobAsync(now, stop).ConfigureAwait(false) is not { } job)
                 {
                     await WaitAsync(stop).ConfigureAwait(false);
                     continue;
@@ -292,7 +377,8 @@ public sealed class MemoryWorker : IAsyncDisposable
 
     /// <summary>
     /// First run: notes are written only for conversations from now on. Every run: the old memory moves into the
-    /// profiles once, and each assistant's notes are checked against the index (edits made while the app was closed).
+    /// profiles once, each assistant's identity note is brought up to date, and its notes are checked against the
+    /// index (edits made while the app was closed).
     /// </summary>
     private async Task<DateTimeOffset> PrepareAsync(CancellationToken stop)
     {
@@ -315,7 +401,11 @@ public sealed class MemoryWorker : IAsyncDisposable
             foreach (var a in all) await _index.EnqueueAsync(MemoryJobKind.MigrateLegacyFacts, a.Id, null, null, now, stop).ConfigureAwait(false);
             await _index.SetStateAsync(LegacyMigratedKey, now.ToString("O"), stop).ConfigureAwait(false);
         }
-        foreach (var a in all) await _index.EnqueueAsync(MemoryJobKind.IndexNote, a.Id, null, null, now, stop).ConfigureAwait(false);
+        foreach (var a in all)
+        {
+            await _index.EnqueueAsync(MemoryJobKind.WriteIdentity, a.Id, null, null, now, stop).ConfigureAwait(false);
+            await _index.EnqueueAsync(MemoryJobKind.IndexNote, a.Id, null, null, now, stop).ConfigureAwait(false);
+        }
         return since;
     }
 
@@ -343,6 +433,7 @@ public sealed class MemoryWorker : IAsyncDisposable
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
         lock (_gate) _jobCts = cts;
+        _work.MemoryOwner = (await _assistants.ListAsync(stop).ConfigureAwait(false)).FirstOrDefault(a => a.Id == job.AssistantId)?.Name;
         if (_activity.IsBusy) cts.Cancel(); // the user started something since the check
         JobStarted?.Invoke(this, job);
         SetWorking(true);
@@ -378,6 +469,8 @@ public sealed class MemoryWorker : IAsyncDisposable
         }
         finally
         {
+            _work.End(WorkKind.Memory);
+            _work.MemoryOwner = null;
             lock (_gate) _jobCts = null;
             SetWorking(false);
         }
@@ -404,6 +497,9 @@ public sealed class MemoryWorker : IAsyncDisposable
                 break;
             case MemoryJobKind.IndexNote:
                 await _vault.ScanAsync(job.AssistantId, ct).ConfigureAwait(false);
+                break;
+            case MemoryJobKind.WriteIdentity:
+                await _vault.WriteIdentityNoteAsync(job.AssistantId, ct).ConfigureAwait(false);
                 break;
         }
     }

@@ -62,17 +62,23 @@ Main runtime flows:
   it through `SpeechOutput`: sentence chunks to TTS to queued playback), then save the reply. Only one turn runs at a
   time, and a new turn cancels generation, synthesis and playback.
 - **Memory** (`src/LocalAI.Core/Memory/Vault`): each assistant's memory is Markdown notes, the source of truth, in
-  `<root>/local-ai/<assistant>/` (root = `data\memory`, or the Obsidian vault in `Memory:VaultPath`): a profile of the
-  user and one note per conversation. Names are kebab-case ASCII (`VaultLayout`). The language model always answers
+  `<root>/local-ai/<assistant>/` (root = `data\memory`, or the Obsidian vault in `Memory:VaultPath`): an identity note
+  (who the assistant is: its style plus model and voice as properties; it replaces the style in the system prompt), a
+  profile of the user and one note per conversation. Names are kebab-case ASCII (`VaultLayout`). The language model always answers
   JSON and `NoteFormats` renders the Markdown. Generated text sits between `<!-- local-ai:begin/end -->` markers
   (`NoteDocument`); the user's edits win: a block whose hash differs from what the app wrote is never overwritten,
   profile items the user wrote always survive, and text outside the markers is never touched. The SQLite index
   (`SqliteVaultIndex`: notes, passages with embeddings and FTS5, job queue) can be rebuilt from the files. Recall
   ranks passages by meaning and words (reciprocal rank fusion) within `MemoryTokenBudget`.
 - **Background memory work** (`MemoryWorker`): writing conversation notes (after `ConversationIdleMinutes` or when
-  the user leaves the conversation), merging the profile and indexing notes run from a queue in the database, only
+  the user leaves the conversation), merging the profile, writing the identity notes (at start and when an assistant
+  is created or changed) and indexing notes run from a queue in the database, only
   after the assistant has been idle for a few seconds (`IAssistantActivity`). When the user sends a message or speaks,
-  the running job is cancelled and requeued, so the assistant always comes first.
+  the running job is cancelled and requeued, so the assistant always comes first. `WorkActivity` holds the current
+  step of the reply and of the memory work for the status bar (no user text in steps); its `SlowMotion` pauses at
+  every step (Diagnostics). `AssistantPower` turns an AI off after `MemoryWorker.FinishAsync` (all the memory work
+  left for that assistant, at once); an AI turned on meanwhile (`AssistantManager.ModelRequested`) cancels it. Exit
+  does the same for the assistants whose model is loaded.
 - **Voice** (`VoiceConversationController`): one loop reads microphone frames. VAD and `UtteranceSegmenter` find
   utterances, Whisper transcribes them, and the session answers. `BargeInDetector` lets the user interrupt the
   assistant by talking, without reacting to the assistant's own voice from the speakers. `LiveActivation` and

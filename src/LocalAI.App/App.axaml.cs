@@ -24,6 +24,8 @@ public sealed class App : Application
     private CancellationTokenSource? _startupCts;
     private TrayIconController? _tray;
     private IClassicDesktopStyleApplicationLifetime? _desktop;
+    private MainWindowViewModel? _vm;
+    private CancellationTokenSource? _exiting;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -37,6 +39,7 @@ public sealed class App : Application
 
             _desktop = desktop;
             var vm = ActivatorUtilities.CreateInstance<MainWindowViewModel>(_services);
+            _vm = vm;
             desktop.MainWindow = new MainWindow { DataContext = vm };
             // Exit is raised however the app ends (tray Exit, Windows sign-out). ShutdownRequested is not raised by
             // Shutdown() (tray Exit), so cleanup hooked there never ran.
@@ -73,8 +76,36 @@ public sealed class App : Application
         window.Activate();
     }
 
-    /// <summary>Quits the app (tray menu). Closing the window only hides it.</summary>
-    private void Exit() => _desktop?.Shutdown();
+    /// <summary>
+    /// Quits the app (tray menu). Closing the window only hides it. The memory work left for the assistants whose AI is
+    /// on runs first, shown in the window's status bar; choosing Exit again closes right away.
+    /// </summary>
+    private async void Exit()
+    {
+        if (_exiting != null)
+        {
+            await _exiting.CancelAsync();
+            return;
+        }
+        _exiting = new CancellationTokenSource();
+        try
+        {
+            if (_services?.GetRequiredService<ILanguageModel>().State == LanguageModelState.Ready)
+            {
+                ShowMainWindow();
+                if (_vm != null) _vm.BannerText = "Saving the assistants' memory before closing. Choose Exit again to close now.";
+                var power = _services.GetRequiredService<AssistantPower>();
+                var token = _exiting.Token;
+                await Task.Run(() => power.FinishBeforeExitAsync(token), token);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _services?.GetService<ILogger<App>>()?.LogError(ex, "The memory work before exiting failed");
+        }
+        _desktop?.Shutdown();
+    }
 
     private static ServiceProvider BuildServices()
     {
