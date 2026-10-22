@@ -67,16 +67,6 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
             assistant.Language, voiceStyle, FromUnixMs(ToUnixMs(now)));
     }
 
-    public async Task SetVoiceStyleAsync(long id, VoiceStyle voiceStyle, CancellationToken ct = default)
-    {
-        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
-        await using var cmd = c.CreateCommand();
-        cmd.CommandText = "UPDATE assistants SET voice_style = $voiceStyle WHERE id = $id;";
-        cmd.Parameters.AddWithValue("$voiceStyle", JsonSerializer.Serialize(voiceStyle));
-        cmd.Parameters.AddWithValue("$id", id);
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-    }
-
     public async Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);

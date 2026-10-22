@@ -19,7 +19,9 @@ internal sealed class FakeLanguageModel : ILanguageModel
     public Func<IReadOnlyList<ChatMessage>, IEnumerable<string>> Responder { get; set; } = _ => ["Hello", " there", "."];
     public TimeSpan TokenDelay { get; set; } = TimeSpan.Zero;
     public LanguageModelState State { get; set; } = LanguageModelState.Ready;
-    public ModelInfo? Info { get; } = new() { Id = "fake", DisplayName = "Fake", FilePath = "fake.gguf" };
+    public ModelInfo? Info { get; set; } = new() { Id = "fake", DisplayName = "Fake", FilePath = "fake.gguf" };
+    /// <summary>When set, loading picks this model id (like the real engine reading the assistant's model from the options).</summary>
+    public Func<string>? LoadsModel { get; set; }
     public string? LastError { get; set; }
     public event EventHandler<LanguageModelState>? StateChanged;
 
@@ -28,6 +30,7 @@ internal sealed class FakeLanguageModel : ILanguageModel
     public Task LoadAsync(CancellationToken cancellationToken = default)
     {
         LoadCount++;
+        if (LoadsModel != null) Info = new ModelInfo { Id = LoadsModel(), DisplayName = "Fake", FilePath = "fake.gguf" };
         State = LanguageModelState.Ready;
         StateChanged?.Invoke(this, State);
         return Task.CompletedTask;
@@ -384,13 +387,6 @@ internal sealed class InMemoryAssistantStore : IAssistantStore
             assistant.VoiceId, assistant.Language, voiceStyle, DateTimeOffset.Now);
         _items.Add(profile);
         return Task.FromResult(profile);
-    }
-
-    public Task SetVoiceStyleAsync(long id, VoiceStyle voiceStyle, CancellationToken ct = default)
-    {
-        var i = _items.FindIndex(a => a.Id == id);
-        _items[i] = _items[i] with { VoiceStyle = voiceStyle };
-        return Task.CompletedTask;
     }
 
     public Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default)

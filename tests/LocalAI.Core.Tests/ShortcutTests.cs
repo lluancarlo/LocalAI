@@ -101,7 +101,7 @@ public sealed class AssistantHotkeysTests
     [Fact]
     public async Task Registers_nothing_until_started_then_each_assistants_shortcut()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _assistants.CreateAsync("Marco");
         Assert.Empty(_system.Registered);
 
@@ -111,22 +111,22 @@ public sealed class AssistantHotkeysTests
         var pressed = new List<long>();
         _hotkeys.Pressed += (_, id) => pressed.Add(id);
         Assert.True(_system.Press(G("Ctrl+Alt+D")));
-        Assert.Equal([diana.Id], pressed);
+        Assert.Equal([nova.Id], pressed);
     }
 
     [Fact]
     public async Task Follows_shortcut_changes_and_deleted_assistants()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _hotkeys.StartAsync();
 
-        diana = await _assistants.Manager.SetHotkeyAsync(diana, G("Ctrl+Alt+F9"));
+        nova = await _assistants.Manager.SetHotkeyAsync(nova, G("Ctrl+Alt+F9"));
         await WaitForAsync(() => _system.Registered.SequenceEqual([G("Ctrl+Alt+F9")]));
 
         var marco = await _assistants.CreateAsync("Marco", "Ctrl+Alt+M");
         await WaitForAsync(() => _system.Registered.Count == 2);
 
-        await _assistants.Manager.DeleteAsync(diana);
+        await _assistants.Manager.DeleteAsync(nova);
         await WaitForAsync(() => _system.Registered.SequenceEqual([G("Ctrl+Alt+M")]));
 
         await _assistants.Manager.SetHotkeyAsync(marco, null);
@@ -136,7 +136,7 @@ public sealed class AssistantHotkeysTests
     [Fact]
     public async Task A_shortcut_used_by_another_application_is_reported_and_the_others_still_work()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _assistants.CreateAsync("Marco", "Ctrl+Alt+M");
         _system.Taken.Add(G("Ctrl+Alt+D"));
         var notified = 0;
@@ -144,11 +144,11 @@ public sealed class AssistantHotkeysTests
 
         await _hotkeys.StartAsync();
         Assert.Equal([G("Ctrl+Alt+M")], _system.Registered);
-        Assert.Contains("already used", _hotkeys.Problems[diana.Id], StringComparison.Ordinal);
+        Assert.Contains("already used", _hotkeys.Problems[nova.Id], StringComparison.Ordinal);
         Assert.Equal(1, notified);
 
         _system.Taken.Clear();
-        await _assistants.Manager.SetHotkeyAsync(diana, G("Ctrl+Alt+F9"));
+        await _assistants.Manager.SetHotkeyAsync(nova, G("Ctrl+Alt+F9"));
         await WaitForAsync(() => _hotkeys.Problems.Count == 0);
         Assert.Equal(2, notified);
     }
@@ -156,7 +156,7 @@ public sealed class AssistantHotkeysTests
     [Fact]
     public async Task Suspend_releases_every_shortcut_until_resumed()
     {
-        await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _hotkeys.StartAsync();
 
         await _hotkeys.SuspendAsync();
@@ -171,7 +171,7 @@ public sealed class AssistantHotkeysTests
     [Fact]
     public async Task No_shortcut_is_registered_while_live_mode_is_disabled()
     {
-        await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         _assistants.Options.Value.Voice.LiveEnabled = false;
         await _hotkeys.StartAsync();
         Assert.Empty(_system.Registered);
@@ -226,18 +226,18 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task Pressing_the_shortcut_starts_a_new_live_conversation_and_pressing_again_stops_it()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         var conversation = await _session.SubmitAsync(new TurnRequest("Hello", InputSource.Text));
         Assert.NotNull(_session.CurrentConversationId);
 
-        await _live.ToggleAsync(diana.Id);
+        await _live.ToggleAsync(nova.Id);
         Assert.True(_voice.IsContinuous);
         Assert.Equal(LiveState.Live, _live.State);
-        Assert.Equal(diana.Id, _live.Assistant?.Id);
+        Assert.Equal(nova.Id, _live.Assistant?.Id);
         Assert.Null(_session.CurrentConversationId); // the next utterance opens a new conversation
         Assert.Equal([LiveState.Starting, LiveState.Live], _states);
 
-        await _live.ToggleAsync(diana.Id);
+        await _live.ToggleAsync(nova.Id);
         Assert.False(_voice.IsContinuous);
         Assert.Equal(LiveState.Off, _live.State);
         Assert.Null(_live.Assistant);
@@ -247,9 +247,9 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task The_shortcut_of_another_assistant_switches_to_it()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         var marco = await _assistants.CreateAsync("Marco", "Ctrl+Alt+M", model: "model-b");
-        await _assistants.Manager.SwitchAsync(diana);
+        await _assistants.Manager.SwitchAsync(nova);
         var loadsBefore = _assistants.Llm.LoadCount;
 
         await _live.ToggleAsync(marco.Id);
@@ -261,12 +261,12 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task While_one_assistant_is_live_the_other_shortcuts_are_ignored()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         var marco = await _assistants.CreateAsync("Marco", "Ctrl+Alt+M");
-        await _live.ToggleAsync(diana.Id);
+        await _live.ToggleAsync(nova.Id);
 
         await _live.ToggleAsync(marco.Id);
-        Assert.Equal(diana.Id, _assistants.Context.Current?.Id);
+        Assert.Equal(nova.Id, _assistants.Context.Current?.Id);
         Assert.True(_voice.IsContinuous);
         Assert.Equal(LiveState.Live, _live.State);
     }
@@ -274,12 +274,12 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task Follows_live_mode_turned_on_and_off_from_the_window()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _voice.StartContinuousAsync();
         Assert.Equal(LiveState.Live, _live.State);
 
         // Live from the window counts: the active assistant's shortcut turns it off.
-        await _live.ToggleAsync(diana.Id);
+        await _live.ToggleAsync(nova.Id);
         Assert.False(_voice.IsContinuous);
         Assert.Equal(LiveState.Off, _live.State);
     }
@@ -287,12 +287,12 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task Reports_why_listening_could_not_start()
     {
-        var diana = await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        var nova = await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         _voice.FailToStart = "Microphone unavailable: unplugged";
         string? failure = null;
         _live.Failed += (_, reason) => failure = reason;
 
-        await _live.ToggleAsync(diana.Id);
+        await _live.ToggleAsync(nova.Id);
         Assert.Equal(LiveState.Off, _live.State);
         Assert.Equal("Microphone unavailable: unplugged", failure);
         Assert.Equal([LiveState.Starting, LiveState.Off], _states);
@@ -301,7 +301,7 @@ public sealed class LiveActivationTests : IDisposable
     [Fact]
     public async Task A_registered_shortcut_toggles_live_mode()
     {
-        await _assistants.CreateAsync("Diana", "Ctrl+Alt+D");
+        await _assistants.CreateAsync("Nova", "Ctrl+Alt+D");
         await _hotkeys.StartAsync();
 
         Assert.True(_system.Press(AssistantsHarness.Gesture("Ctrl+Alt+D")));

@@ -108,7 +108,8 @@ public sealed class LiveActivation : IDisposable
         SetState(LiveState.Starting);
         try
         {
-            if (_context.Current?.Id != profile.Id) await _manager.SwitchAsync(profile).ConfigureAwait(false);
+            if (_context.Current?.Id != profile.Id) await _manager.SwitchAsync(profile, loadModel: false).ConfigureAwait(false);
+            await _manager.LoadModelAsync(profile).ConfigureAwait(false); // live mode needs the assistant's AI on
             _session.SelectConversation(null);
             await _voice.StartContinuousAsync().ConfigureAwait(false);
         }

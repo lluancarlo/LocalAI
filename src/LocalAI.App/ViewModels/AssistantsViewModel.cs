@@ -226,7 +226,8 @@ public sealed partial class AssistantsViewModel : ObservableObject
         var recommended = _models.RecommendedLlm(_startup.Gpu?.TotalMemoryMb);
         Replace(ModelChoices, _models.Packages.Where(p => p.Kind == ModelKind.Llm), p =>
             Describe(p, p == recommended ? "recommended for your GPU" : null));
-        Replace(VoiceChoices, _models.Packages.Where(p => p.Kind == ModelKind.Voice), p => Describe(p, null));
+        Replace(VoiceChoices, _models.Packages.Where(p => p.Kind == ModelKind.Voice).OrderBy(VoiceLocale, StringComparer.Ordinal),
+            p => Describe(p, null, VoiceLabel(p)));
 
         // Until the user picks a model, follow the recommendation (it changes once the GPU is detected).
         SelectedModel = (_modelPickedByUser ? ModelChoices.FirstOrDefault(c => c.Package.Id == modelId) : null)
@@ -240,10 +241,23 @@ public sealed partial class AssistantsViewModel : ObservableObject
         if (!_refreshingChoices && value != null) _modelPickedByUser = true;
     }
 
-    private string Describe(ModelPackage package, string? note)
+    private string Describe(ModelPackage package, string? note, string? name = null)
     {
+        name ??= package.DisplayName;
         var size = _models.IsInstalled(package) ? "installed" : $"{ModelsViewModel.FormatSize(package.SizeBytes)} download";
-        return note == null ? $"{package.DisplayName} · {size}" : $"{package.DisplayName} · {size} · {note}";
+        return note == null ? $"{name} · {size}" : $"{name} · {size} · {note}";
+    }
+
+    /// <summary>A voice's locale from its catalog id: "pt_BR-faber-medium" is "pt-BR".</summary>
+    internal static string VoiceLocale(ModelPackage voice) => voice.Id.Split('-')[0].Replace('_', '-');
+
+    /// <summary>"[pt-BR] Faber (male)": the language first, so the voices of a language are easy to find.</summary>
+    internal static string VoiceLabel(ModelPackage voice)
+    {
+        var locale = VoiceLocale(voice);
+        var name = voice.DisplayName.Replace(locale + ", ", "", StringComparison.Ordinal)
+            .Replace($"({locale})", "", StringComparison.Ordinal).Trim();
+        return $"[{locale}] {name}";
     }
 
     private static void Replace(ObservableCollection<ModelChoice> target, IEnumerable<ModelPackage> packages, Func<ModelPackage, string> text)
@@ -261,6 +275,36 @@ public sealed partial class AssistantsViewModel : ObservableObject
                ?? VoiceChoices.FirstOrDefault();
     }
 
+    // ---------------- Voice style of the new assistant (fixed once created) ----------------
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SpeedText))] private double _speed = VoiceStyle.Default.Speed;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(PitchText))] private double _pitch = VoiceStyle.Default.Pitch;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ExpressivenessText))] private double _expressiveness = VoiceStyle.Default.Expressiveness;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(RhythmText))] private double _rhythm = VoiceStyle.Default.Rhythm;
+
+    public string SpeedText => $"{Speed:0.00}×";
+    public string PitchText => Pitch == 0 ? "0" : $"{Pitch:+0;-0}";
+    public string ExpressivenessText => $"{Expressiveness:0.00}";
+    public string RhythmText => $"{Rhythm:0.00}";
+
+    private VoiceStyle NewVoiceStyle => new()
+    {
+        Speed = Math.Round(Speed, 2),
+        Pitch = Math.Round(Pitch),
+        Expressiveness = Math.Round(Expressiveness, 2),
+        Rhythm = Math.Round(Rhythm, 2),
+    };
+
+    [RelayCommand]
+    private void ResetVoiceStyle()
+    {
+        Speed = VoiceStyle.Default.Speed;
+        Pitch = VoiceStyle.Default.Pitch;
+        Expressiveness = VoiceStyle.Default.Expressiveness;
+        Rhythm = VoiceStyle.Default.Rhythm;
+    }
+
+    /// <summary>Plays the chosen voice with the chosen style (downloads the voice first if needed).</summary>
     [RelayCommand]
     private async Task PreviewVoiceAsync()
     {
@@ -279,7 +323,8 @@ public sealed partial class AssistantsViewModel : ObservableObject
             }
             PreviewStatus = null;
             var sample = _languages.Languages.TryGetValue(choice.Package.Language ?? "", out var info) ? info.VoiceSample : choice.Package.DisplayName;
-            var clip = await Task.Run(() => _tts.SynthesizeAsync(sample, choice.Package.Id, VoiceStyle.Default));
+            var style = NewVoiceStyle;
+            var clip = await Task.Run(() => _tts.SynthesizeAsync(sample, choice.Package.Id, style));
             _player.Stop();
             _player.Enqueue(clip);
         }
@@ -305,11 +350,13 @@ public sealed partial class AssistantsViewModel : ObservableObject
         }
         try
         {
-            var draft = new NewAssistant(NewName, NewStyle, model.Package.Id, voice.Package.Id, voice.Package.Language ?? "");
+            var draft = new NewAssistant(NewName, NewStyle, model.Package.Id, voice.Package.Id, voice.Package.Language ?? "", NewVoiceStyle);
             await Task.Run(() => _manager.CreateAsync(draft));
             NewName = "";
             NewStyle = "";
+            ResetVoiceStyle();
             _modelPickedByUser = false;
+            IsAddingAssistant = false;
             _ = DownloadMissingAsync([voice.Package, model.Package, .. _models.SharedPackages]);
         }
         catch (AssistantValidationException ex)
@@ -321,6 +368,28 @@ public sealed partial class AssistantsViewModel : ObservableObject
             Logger.LogError(ex, "Could not create assistant");
             Error = $"Could not create the assistant: {ex.Message}";
         }
+    }
+
+    /// <summary>True while the "Add new assistant" popup is open (the same form as on first launch).</summary>
+    [ObservableProperty] private bool _isAddingAssistant;
+
+    [RelayCommand]
+    private void AddAssistant()
+    {
+        Error = null;
+        RefreshChoices();
+        IsAddingAssistant = true;
+    }
+
+    [RelayCommand]
+    private void CancelAddAssistant()
+    {
+        IsAddingAssistant = false;
+        Error = null;
+        NewName = "";
+        NewStyle = "";
+        ResetVoiceStyle();
+        _modelPickedByUser = false;
     }
 
     /// <summary>Opens the confirmation popup with what deleting the assistant would remove.</summary>
@@ -371,7 +440,6 @@ public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, As
     public string Details { get; } = details;
     public string Style => string.IsNullOrEmpty(Profile.StylePrompt) ? "Default personality" : Profile.StylePrompt;
     public bool IsActive { get; } = isActive;
-    public bool CanSwitch => !IsActive;
     public bool HasHotkey => Profile.Hotkey != null;
 
     /// <summary>Shortcuts start live mode, so they can only be set (and only work) while live mode is offered.</summary>
@@ -400,17 +468,6 @@ public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, As
     {
         owner.CancelHotkeyRecording();
         return owner.SetHotkeyAsync(this, null);
-    }
-
-    [RelayCommand]
-    private async Task SwitchAsync()
-    {
-        try { await Task.Run(() => owner.Manager.SwitchAsync(Profile)); }
-        catch (Exception ex)
-        {
-            owner.Logger.LogError(ex, "Could not switch assistant");
-            Error = ex.Message;
-        }
     }
 
     [RelayCommand]

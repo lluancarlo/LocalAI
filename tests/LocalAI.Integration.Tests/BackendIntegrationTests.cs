@@ -153,7 +153,7 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
     }
 
     [Fact]
-    public async Task Replies_in_the_assistants_language_whatever_the_user_writes()
+    public async Task Replies_in_the_language_the_user_writes_whatever_the_voice()
     {
         var session = Get<AssistantSession>();
         var detector = Get<LocalAI.Core.Language.ILanguageDetector>();
@@ -161,13 +161,14 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
                  {
                      ("pt", "O que é uma variável em programação? Responda em duas frases."),
                      ("it", "Che cos'è una variabile in programmazione? Rispondi in due frasi."),
+                     ("en", "What is a variable in programming? Answer in two sentences."),
                  })
         {
             session.SelectConversation(null);
             var r = await session.SubmitAsync(new TurnRequest(question, InputSource.Text));
             var detected = detector.Detect(r.AssistantMessage!.Content);
             output.WriteLine($"[{lang}] → [{detected.Language} {detected.Confidence:F2}] {r.AssistantMessage.Content}");
-            Assert.Equal("en", detected.Language); // the test assistant speaks English
+            Assert.Equal(lang, detected.Language); // the test assistant's voice is English: the reply follows the user
         }
     }
 

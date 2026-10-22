@@ -34,9 +34,9 @@ public sealed class VaultLayoutTests
     {
         var jose = PromptBuilderTests.Profile("pt") with { Id = 1, Name = "José" };
         var jose2 = jose with { Id = 2, Name = "Jose" };
-        var diana = jose with { Id = 3, Name = "Diana" };
-        Assert.Equal("jose-1", VaultLayout.AssistantFolder(jose, [jose, jose2, diana]));
-        Assert.Equal("diana", VaultLayout.AssistantFolder(diana, [jose, jose2, diana]));
+        var nova = jose with { Id = 3, Name = "Nova" };
+        Assert.Equal("jose-1", VaultLayout.AssistantFolder(jose, [jose, jose2, nova]));
+        Assert.Equal("nova", VaultLayout.AssistantFolder(nova, [jose, jose2, nova]));
         Assert.Equal("jessica/jessica-profile.md", VaultLayout.ProfilePath("jessica"));
     }
 
@@ -149,7 +149,7 @@ public sealed class MemoryVaultTests
         "\"openItems\": [\"Write the tests\"], \"facts\": [\"User works on an orders API.\"]}";
 
     private readonly MemoryHarness _m;
-    private AssistantProfile _diana = null!;
+    private AssistantProfile _nova = null!;
 
     public MemoryVaultTests()
     {
@@ -164,8 +164,8 @@ public sealed class MemoryVaultTests
 
     private async Task<long> ConversationAsync(string title = "Orders API pagination")
     {
-        _diana = await _m.Assistants.CreateAsync(new NewAssistant("Diana", "", "m", "v", "en"), VoiceStyle.Default);
-        _m.Context.Set(_diana);
+        _nova = await _m.Assistants.CreateAsync(new NewAssistant("Nova", "", "m", "v", "en"), VoiceStyle.Default);
+        _m.Context.Set(_nova);
         var c = await _m.Conversations.CreateAsync(title);
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.User, Content = "How do we paginate?" });
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.Assistant, Content = "Use a cursor." });
@@ -179,14 +179,14 @@ public sealed class MemoryVaultTests
     {
         var id = await ConversationAsync();
 
-        Assert.True(await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None));
+        Assert.True(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
 
-        Assert.StartsWith("diana/conversations/", ConversationFile, StringComparison.Ordinal);
+        Assert.StartsWith("nova/conversations/", ConversationFile, StringComparison.Ordinal);
         Assert.EndsWith("-orders-api-pagination.md", ConversationFile, StringComparison.Ordinal);
         var text = _m.Storage.Files[ConversationFile];
         Assert.Contains("type: conversation", text, StringComparison.Ordinal);
         Assert.Contains($"conversation: {id}", text, StringComparison.Ordinal);
-        Assert.Contains("tags: [local-ai, local-ai/diana]", text, StringComparison.Ordinal);
+        Assert.Contains("tags: [local-ai, local-ai/nova]", text, StringComparison.Ordinal);
         Assert.Contains("# Orders API pagination", text, StringComparison.Ordinal);
         Assert.Contains(NoteDocument.BeginMarker + "\n## Summary\nThe user set up pagination", text, StringComparison.Ordinal);
         Assert.Contains("## Open items\n- Write the tests", text, StringComparison.Ordinal);
@@ -196,7 +196,7 @@ public sealed class MemoryVaultTests
         Assert.All(_m.Index.Chunks, c => Assert.NotNull(c.Embedding));
 
         // Nothing new: the note is not written again.
-        Assert.False(await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None));
+        Assert.False(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public sealed class MemoryVaultTests
     {
         _m.Options.Value.Memory.NotesLanguage = "pt";
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
         Assert.Contains("## Resumo", _m.Storage.Files[ConversationFile], StringComparison.Ordinal);
         Assert.Contains("Brazilian Portuguese", _m.Llm.Requests[^1][0].Content, StringComparison.Ordinal);
     }
@@ -213,12 +213,12 @@ public sealed class MemoryVaultTests
     public async Task A_block_the_user_edited_is_never_overwritten()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
         var edited = _m.Storage.Files[ConversationFile].Replace("Use cursor pagination", "Use keyset pagination (my correction)", StringComparison.Ordinal);
         _m.Storage.Files[ConversationFile] = edited;
         _m.Index.Notes[0] = _m.Index.Notes[0] with { SourceUpdatedAt = DateTimeOffset.MinValue }; // the conversation went on
 
-        Assert.False(await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None));
+        Assert.False(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
         Assert.Equal(edited, _m.Storage.Files[ConversationFile]);
     }
 
@@ -226,11 +226,11 @@ public sealed class MemoryVaultTests
     public async Task Rewriting_keeps_the_text_the_user_added_outside_the_markers()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
         _m.Storage.Files[ConversationFile] += "\nMy own remark.\n";
         _m.Index.Notes[0] = _m.Index.Notes[0] with { SourceUpdatedAt = DateTimeOffset.MinValue };
 
-        Assert.True(await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None));
+        Assert.True(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
         Assert.Contains("My own remark.", _m.Storage.Files[ConversationFile], StringComparison.Ordinal);
     }
 
@@ -238,11 +238,11 @@ public sealed class MemoryVaultTests
     public async Task The_profile_merges_new_facts_and_keeps_the_users_lines()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
-        Assert.True(await _m.Vault.ConsolidateProfileAsync(_diana.Id, CancellationToken.None));
-        const string path = "diana/diana-profile.md";
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        Assert.True(await _m.Vault.ConsolidateProfileAsync(_nova.Id, CancellationToken.None));
+        const string path = "nova/nova-profile.md";
         Assert.Contains("## Preferences\n- Prefers C#.", _m.Storage.Files[path], StringComparison.Ordinal);
-        Assert.Contains("aliases: [\"Diana - Profile\"]", _m.Storage.Files[path], StringComparison.Ordinal);
+        Assert.Contains("aliases: [\"Nova - Profile\"]", _m.Storage.Files[path], StringComparison.Ordinal);
 
         // The user adds a line; the next merge (whose model output lacks it) keeps it.
         _m.Storage.Files[path] = _m.Storage.Files[path].Replace("- Prefers C#.", "- Prefers C#.\n- Hates meetings before 10.", StringComparison.Ordinal);
@@ -250,8 +250,8 @@ public sealed class MemoryVaultTests
         var second = await _m.Conversations.CreateAsync("Another chat");
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = second.Id, Role = ChatRole.User, Content = "Hi" });
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = second.Id, Role = ChatRole.Assistant, Content = "Hello" });
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, second.Id, CancellationToken.None);
-        Assert.True(await _m.Vault.ConsolidateProfileAsync(_diana.Id, CancellationToken.None));
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, second.Id, CancellationToken.None);
+        Assert.True(await _m.Vault.ConsolidateProfileAsync(_nova.Id, CancellationToken.None));
 
         Assert.Contains("- Hates meetings before 10.", _m.Storage.Files[path], StringComparison.Ordinal);
         Assert.Contains("(user) Hates meetings before 10.", _m.Llm.Requests[^1][1].Content, StringComparison.Ordinal);
@@ -261,7 +261,7 @@ public sealed class MemoryVaultTests
     public async Task Without_new_facts_the_profile_is_left_alone()
     {
         await ConversationAsync();
-        Assert.False(await _m.Vault.ConsolidateProfileAsync(_diana.Id, CancellationToken.None));
+        Assert.False(await _m.Vault.ConsolidateProfileAsync(_nova.Id, CancellationToken.None));
         Assert.Empty(_m.Llm.Requests);
     }
 
@@ -269,11 +269,11 @@ public sealed class MemoryVaultTests
     public async Task The_old_memory_moves_into_the_profile_without_the_model()
     {
         await ConversationAsync();
-        _m.Index.LegacyFacts[_diana.Id] = ["User likes tea.", "User lives in Rome."];
+        _m.Index.LegacyFacts[_nova.Id] = ["User likes tea.", "User lives in Rome."];
 
-        await _m.Vault.MigrateLegacyFactsAsync(_diana.Id, CancellationToken.None);
+        await _m.Vault.MigrateLegacyFactsAsync(_nova.Id, CancellationToken.None);
 
-        Assert.Contains("## About\n- User likes tea.\n- User lives in Rome.", _m.Storage.Files["diana/diana-profile.md"], StringComparison.Ordinal);
+        Assert.Contains("## About\n- User likes tea.\n- User lives in Rome.", _m.Storage.Files["nova/nova-profile.md"], StringComparison.Ordinal);
         Assert.Empty(_m.Llm.Requests);
         Assert.Empty(_m.Index.LegacyFacts);
     }
@@ -282,14 +282,14 @@ public sealed class MemoryVaultTests
     public async Task Scanning_indexes_the_users_notes_and_forgets_deleted_ones()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
-        _m.Storage.Files["diana/my-ideas.md"] = "# Ideas\n\n## Next\nTry a vector index for the orders search.\n";
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        _m.Storage.Files["nova/my-ideas.md"] = "# Ideas\n\n## Next\nTry a vector index for the orders search.\n";
         _m.Storage.Files.Remove(ConversationFile);
 
-        await _m.Vault.ScanAsync(_diana.Id, CancellationToken.None);
+        await _m.Vault.ScanAsync(_nova.Id, CancellationToken.None);
 
         var note = Assert.Single(_m.Index.Notes);
-        Assert.Equal("diana/my-ideas.md", note.Path);
+        Assert.Equal("nova/my-ideas.md", note.Path);
         Assert.Contains(_m.Index.Chunks, c => c.Text.Contains("vector index", StringComparison.Ordinal));
         Assert.Null(await _m.Index.FindConversationNoteAsync(id)); // so the conversation note is written again
     }
@@ -298,15 +298,15 @@ public sealed class MemoryVaultTests
     public async Task Recall_brings_the_profile_and_the_best_passages()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
-        await _m.Vault.ConsolidateProfileAsync(_diana.Id, CancellationToken.None);
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        await _m.Vault.ConsolidateProfileAsync(_nova.Id, CancellationToken.None);
 
         var memory = await _m.Vault.RecallAsync("which pagination did we pick for orders", CancellationToken.None);
 
         Assert.Contains("Prefers C#.", memory.Profile, StringComparison.Ordinal);
         Assert.DoesNotContain("type: profile", memory.Profile, StringComparison.Ordinal);
         Assert.Contains(memory.Passages, p => p.Text.Contains("cursor pagination", StringComparison.Ordinal));
-        Assert.DoesNotContain(memory.Passages, p => p.NoteTitle == "diana-profile"); // the profile is already in
+        Assert.DoesNotContain(memory.Passages, p => p.NoteTitle == "nova-profile"); // the profile is already in
 
         _m.Options.Value.Memory.Enabled = false;
         Assert.True((await _m.Vault.RecallAsync("pagination", CancellationToken.None)).IsEmpty);
@@ -316,14 +316,14 @@ public sealed class MemoryVaultTests
     public async Task Deleting_a_conversation_or_an_assistant_deletes_their_notes()
     {
         var id = await ConversationAsync();
-        await _m.Vault.WriteConversationNoteAsync(_diana.Id, id, CancellationToken.None);
-        await _m.Vault.MigrateLegacyFactsAsync(_diana.Id, CancellationToken.None);
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        await _m.Vault.MigrateLegacyFactsAsync(_nova.Id, CancellationToken.None);
 
         await _m.Vault.DeleteConversationNoteAsync(id);
         Assert.DoesNotContain(_m.Storage.Files.Keys, k => k.Contains("/conversations/", StringComparison.Ordinal));
 
-        _m.Storage.Files["diana/diana-profile.md"] = "# Profile\n";
-        await _m.Vault.DeleteAssistantNotesAsync(_diana);
+        _m.Storage.Files["nova/nova-profile.md"] = "# Profile\n";
+        await _m.Vault.DeleteAssistantNotesAsync(_nova);
         Assert.Empty(_m.Storage.Files);
         Assert.Empty(_m.Index.Notes);
     }
@@ -384,13 +384,13 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
 
     private async Task<(AssistantProfile Assistant, long Conversation)> ConversationAsync()
     {
-        var diana = await _m.Assistants.CreateAsync(new NewAssistant("Diana", "", "m", "v", "en"), VoiceStyle.Default);
-        _m.Context.Set(diana);
+        var nova = await _m.Assistants.CreateAsync(new NewAssistant("Nova", "", "m", "v", "en"), VoiceStyle.Default);
+        _m.Context.Set(nova);
         var c = await _m.Conversations.CreateAsync("Tea");
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.User, Content = "I like tea" });
         await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.Assistant, Content = "Noted" });
-        _m.Index.NeedingNotes.Add((c.Id, diana.Id));
-        return (diana, c.Id);
+        _m.Index.NeedingNotes.Add((c.Id, nova.Id));
+        return (nova, c.Id);
     }
 
     private async Task UntilAsync(Func<bool> condition)
@@ -422,7 +422,7 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
 
         _time.Advance(MemoryWorker.IdleDelay + TimeSpan.FromSeconds(1));
         await UntilAsync(() => Finished("SummarizeConversation:done"));
-        Assert.Contains(_m.Storage.Files.Keys, k => k.StartsWith("diana/conversations/", StringComparison.Ordinal));
+        Assert.Contains(_m.Storage.Files.Keys, k => k.StartsWith("nova/conversations/", StringComparison.Ordinal));
         // The profile merge waits a little to take several notes at once.
         Assert.Contains(_m.Index.Jobs, j => j.Kind == MemoryJobKind.ConsolidateProfile);
         Assert.Equal("notes-since", Assert.Single(_m.Index.State.Keys, k => k == "notes-since"));
@@ -464,14 +464,14 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
     [Fact]
     public async Task A_note_edited_in_obsidian_is_indexed_again()
     {
-        var (diana, _) = await ConversationAsync();
+        var (nova, _) = await ConversationAsync();
         _m.Index.NeedingNotes.Clear();
         _time.Advance(MemoryWorker.IdleDelay + TimeSpan.FromSeconds(1));
         _worker.Start();
 
-        _m.Storage.Edit("diana/ideas.md", "# Ideas\n\n## Next\nAdd a search box.\n");
+        _m.Storage.Edit("nova/ideas.md", "# Ideas\n\n## Next\nAdd a search box.\n");
 
         await UntilAsync(() => _m.Index.Chunks.Any(c => c.Text.Contains("search box", StringComparison.Ordinal)));
-        Assert.Equal(diana.Id, Assert.Single(_m.Index.Notes, n => n.Path == "diana/ideas.md").AssistantId);
+        Assert.Equal(nova.Id, Assert.Single(_m.Index.Notes, n => n.Path == "nova/ideas.md").AssistantId);
     }
 }

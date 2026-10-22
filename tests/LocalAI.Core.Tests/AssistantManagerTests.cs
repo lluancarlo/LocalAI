@@ -40,35 +40,83 @@ public sealed class AssistantManagerTests
     {
         await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("  ")));
         await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft(new string('x', AssistantManager.MaxNameLength + 1))));
-        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("Diana") with { ModelId = "" }));
-        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("Diana") with { VoiceId = "" }));
+        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("Nova") with { ModelId = "" }));
+        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("Nova") with { VoiceId = "" }));
 
-        var diana = await _manager.CreateAsync(Draft(" Diana ", " Calm and precise. "));
-        Assert.Equal("Diana", diana.Name);
-        Assert.Equal("Calm and precise.", diana.StylePrompt);
-        Assert.Equal("it", diana.Language);
-        Assert.Same(diana, _context.Current);
+        var nova = await _manager.CreateAsync(Draft(" Nova ", " Calm and precise. "));
+        Assert.Equal("Nova", nova.Name);
+        Assert.Equal("Calm and precise.", nova.StylePrompt);
+        Assert.Equal("it", nova.Language);
+        Assert.Same(nova, _context.Current);
         Assert.Equal("model-a", _options.Llm.Model);
         Assert.Equal("voice-a", _options.TextToSpeech.Voice);
-        Assert.Equal(diana.Id, _options.Assistant.ActiveId);
-        Assert.Contains($"\"ActiveId\": {diana.Id}", await File.ReadAllTextAsync(_settingsPath), StringComparison.Ordinal);
+        Assert.Equal(nova.Id, _options.Assistant.ActiveId);
+        Assert.Contains($"\"ActiveId\": {nova.Id}", await File.ReadAllTextAsync(_settingsPath), StringComparison.Ordinal);
 
-        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("diana")));
+        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.CreateAsync(Draft("nova")));
     }
 
     [Fact]
-    public async Task Voice_style_is_saved_per_assistant_and_applied_on_switch()
+    public async Task Quick_switches_end_on_the_last_assistant_and_report_the_voice_loading()
     {
-        var diana = await _manager.CreateAsync(Draft("Diana"));
+        var nova = await _manager.CreateAsync(Draft("Nova"));
+        var marco = await _manager.CreateAsync(Draft("Marco"));
+        var ava = await _manager.CreateAsync(Draft("Ava"));
+        var loading = new List<bool>();
+        _manager.LoadingChanged += (_, _) => { lock (loading) loading.Add(_manager.IsLoadingVoice); };
+
+        await Task.WhenAll(
+            _manager.SwitchAsync(nova, loadModel: false),
+            _manager.SwitchAsync(marco, loadModel: false),
+            _manager.SwitchAsync(ava, loadModel: false));
+
+        Assert.Equal(ava.Id, _context.Current?.Id);
+        Assert.False(_manager.IsLoadingVoice);
+        lock (loading)
+        {
+            Assert.Contains(true, loading); // the voice was loading (yellow dot)
+            Assert.False(loading[^1]); // and it is done
+        }
+    }
+
+    [Fact]
+    public async Task Switching_never_loads_a_model_only_turning_the_ai_on_does()
+    {
+        _llm.LoadsModel = () => _options.Llm.Model;
+        var nova = await _manager.CreateAsync(Draft("Nova"));
+        var marco = await _manager.CreateAsync(Draft("Marco") with { ModelId = "model-b" });
+        Assert.True(_manager.IsModelLoaded(marco));
+        Assert.False(_manager.IsModelLoaded(nova));
+        var loads = _llm.LoadCount;
+
+        await _manager.SwitchAsync(nova, loadModel: false);
+        Assert.Equal(loads, _llm.LoadCount); // nothing loaded
+        Assert.False(_manager.IsActiveModelLoaded); // Marco's model is not Nova's
+
+        await _manager.LoadModelAsync(nova);
+        Assert.True(_manager.IsActiveModelLoaded);
+        Assert.False(_manager.IsModelLoaded(marco)); // one model at a time
+        var ava = await _manager.CreateAsync(Draft("Ava")); // same model as Nova: shared, no reload
+        Assert.True(_manager.IsModelLoaded(ava) && _manager.IsModelLoaded(nova));
+        Assert.Equal(loads + 1, _llm.LoadCount);
+
+        await _manager.UnloadModelAsync();
+        Assert.False(_manager.IsActiveModelLoaded);
+    }
+
+    [Fact]
+    public async Task The_voice_style_chosen_at_creation_is_kept_and_applied_on_switch()
+    {
         var deep = new VoiceStyle { Pitch = -3, Speed = 0.9 };
-        await _manager.SaveVoiceStyleAsync(deep);
+        var nova = await _manager.CreateAsync(Draft("Nova") with { VoiceStyle = deep });
+        Assert.Equal(deep, nova.VoiceStyle);
         Assert.Equal(deep, _tts.Style);
 
         var marco = await _manager.CreateAsync(Draft("Marco") with { ModelId = "model-b" });
         Assert.Equal(VoiceStyle.Default, _tts.Style);
         Assert.Equal("model-b", _options.Llm.Model);
 
-        await _manager.SwitchAsync((await _manager.ListAsync()).Single(a => a.Id == diana.Id));
+        await _manager.SwitchAsync((await _manager.ListAsync()).Single(a => a.Id == nova.Id));
         Assert.Equal(deep, _tts.Style);
         Assert.Equal("model-a", _options.Llm.Model);
 
@@ -79,15 +127,15 @@ public sealed class AssistantManagerTests
     [Fact]
     public async Task Deleting_the_active_assistant_switches_to_another_or_leaves_none_active()
     {
-        var diana = await _manager.CreateAsync(Draft("Diana"));
+        var nova = await _manager.CreateAsync(Draft("Nova"));
         var marco = await _manager.CreateAsync(Draft("Marco") with { ModelId = "model-b" });
 
         await _manager.DeleteAsync(marco);
-        Assert.Equal(diana.Id, _context.Current?.Id);
-        Assert.Equal(diana.Id, _options.Assistant.ActiveId);
+        Assert.Equal(nova.Id, _context.Current?.Id);
+        Assert.Equal(nova.Id, _options.Assistant.ActiveId);
         Assert.Equal("model-a", _options.Llm.Model);
 
-        await _manager.DeleteAsync(diana);
+        await _manager.DeleteAsync(nova);
         Assert.Null(_context.Current);
         Assert.Equal(0, _options.Assistant.ActiveId);
         Assert.Empty(await _manager.ListAsync());
@@ -96,7 +144,7 @@ public sealed class AssistantManagerTests
     [Fact]
     public async Task Load_restores_the_last_active_assistant()
     {
-        await _manager.CreateAsync(Draft("Diana"));
+        await _manager.CreateAsync(Draft("Nova"));
         var marco = await _manager.CreateAsync(Draft("Marco"));
         _context.Set(null);
 
@@ -108,24 +156,24 @@ public sealed class AssistantManagerTests
     public async Task Shortcuts_are_saved_per_assistant_and_cannot_be_shared()
     {
         HotkeyGesture.TryParse("Ctrl+Alt+D", out var ctrlAltD);
-        var diana = await _manager.CreateAsync(Draft("Diana"));
+        var nova = await _manager.CreateAsync(Draft("Nova"));
         var marco = await _manager.CreateAsync(Draft("Marco"));
         var changes = 0;
         _manager.AssistantsChanged += (_, _) => changes++;
 
-        var updated = await _manager.SetHotkeyAsync(diana, ctrlAltD);
+        var updated = await _manager.SetHotkeyAsync(nova, ctrlAltD);
         Assert.Equal(ctrlAltD, updated.Hotkey);
-        Assert.Equal(ctrlAltD, (await _manager.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        Assert.Equal(ctrlAltD, (await _manager.ListAsync()).Single(a => a.Id == nova.Id).Hotkey);
         Assert.Equal(1, changes);
 
         var error = await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.SetHotkeyAsync(marco, ctrlAltD));
-        Assert.Contains("Diana", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Nova", error.Message, StringComparison.Ordinal);
 
-        await _manager.SetHotkeyAsync(diana, ctrlAltD); // unchanged: no notification
+        await _manager.SetHotkeyAsync(nova, ctrlAltD); // unchanged: no notification
         Assert.Equal(1, changes);
 
-        await _manager.SetHotkeyAsync(diana, null);
-        Assert.Null((await _manager.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        await _manager.SetHotkeyAsync(nova, null);
+        Assert.Null((await _manager.ListAsync()).Single(a => a.Id == nova.Id).Hotkey);
         await _manager.SetHotkeyAsync(marco, ctrlAltD);
         Assert.Equal(ctrlAltD, _context.Current?.Hotkey); // Marco is the active assistant
         Assert.Equal(3, changes);

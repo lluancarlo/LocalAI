@@ -17,10 +17,17 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/chat.png" alt="Chatting with an assistant named Diana" width="900">
+  <img src="docs/screenshots/chat.png" alt="Chatting with Nova, one of two assistants in the tabs at the top" width="900">
 </p>
 
-- **Your own assistants:** each with a name, personality, language model, voice, conversations and memories.
+- **Your own assistants:** each with a name, personality, language model, voice and voice settings (speed, pitch,
+  expressiveness, rhythm), chosen when you create it, plus its own conversations and memories.
+- **One click away:** one tab per assistant at the top of the window, **＋** to add a new one. The dot on a tab shows
+  its AI: green on, yellow loading (its model or its voice), red off. Switching tabs never loads a model: the
+  **Turn on / Turn off** button above the conversations does (one model runs at a time; assistants with the same model
+  share it). While the AI is off, Send is disabled.
+- **Speaks your language:** every assistant replies in the language you write or speak, always with its own voice.
+  Voices are listed with their language, e.g. `[pt-BR] Faber (male)`.
 - **Text or voice:** three reply modes, from silent chat to a hands-free spoken conversation (see below).
 - **Always at hand:** it runs in the notification area. Give each assistant a global shortcut to start and stop a
   voice conversation from any application; the tray icon blinks while it listens.
@@ -31,20 +38,20 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/create-assistant.png" alt="Creating an assistant"></td>
-    <td width="50%"><img src="docs/screenshots/memory.png" alt="What the assistant remembers"></td>
+    <td width="50%"><img src="docs/screenshots/create-assistant.png" alt="The Add new assistant dialog"></td>
+    <td width="50%"><img src="docs/screenshots/memory.png" alt="Settings › Memory: the assistant's profile and conversation notes"></td>
   </tr>
   <tr>
-    <td align="center">Create an assistant</td>
-    <td align="center">What it remembers about you</td>
+    <td align="center">Add an assistant: personality, model, voice and voice settings</td>
+    <td align="center">What it remembers about you, as Markdown notes</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/settings-voice.png" alt="Audio and voice settings"></td>
-    <td><img src="docs/screenshots/settings-models.png" alt="Model management"></td>
+    <td><img src="docs/screenshots/settings-models.png" alt="Settings › Models"></td>
+    <td><img src="docs/screenshots/settings-audio.png" alt="Settings › Audio"></td>
   </tr>
   <tr>
-    <td align="center">Voice and audio settings</td>
-    <td align="center">Models managed in the app</td>
+    <td align="center">Models downloaded and managed in the app</td>
+    <td align="center">Audio devices: the system default, or one you pick</td>
   </tr>
 </table>
 
@@ -123,9 +130,9 @@ Each assistant learns from every conversation and keeps it as plain Markdown not
 
 ```
 local-ai/
-  jessica/
-    jessica-profile.md                          what it knows about you
-    conversations/2026-10-22-read-selection.md  one note per conversation
+  nova/
+    nova-profile.md                                  what it knows about you
+    conversations/2026-10-22-orders-api-pagination.md  one note per conversation
 ```
 
 - **Profile:** about you, preferences, skills, projects and routine, merged and kept up to date from your
@@ -146,7 +153,8 @@ local-ai/
   into its `local-ai` folder, next to your own notes. There you can also pick the language of new notes (English by
   default; the assistant reads them whatever language you talk in).
 
-The **Memory** page shows the profile and the notes, with buttons to open them in Obsidian or in their folder.
+**Settings › Memory** shows what the active assistant remembers (its profile and conversation notes), with buttons to
+open them in Obsidian or in their folder.
 
 ## Getting started
 
@@ -170,6 +178,9 @@ On first launch you create your first assistant and the app downloads the models
 Closing the window keeps Local AI running in the notification area. The tray icon's menu opens the window, turns
 **Live mode** on and off, and **Exit** quits.
 Set an assistant's shortcut in **Settings › Assistants**.
+
+In **Settings › Audio**, *System default* follows whatever device Windows uses (it changes when you plug in a
+headset); a device you pick yourself is used from then on, and while it is unplugged the system default stands in.
 
 ## Privacy
 

@@ -28,6 +28,23 @@ public sealed class AssistantManager(
     /// <summary>Raised after an assistant was created, deleted or got a new shortcut.</summary>
     public event EventHandler? AssistantsChanged;
 
+    private readonly Lock _switchGate = new();
+    private readonly SemaphoreSlim _voiceGate = new(1, 1);
+    private int _switchGeneration;
+
+    /// <summary>True while the active assistant's voice loads after a switch (its tab shows a yellow dot).</summary>
+    public bool IsLoadingVoice { get; private set; }
+
+    /// <summary>Raised (on any thread) when <see cref="IsLoadingVoice"/> changes.</summary>
+    public event EventHandler? LoadingChanged;
+
+    private void SetLoadingVoice(bool loading)
+    {
+        if (IsLoadingVoice == loading) return;
+        IsLoadingVoice = loading;
+        LoadingChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public Task<IReadOnlyList<AssistantProfile>> ListAsync(CancellationToken ct = default) => store.ListAsync(ct);
 
     /// <summary>Activates the last used assistant (or the first one) before the engines start. Leaves none active if none exist.</summary>
@@ -53,37 +70,86 @@ public sealed class AssistantManager(
         if (existing.Any(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
             throw new AssistantValidationException($"An assistant named \"{name}\" already exists.");
 
-        var profile = await store.CreateAsync(assistant with { Name = name, StylePrompt = style }, VoiceStyle.Default, ct).ConfigureAwait(false);
+        var profile = await store.CreateAsync(assistant with { Name = name, StylePrompt = style }, assistant.VoiceStyle ?? VoiceStyle.Default, ct).ConfigureAwait(false);
         logger.LogInformation("Created assistant {Id} (model {Model}, voice {Voice})", profile.Id, profile.ModelId, profile.VoiceId);
         AssistantsChanged?.Invoke(this, EventArgs.Empty);
         await SwitchAsync(profile, ct).ConfigureAwait(false);
         return profile;
     }
 
-    public async Task SwitchAsync(AssistantProfile profile, CancellationToken ct = default)
+    /// <summary>
+    /// Makes <paramref name="profile"/> the active assistant (its voice and settings). With <paramref name="loadModel"/>
+    /// its language model is loaded too; without (switching tabs), whatever model is loaded stays as it is and the
+    /// assistant's AI is on only if that model is its own (<see cref="IsModelLoaded"/>).
+    /// </summary>
+    public async Task SwitchAsync(AssistantProfile profile, CancellationToken ct = default, bool loadModel = true)
     {
-        _options.Assistant.ActiveId = profile.Id;
+        int generation;
+        lock (_switchGate)
+        {
+            // The switch itself is instant and ordered: quick clicks on several tabs end on the last one.
+            generation = ++_switchGeneration;
+            _options.Assistant.ActiveId = profile.Id;
+            ApplyToOptions(profile);
+            context.Set(profile);
+            SetLoadingVoice(true);
+        }
         settings.Set("Assistant", "ActiveId", profile.Id);
-        ApplyToOptions(profile);
-        context.Set(profile);
         logger.LogInformation("Switched to assistant {Id}", profile.Id);
 
-        if (tts.AvailableVoices.Any(v => v.Id == profile.VoiceId))
+        // Loading the voice takes up to a second; a newer switch makes it pointless.
+        await _voiceGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            try { await tts.SetVoiceAsync(profile.VoiceId, ct).ConfigureAwait(false); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "Could not load voice {Voice}", profile.VoiceId); }
+            if (generation == Volatile.Read(ref _switchGeneration))
+            {
+                if (tts.AvailableVoices.Any(v => v.Id == profile.VoiceId))
+                {
+                    try { await tts.SetVoiceAsync(profile.VoiceId, ct).ConfigureAwait(false); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { logger.LogWarning(ex, "Could not load voice {Voice}", profile.VoiceId); }
+                }
+                else if (tts.Voice is { } previous)
+                {
+                    // Not downloaded yet: stay silent rather than speak with the previous assistant's voice.
+                    tts.RemoveVoice(previous.Id);
+                }
+            }
         }
-        else if (tts.Voice is { } previous)
+        finally
         {
-            // Not downloaded yet: stay silent rather than speak with the previous assistant's voice.
-            tts.RemoveVoice(previous.Id);
+            _voiceGate.Release();
+            if (generation == Volatile.Read(ref _switchGeneration)) SetLoadingVoice(false);
         }
 
-        if (llm.Info?.Id != profile.ModelId || llm.State != LanguageModelState.Ready)
-        {
-            await llm.UnloadAsync(ct).ConfigureAwait(false);
-            await llm.LoadAsync(ct).ConfigureAwait(false);
-        }
+        if (loadModel) await LoadModelAsync(profile, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// True when the assistant's AI is on: the loaded, ready language model is the assistant's own (an assistant on
+    /// "auto" takes whichever model is loaded). Several assistants with the same model share it.
+    /// </summary>
+    public bool IsModelLoaded(AssistantProfile? profile) =>
+        profile != null && llm.State == LanguageModelState.Ready &&
+        (string.IsNullOrEmpty(profile.ModelId) || profile.ModelId == AutoModel || llm.Info?.Id == profile.ModelId);
+
+    /// <summary>Whether the active assistant's AI is on.</summary>
+    public bool IsActiveModelLoaded => IsModelLoaded(context.Current);
+
+    /// <summary>Turns the assistant's AI on: loads its language model (unloading another assistant's; one runs at a time).</summary>
+    public async Task LoadModelAsync(AssistantProfile profile, CancellationToken ct = default)
+    {
+        if (IsModelLoaded(profile)) return;
+        ApplyToOptions(profile);
+        await llm.UnloadAsync(ct).ConfigureAwait(false);
+        await llm.LoadAsync(ct).ConfigureAwait(false);
+        logger.LogInformation("AI of assistant {Id} turned on", profile.Id);
+    }
+
+    /// <summary>Turns the AI off: unloads the language model (frees the GPU memory).</summary>
+    public async Task UnloadModelAsync(CancellationToken ct = default)
+    {
+        await llm.UnloadAsync(ct).ConfigureAwait(false);
+        logger.LogInformation("AI turned off");
     }
 
     /// <summary>What deleting the assistant would remove.</summary>
@@ -132,15 +198,6 @@ public sealed class AssistantManager(
         logger.LogInformation("Assistant {Id} shortcut set to {Hotkey}", profile.Id, hotkey?.ToString() ?? "none");
         AssistantsChanged?.Invoke(this, EventArgs.Empty);
         return updated;
-    }
-
-    /// <summary>Applies and saves a new voice style for the active assistant.</summary>
-    public async Task SaveVoiceStyleAsync(VoiceStyle style, CancellationToken ct = default)
-    {
-        if (context.Current is not { } current) return;
-        tts.Style = style;
-        await store.SetVoiceStyleAsync(current.Id, style, ct).ConfigureAwait(false);
-        context.Update(current with { VoiceStyle = style });
     }
 
     private void ApplyToOptions(AssistantProfile profile)

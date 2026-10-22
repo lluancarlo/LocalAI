@@ -1,3 +1,4 @@
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
@@ -62,12 +63,34 @@ public sealed partial class ConversationItemViewModel(Conversation conversation)
     partial void OnUpdatedAtChanged(DateTimeOffset value) => OnPropertyChanged(nameof(When));
 }
 
-public sealed partial class PageTabViewModel(AppPage page, string title, bool isClosable) : ObservableObject
+/// <summary>An assistant's tab at the top of the window.</summary>
+public sealed partial class AssistantTabViewModel(long id, string name, string? hotkey) : ObservableObject
 {
-    public AppPage Page { get; } = page;
-    public bool IsClosable { get; } = isClosable;
-    [ObservableProperty] private string _title = title;
+    public long Id { get; } = id;
+    public string Name { get; } = name;
+    public string Tip => hotkey == null ? $"Chat with {Name}" : $"Chat with {Name} · {hotkey} starts a live conversation";
+    /// <summary>The assistant chats are shown for (its tab is underlined while the chat is on screen).</summary>
+    [ObservableProperty] private bool _isActive;
     [ObservableProperty] private bool _isSelected;
+    /// <summary>The assistant is listening in live mode ("live" tag).</summary>
+    [ObservableProperty] private bool _isLive;
+
+    /// <summary>The loaded language model is this assistant's (green dot); assistants with the same model share it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusBrush), nameof(StatusText))]
+    private bool _isOnline;
+
+    /// <summary>Its language model or its voice is loading (yellow dot).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusBrush), nameof(StatusText))]
+    private bool _isLoading;
+
+    private static readonly IBrush Online = new SolidColorBrush(Color.Parse("#9ECE6A"));
+    private static readonly IBrush Loading = new SolidColorBrush(Color.Parse(StatusColors.Background));
+    private static readonly IBrush Offline = new SolidColorBrush(Color.Parse("#F7768E"));
+
+    public IBrush StatusBrush => IsLoading ? Loading : IsOnline ? Online : Offline;
+    public string StatusText => IsLoading ? "Loading…" : IsOnline ? "AI on" : "AI off";
 }
 
 /// <summary>A conversation note on the Memory page.</summary>

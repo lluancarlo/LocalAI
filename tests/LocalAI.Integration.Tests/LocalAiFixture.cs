@@ -26,7 +26,7 @@ public sealed class LocalAiFixture : IAsyncLifetime
         await Services.GetRequiredService<StartupService>().StartAsync(CancellationToken.None);
         var model = ModelCatalog.LoadDefault().Llm.First(e => File.Exists(Path.Combine(Paths.ModelsDirectory, e.File))).Id;
         await Services.GetRequiredService<LocalAI.Core.Assistants.AssistantManager>().CreateAsync(
-            new LocalAI.Core.Assistants.NewAssistant("Diana", "", model, VoiceFor("en"), "en"));
+            new LocalAI.Core.Assistants.NewAssistant("Nova", "", model, VoiceFor("en"), "en"));
     }
 
     public static ServiceProvider BuildServices(string dataDirectory, SimulatedRoom? room)

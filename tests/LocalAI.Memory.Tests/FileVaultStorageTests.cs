@@ -26,21 +26,21 @@ public sealed class FileVaultStorageTests : IDisposable
     {
         Assert.Equal(Path.Combine(_paths.DataDirectory, "memory", "local-ai"), _storage.Root);
 
-        _storage.Write("diana/conversations/2026-10-22-chat.md", "# Chat\n");
-        Assert.True(File.Exists(Path.Combine(_storage.Root, "diana", "conversations", "2026-10-22-chat.md")));
-        Assert.Equal("# Chat\n", _storage.Read("diana/conversations/2026-10-22-chat.md"));
-        Assert.Equal(["diana/conversations/2026-10-22-chat.md"], _storage.ListNotes("diana"));
+        _storage.Write("nova/conversations/2026-10-22-chat.md", "# Chat\n");
+        Assert.True(File.Exists(Path.Combine(_storage.Root, "nova", "conversations", "2026-10-22-chat.md")));
+        Assert.Equal("# Chat\n", _storage.Read("nova/conversations/2026-10-22-chat.md"));
+        Assert.Equal(["nova/conversations/2026-10-22-chat.md"], _storage.ListNotes("nova"));
         Assert.Empty(Directory.GetFiles(_storage.Root, "*.tmp", SearchOption.AllDirectories)); // atomic write leaves nothing behind
 
-        _storage.Delete("diana/conversations/2026-10-22-chat.md");
-        Assert.Null(_storage.Read("diana/conversations/2026-10-22-chat.md"));
-        _storage.DeleteFolder("diana");
-        Assert.False(Directory.Exists(Path.Combine(_storage.Root, "diana")));
+        _storage.Delete("nova/conversations/2026-10-22-chat.md");
+        Assert.Null(_storage.Read("nova/conversations/2026-10-22-chat.md"));
+        _storage.DeleteFolder("nova");
+        Assert.False(Directory.Exists(Path.Combine(_storage.Root, "nova")));
     }
 
     [Theory]
     [InlineData("../outside.md")]
-    [InlineData("diana/../../outside.md")]
+    [InlineData("nova/../../outside.md")]
     [InlineData("C:/Windows/notes.md")]
     public void Paths_never_leave_the_notes_folder(string path) =>
         Assert.Throws<ArgumentException>(() => _storage.Write(path, "x"));
@@ -48,13 +48,13 @@ public sealed class FileVaultStorageTests : IDisposable
     [Fact]
     public void Notes_are_copied_into_the_local_ai_folder_of_a_vault()
     {
-        _storage.Write("diana/diana-profile.md", "# Profile\n");
+        _storage.Write("nova/nova-profile.md", "# Profile\n");
         var vault = Path.Combine(_paths.Home, "MyVault");
         Directory.CreateDirectory(Path.Combine(vault, "My own notes"));
 
         _storage.CopyTo(vault);
 
-        Assert.Equal("# Profile\n", File.ReadAllText(Path.Combine(vault, "local-ai", "diana", "diana-profile.md")));
+        Assert.Equal("# Profile\n", File.ReadAllText(Path.Combine(vault, "local-ai", "nova", "nova-profile.md")));
         Assert.True(Directory.Exists(Path.Combine(vault, "My own notes"))); // the user's vault is left alone
 
         // A vault that already has a local-ai folder with notes is not mixed into.
@@ -78,13 +78,13 @@ public sealed class FileVaultStorageTests : IDisposable
             changed.TrySetResult();
         };
 
-        var file = Path.Combine(_storage.Root, "diana", "ideas.md");
+        var file = Path.Combine(_storage.Root, "nova", "ideas.md");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         await File.WriteAllTextAsync(file, "# Ideas\n");
         await File.AppendAllTextAsync(file, "more\n");
 
         await changed.Task.WaitAsync(TimeSpan.FromSeconds(15));
         await Task.Delay(500);
-        lock (reported) Assert.Equal(["diana/ideas.md"], reported);
+        lock (reported) Assert.Equal(["nova/ideas.md"], reported);
     }
 }

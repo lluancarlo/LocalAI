@@ -5,7 +5,7 @@
              x:DataType="vm:AssistantsViewModel">
   <StackPanel Spacing="6">
     <TextBlock Text="Name" />
-    <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Diana" />
+    <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Nova" />
     <TextBlock Text="AI style pre-prompt (optional)" Margin="0,8,0,0" />
     <TextBox Text="{Binding NewStyle}" MaxLength="{Binding MaxStyleLength}" AcceptsReturn="True" TextWrapping="Wrap"
              MinHeight="90" MaxHeight="180"
@@ -27,10 +27,40 @@
               ToolTip.Tip="Play a sample (downloads the voice if needed)" />
     </Grid>
     <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <!-- How the voice sounds: fixed once the assistant is created; ▶ plays it with these settings -->
+    <Grid ColumnDefinitions="110,*,Auto" Margin="0,6,0,0" ToolTip.Tip="How fast the assistant speaks">
+      <TextBlock Text="Speed" VerticalAlignment="Center" />
+      <Slider Grid.Column="1" Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.05"
+              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
+      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
+    </Grid>
+    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Semitones lower or higher than the original voice">
+      <TextBlock Text="Pitch" VerticalAlignment="Center" />
+      <Slider Grid.Column="1" Minimum="-6" Maximum="6" SmallChange="1" LargeChange="1"
+              TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
+      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
+    </Grid>
+    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is flatter, higher is more varied intonation">
+      <TextBlock Text="Expressiveness" VerticalAlignment="Center" />
+      <Slider Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05"
+              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Expressiveness}" />
+      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding ExpressivenessText}" />
+    </Grid>
+    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is more regular, higher is more natural timing">
+      <TextBlock Text="Rhythm" VerticalAlignment="Center" />
+      <Slider Grid.Column="1" Minimum="0" Maximum="1.2" SmallChange="0.05" LargeChange="0.05"
+              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Rhythm}" />
+      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding RhythmText}" />
+    </Grid>
+    <Button Classes="flat" HorizontalAlignment="Left" Padding="8,2" Content="Reset voice settings" Command="{Binding ResetVoiceStyleCommand}"
+            ToolTip.Tip="Back to the voice's original settings" />
     <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
-               Text="The assistant always speaks and replies in its voice's language. Name, style, model and voice cannot be changed later; anything not downloaded yet is downloaded after creating." />
+               Text="The assistant replies in the language you write or speak, always with this voice. Name, style, model, voice and voice settings cannot be changed later; anything not downloaded yet is downloaded after creating." />
     <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
                IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <Button HorizontalAlignment="Right" Margin="0,6,0,0" Command="{Binding CreateCommand}" Content="Create assistant" />
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,6,0,0">
+      <Button Classes="flat" Content="Cancel" Command="{Binding CancelAddAssistantCommand}" IsVisible="{Binding IsAddingAssistant}" />
+      <Button Command="{Binding CreateCommand}" Content="Create assistant" />
+    </StackPanel>
   </StackPanel>
 </UserControl>

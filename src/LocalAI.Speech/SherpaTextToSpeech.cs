@@ -88,9 +88,10 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
     public async Task SetVoiceAsync(string voiceId, CancellationToken cancellationToken = default)
     {
         var style = Style;
-        await Task.Run(() => GetEngine(new EngineKey(voiceId, style.Expressiveness, style.Rhythm)), cancellationToken).ConfigureAwait(false);
+        // The new voice is current right away: speech asked for while it loads waits for it instead of using the old one.
         _voiceId = voiceId;
         _options.Voice = voiceId;
+        await Task.Run(() => GetEngine(new EngineKey(voiceId, style.Expressiveness, style.Rhythm)), cancellationToken).ConfigureAwait(false);
         State = ComponentState.Ready;
         LastError = null;
         _logger.LogInformation("TTS voice set to {Voice}", voiceId);

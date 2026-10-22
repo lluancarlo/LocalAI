@@ -89,6 +89,10 @@
     <Style Selector="Border.tab.selected Button.tabTitle">
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
+    <!-- The active assistant's tab while Settings or Diagnostics is open: readable, without the underline -->
+    <Style Selector="Border.tab.active Button.tabTitle">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
     <Style Selector="Button.tabClose">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -122,25 +126,67 @@
     </Style>
   </Window.Styles>
 
-  <Grid ColumnDefinitions="250,*">
+  <Grid ColumnDefinitions="250,*" RowDefinitions="Auto,*">
+
+    <!-- ============ Top bar: one tab per assistant, +, Settings and Diagnostics ============ -->
+    <Border Grid.Row="0" Grid.ColumnSpan="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Border Classes="tab" Classes.selected="{Binding IsSettingsPage}">
+            <Button Classes="tabTitle" Content="⚙  Settings" Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Settings}" />
+          </Border>
+          <Border Classes="tab" Classes.selected="{Binding IsDiagnosticsPage}">
+            <Button Classes="tabTitle" Content="ⓘ  Diagnostics" Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Diagnostics}" />
+          </Border>
+        </StackPanel>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+          <StackPanel Orientation="Horizontal">
+            <ItemsControl ItemsSource="{Binding AssistantTabs}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:AssistantTabViewModel">
+                  <Border Classes="tab" Classes.selected="{Binding IsSelected}" Classes.active="{Binding IsActive}">
+                    <Button Classes="tabTitle" ToolTip.Tip="{Binding Tip}"
+                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectAssistantCommand}" CommandParameter="{Binding}">
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <Ellipse Width="8" Height="8" Fill="{Binding StatusBrush}" VerticalAlignment="Center" ToolTip.Tip="{Binding StatusText}" />
+                        <TextBlock Text="{Binding Name}" MaxWidth="180" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="live" FontSize="11" Foreground="{StaticResource ErrorBrush}" VerticalAlignment="Center" IsVisible="{Binding IsLive}" />
+                      </StackPanel>
+                    </Button>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="tabTitle" Content="＋" ToolTip.Tip="Add new assistant" Command="{Binding Settings.Assistants.AddAssistantCommand}" />
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
 
     <!-- ============ Sidebar ============ -->
-    <Border Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,1,0">
+    <Border Grid.Row="1" Grid.Column="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,1,0">
       <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Top" Spacing="8">
-          <TextBlock Text="{Binding AssistantName}" FontSize="16" FontWeight="SemiBold" Margin="2,2,0,4" TextTrimming="CharacterEllipsis" />
+          <!-- The active assistant's AI: the only place a language model is loaded or unloaded -->
+          <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !ShowWelcome}">
+            <Button Classes="flat" Padding="10,5" Content="{Binding AiButtonText}" Command="{Binding ToggleAiCommand}"
+                    ToolTip.Tip="Loads or unloads this assistant's language model (one runs at a time)" />
+            <!-- Status on top, the model below, both centered in the space right of the button -->
+            <StackPanel Grid.Column="1" Spacing="1" HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="8,0,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                <Ellipse Width="8" Height="8" Fill="{Binding AiStatusBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding AiStatusText}" VerticalAlignment="Center" />
+              </StackPanel>
+              <TextBlock Classes="muted" FontSize="11" Text="{Binding AiModelText}" HorizontalAlignment="Center" TextAlignment="Center"
+                         TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding AiModelText}" />
+            </StackPanel>
+          </Grid>
           <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                   Command="{Binding NewConversationCommand}" Content="＋  New conversation" ToolTip.Tip="Ctrl+N" />
           <TextBox Text="{Binding SearchText}" PlaceholderText="Search history…" />
-        </StackPanel>
-
-        <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
-          <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Memory}" Content="◆  Memory" />
-          <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Settings}" Content="⚙  Settings" />
-          <Button Classes="flat" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                  Command="{Binding OpenPageCommand}" CommandParameter="{x:Static vm:AppPage.Diagnostics}" Content="ⓘ  Diagnostics" />
         </StackPanel>
 
         <ListBox x:Name="ConversationList" Margin="0,10,0,0" Background="Transparent"
@@ -170,28 +216,7 @@
     </Border>
 
     <!-- ============ Main ============ -->
-    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
-
-      <!-- Tabs -->
-      <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1">
-        <ItemsControl ItemsSource="{Binding Tabs}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:PageTabViewModel">
-              <Border Classes="tab" Classes.selected="{Binding IsSelected}">
-                <StackPanel Orientation="Horizontal">
-                  <Button Classes="tabTitle" Content="{Binding Title}"
-                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).OpenPageCommand}" CommandParameter="{Binding Page}" />
-                  <Button Classes="tabClose" Content="✕" IsVisible="{Binding IsClosable}" ToolTip.Tip="Close"
-                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ClosePageCommand}" CommandParameter="{Binding Page}" />
-                </StackPanel>
-              </Border>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </Border>
+    <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*,Auto">
 
       <!-- Chat page -->
       <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto,Auto" IsVisible="{Binding IsChatPage}">
@@ -250,7 +275,8 @@
               <TextBox x:Name="InputBox" Grid.Column="0" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap"
                        MinHeight="44" MaxHeight="200" PlaceholderText="Type a message…" FontFamily="{StaticResource MonoFont}" />
               <Button Grid.Column="1" Margin="10,0,0,0" MinWidth="84" VerticalAlignment="Stretch" VerticalContentAlignment="Center"
-                      HorizontalContentAlignment="Center" Command="{Binding SendCommand}" Content="{Binding SendButtonText}" />
+                      HorizontalContentAlignment="Center" Command="{Binding SendCommand}" Content="{Binding SendButtonText}"
+                      ToolTip.Tip="{Binding SendTip}" ToolTip.ShowOnDisabled="True" />
             </Grid>
             <WrapPanel Orientation="Horizontal">
               <!-- Reply mode: Text / Read aloud / Live -->
@@ -295,7 +321,8 @@
           </StackPanel>
           <TextBlock Classes="muted" Text="{Binding GpuText}" />
           <TextBlock Classes="muted" Text="{Binding ModelText}" />
-          <TextBlock Classes="muted" Text="{Binding VoiceText}" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="muted" Text="{Binding VoiceText}" MaxWidth="420" TextTrimming="CharacterEllipsis"
+                     IsVisible="{Binding VoiceText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
       </Border>
 
@@ -332,7 +359,11 @@
 
                 <Border Classes="card">
                 <StackPanel>
-                <TextBlock Classes="section" Text="Assistants" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="flat" Content="＋  Add new assistant" VerticalAlignment="Top"
+                          Command="{Binding AddAssistantCommand}" />
+                  <TextBlock Classes="section" Text="Assistants" />
+                </DockPanel>
                 <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,12"
                            Text="Each assistant can have a shortcut that works from any application: press it to start a voice conversation with the assistant (the tray icon blinks while it listens), press it again to stop." />
                 <ItemsControl ItemsSource="{Binding Items}">
@@ -361,7 +392,6 @@
                                      IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="10,0,0,0">
-                          <Button Classes="flat" Content="Switch" Command="{Binding SwitchCommand}" IsVisible="{Binding CanSwitch}" />
                           <Button Classes="flat" Content="Delete…" Command="{Binding DeleteCommand}"
                                   ToolTip.Tip="Deletes this assistant with all its conversations and memories (asks for confirmation)" />
                         </StackPanel>
@@ -371,18 +401,11 @@
                 </ItemsControl>
                 </StackPanel>
                 </Border>
-
-                <Border Classes="card">
-                <StackPanel>
-                <TextBlock Classes="section" Text="Create a new assistant" />
-                <views:NewAssistantForm />
-                </StackPanel>
-                </Border>
               </StackPanel>
             </ScrollViewer>
           </TabItem>
 
-          <TabItem Header="Audio &amp; voices" FontSize="14">
+          <TabItem Header="Audio" FontSize="14">
         <ScrollViewer>
           <StackPanel Margin="0,12,16,12">
 
@@ -423,45 +446,6 @@
                       Content="Echo cancellation (needed to interrupt the assistant on speakers)" />
             <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
                        Text="Uses Windows communications mode. Windows may lower other sounds while the microphone is open." />
-            </StackPanel>
-            </Border>
-
-            <Border Classes="card">
-            <StackPanel>
-            <TextBlock Classes="section" Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).AssistantName, StringFormat='Voice of {0}'}" />
-            <TextBlock Text="{Binding VoiceName}" Margin="0,0,0,8" />
-            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="How fast the assistant speaks">
-              <TextBlock Text="Speed" VerticalAlignment="Center" />
-              <Slider Grid.Column="1" Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.05"
-                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
-              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
-            </Grid>
-            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Semitones lower or higher than the original voice">
-              <TextBlock Text="Pitch" VerticalAlignment="Center" />
-              <Slider Grid.Column="1" Minimum="-6" Maximum="6" SmallChange="1" LargeChange="1"
-                      TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
-              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
-            </Grid>
-            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Lower is flatter, higher is more varied intonation">
-              <TextBlock Text="Expressiveness" VerticalAlignment="Center" />
-              <Slider Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05"
-                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Expressiveness}" />
-              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding ExpressivenessText}" />
-            </Grid>
-            <Grid ColumnDefinitions="140,*,Auto" Margin="0,0,0,6" ToolTip.Tip="Lower is more regular, higher is more natural timing">
-              <TextBlock Text="Rhythm" VerticalAlignment="Center" />
-              <Slider Grid.Column="1" Minimum="0" Maximum="1.2" SmallChange="0.05" LargeChange="0.05"
-                      TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Rhythm}" />
-              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding RhythmText}" />
-            </Grid>
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-              <Button Classes="flat" Content="▶  Preview" Command="{Binding PreviewVoiceCommand}" ToolTip.Tip="Play a sample with these settings" />
-              <Button Classes="flat" Content="Reset" Command="{Binding ResetVoiceStyleCommand}" ToolTip.Tip="Back to the voice's original settings" />
-            </StackPanel>
-            <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding VoiceError}"
-                       IsVisible="{Binding VoiceError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,6,0,0"
-                       Text="The voice was chosen when the assistant was created; these settings tune how it sounds and are saved automatically." />
             </StackPanel>
             </Border>
           </StackPanel>
@@ -532,6 +516,48 @@
           <TabItem Header="Memory" FontSize="14">
             <ScrollViewer>
               <StackPanel DataContext="{Binding Memory}" x:DataType="vm:MemorySettingsViewModel" Margin="0,12,16,12">
+                <!-- What the active assistant remembers: its profile and conversation notes -->
+                <StackPanel DataContext="{Binding $parent[Window].DataContext}" x:DataType="vm:MainWindowViewModel">
+                  <Border Classes="card">
+                    <StackPanel Spacing="6">
+                      <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                          <Button Classes="flat" Content="Open in Obsidian" Command="{Binding OpenMemoryInObsidianCommand}"
+                                  ToolTip.Tip="Opens the notes folder in Obsidian (it must be installed)" />
+                          <Button Classes="flat" Content="Open folder" Command="{Binding OpenMemoryFolderCommand}" ToolTip.Tip="{Binding MemoryFolder}" />
+                        </StackPanel>
+                        <TextBlock Classes="section" Text="{Binding AssistantName, StringFormat='What {0} remembers about you'}" TextTrimming="CharacterEllipsis" />
+                      </DockPanel>
+                      <TextBlock Classes="muted" TextWrapping="Wrap"
+                                 Text="Learned from your conversations and kept as Markdown notes. Open them in Obsidian or any editor to read, correct or delete anything: your edits are kept and used." />
+                      <TextBlock Text="Profile" FontWeight="SemiBold" Margin="0,8,0,0" />
+                      <SelectableTextBlock Text="{Binding MemoryProfile}" TextWrapping="Wrap" IsVisible="{Binding HasMemoryProfile}" />
+                      <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasMemoryProfile}"
+                                 Text="Nothing yet: the profile is written from your conversations, while the assistant is idle." />
+                    </StackPanel>
+                  </Border>
+                  <Border Classes="card">
+                    <StackPanel>
+                      <TextBlock Classes="section" Text="Conversation notes" />
+                      <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasMemoryNotes}"
+                                 Text="Nothing yet: a conversation gets its note a few minutes after it goes quiet, or when you open another one." />
+                      <ItemsControl ItemsSource="{Binding Memories}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:MemoryItemViewModel">
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                              <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Classes="muted" Text="{Binding Body}" TextWrapping="Wrap" MaxLines="4" TextTrimming="CharacterEllipsis" />
+                              </StackPanel>
+                              <Button Grid.Column="1" Classes="flat" Content="Open" VerticalAlignment="Top" Margin="8,0,0,0"
+                                      Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).OpenMemoryNoteCommand}" CommandParameter="{Binding}" />
+                            </Grid>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Border>
+                </StackPanel>
                 <Border Classes="card">
                   <StackPanel Spacing="6">
                     <TextBlock Classes="section" Text="Notes folder" />
@@ -569,69 +595,27 @@
         </TabControl>
       </Panel>
 
-      <!-- Memory page -->
-      <DockPanel Grid.Row="1" IsVisible="{Binding IsMemoryPage}" Margin="24,18,24,0" MaxWidth="760">
-        <TextBlock DockPanel.Dock="Top" Text="{Binding AssistantName, StringFormat='What {0} remembers about you'}"
-                   FontWeight="SemiBold" FontSize="15" Margin="0,0,0,6" />
-        <TextBlock DockPanel.Dock="Top" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,8"
-                   Text="Learned from your conversations and kept as Markdown notes. Open them in Obsidian or any editor to read, correct or delete anything: your edits are kept and used." />
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,12">
-          <Button Classes="flat" Content="Open in Obsidian" Command="{Binding OpenMemoryInObsidianCommand}"
-                  ToolTip.Tip="Opens the notes folder in Obsidian (it must be installed)" />
-          <Button Classes="flat" Content="Open folder" Command="{Binding OpenMemoryFolderCommand}" ToolTip.Tip="{Binding MemoryFolder}" />
-        </StackPanel>
-        <ScrollViewer>
-          <StackPanel Margin="0,0,0,12">
-            <Border Classes="card">
-              <StackPanel>
-                <TextBlock Classes="section" Text="Profile" />
-                <SelectableTextBlock Text="{Binding MemoryProfile}" TextWrapping="Wrap" IsVisible="{Binding HasMemoryProfile}" />
-                <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasMemoryProfile}"
-                           Text="Nothing yet: the profile is written from your conversations, while the assistant is idle." />
-              </StackPanel>
-            </Border>
-            <Border Classes="card">
-              <StackPanel>
-                <TextBlock Classes="section" Text="Conversations" />
-                <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !HasMemoryNotes}"
-                           Text="Nothing yet: a conversation gets its note a few minutes after it goes quiet, or when you open another one." />
-                <ItemsControl ItemsSource="{Binding Memories}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:MemoryItemViewModel">
-                      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
-                        <StackPanel Spacing="2">
-                          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Classes="muted" Text="{Binding Body}" TextWrapping="Wrap" MaxLines="4" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Classes="flat" Content="Open" VerticalAlignment="Top" Margin="8,0,0,0"
-                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).OpenMemoryNoteCommand}" CommandParameter="{Binding}" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </DockPanel>
     </Grid>
 
-    <!-- ============ First launch: welcome, then name the assistant (modal) ============ -->
-    <Border Grid.ColumnSpan="2" IsVisible="{Binding ShowWelcome}" Background="#CC0E1015">
+    <!-- ============ Assistant popup: first launch (welcome, then the form) or "Add new assistant" (modal) ============ -->
+    <Border Grid.RowSpan="2" Grid.ColumnSpan="2" IsVisible="{Binding ShowAssistantPopup}" Background="#CC0E1015">
       <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1"
               CornerRadius="8" Padding="24" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
         <Panel>
-          <StackPanel Spacing="10" IsVisible="{Binding WelcomeIntro}">
+          <StackPanel Spacing="10" IsVisible="{Binding ShowWelcomeIntro}">
             <Image Source="/Assets/mascot.png" Width="200" Height="200" HorizontalAlignment="Center" />
             <TextBlock Text="Welcome to Local AI" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
             <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13" TextAlignment="Center"
                        Text="Personal AI assistants that run entirely on your computer. Your conversations, voice and memories never leave it." />
             <Button HorizontalAlignment="Center" Margin="0,8,0,0" Padding="20,8" Command="{Binding ContinueWelcomeCommand}" Content="Get started" />
           </StackPanel>
-          <StackPanel Spacing="10" IsVisible="{Binding !WelcomeIntro}">
-            <TextBlock Text="Create your assistant" FontSize="18" FontWeight="SemiBold" />
-            <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13"
-                       Text="Give your AI a name and, optionally, describe its personality. You can create more assistants later in Settings." />
+          <StackPanel Spacing="10" IsVisible="{Binding ShowAssistantForm}">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="tabClose" Content="✕" ToolTip.Tip="Cancel" IsVisible="{Binding CanCancelAssistantPopup}"
+                      Command="{Binding Settings.Assistants.CancelAddAssistantCommand}" />
+              <TextBlock Text="{Binding AssistantPopupTitle}" FontSize="18" FontWeight="SemiBold" />
+            </DockPanel>
+            <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="13" Text="{Binding AssistantPopupText}" />
             <views:NewAssistantForm DataContext="{Binding Settings.Assistants}" Margin="0,6,0,0" />
           </StackPanel>
         </Panel>
@@ -639,7 +623,7 @@
     </Border>
 
     <!-- ============ Delete assistant: confirmation (modal) ============ -->
-    <Border Grid.ColumnSpan="2" Background="#CC0E1015"
+    <Border Grid.RowSpan="2" Grid.ColumnSpan="2" Background="#CC0E1015"
             IsVisible="{Binding Settings.Assistants.PendingDelete, Converter={x:Static ObjectConverters.IsNotNull}}">
       <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1"
               CornerRadius="8" Padding="24" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center"

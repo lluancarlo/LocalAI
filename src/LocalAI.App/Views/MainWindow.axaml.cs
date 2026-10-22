@@ -90,6 +90,16 @@ public sealed partial class MainWindow : Window
             else if (HotkeyInput.TryRead(e, out var modifiers, out var key)) _ = Vm.Settings.Assistants.CompleteHotkeyRecordingAsync(modifiers, key);
             return;
         }
+        if (Vm.Settings.Assistants.IsAddingAssistant)
+        {
+            // The "Add new assistant" popup is modal: Escape closes it; typing goes to its fields only.
+            if (e.Key == Key.Escape)
+            {
+                Vm.Settings.Assistants.CancelAddAssistantCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
         if (Vm.Settings.Assistants.PendingDelete is { } pendingDelete)
         {
             // The confirmation popup is modal: Escape cancels it and no other shortcut runs behind it.

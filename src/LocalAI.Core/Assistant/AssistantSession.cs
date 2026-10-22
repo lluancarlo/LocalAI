@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using LocalAI.Configuration;
+using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
@@ -39,6 +40,7 @@ public sealed class AssistantSession : IDisposable
     private readonly PromptBuilder _promptBuilder;
     private readonly ILanguageDetector _languageDetector;
     private readonly MemoryVault _memory;
+    private readonly AssistantManager? _assistants;
     private readonly SpeechOutput _speech;
     private readonly LocalAiOptions _options;
     private readonly ILogger<AssistantSession> _logger;
@@ -55,8 +57,10 @@ public sealed class AssistantSession : IDisposable
         MemoryVault memory,
         SpeechOutput speech,
         IOptions<LocalAiOptions> options,
-        ILogger<AssistantSession> logger)
+        ILogger<AssistantSession> logger,
+        AssistantManager? assistants = null)
     {
+        _assistants = assistants;
         _llm = llm;
         _store = store;
         _promptBuilder = promptBuilder;
@@ -79,6 +83,8 @@ public sealed class AssistantSession : IDisposable
     public event EventHandler<bool>? BusyChanged;
 
     public SpeechOutput Speech => _speech;
+
+    public const string AiOffMessage = "The assistant is offline.";
 
     /// <summary>Switches to an existing conversation (null = start a new one on next message).</summary>
     public void SelectConversation(long? conversationId)
@@ -120,16 +126,20 @@ public sealed class AssistantSession : IDisposable
 
     private async Task<TurnResult> RunTurnAsync(TurnRequest request, CancellationToken ct)
     {
-        if (_llm.State != LanguageModelState.Ready)
+        // The AI is turned on and off by the user; switching assistants never loads a model, so the loaded one may be
+        // another assistant's: never answer with it.
+        if (_llm.State != LanguageModelState.Ready || _assistants is { IsActiveModelLoaded: false })
         {
-            var reason = _llm.LastError ?? "The language model is not loaded.";
+            var reason = _llm.State == LanguageModelState.Failed && _llm.LastError != null
+                ? _llm.LastError
+                : AiOffMessage;
             var failed = new TurnResult(TurnOutcome.Failed, null, null, reason);
             TurnCompleted?.Invoke(this, failed);
             return failed;
         }
 
-        // The user's language is stored with the message (Whisper's detection for voice, heuristic for text). The reply
-        // language is the assistant's, set in the prompt. Uncertain detections fall back to the previous turn's language.
+        // The user's language is stored with the message (Whisper's detection for voice, heuristic for text), and the
+        // reply is in that language. Uncertain detections fall back to the previous turn's language.
         var language = request.Language;
         if (language == null)
         {
@@ -159,7 +169,7 @@ public sealed class AssistantSession : IDisposable
             : request.Text;
         var memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
-        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText);
+        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, language);
 
         var options = new GenerationOptions
         {

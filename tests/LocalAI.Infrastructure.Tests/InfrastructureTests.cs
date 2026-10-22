@@ -59,13 +59,13 @@ public sealed class DependencyInjectionTests
         var llm = models.Packages.First(p => p.Kind == LocalAI.Models.ModelKind.Llm);
         var voice = models.Packages.First(p => p.Kind == LocalAI.Models.ModelKind.Voice);
         await provider.GetRequiredService<LocalAI.Core.Assistants.IAssistantStore>().CreateAsync(
-            new LocalAI.Core.Assistants.NewAssistant("Diana", "", llm.Id, voice.Id, voice.Language!), VoiceStyle.Default);
+            new LocalAI.Core.Assistants.NewAssistant("Nova", "", llm.Id, voice.Id, voice.Language!), VoiceStyle.Default);
 
         var usage = await models.GetUsageAsync();
-        Assert.Equal(["Diana"], usage[llm.Id]);
-        Assert.Equal(["Diana"], usage[voice.Id]);
+        Assert.Equal(["Nova"], usage[llm.Id]);
+        Assert.Equal(["Nova"], usage[voice.Id]);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => models.UninstallAsync(voice));
-        Assert.Equal("Used by Diana.", ex.Message);
+        Assert.Equal("Used by Nova.", ex.Message);
     }
 }
 

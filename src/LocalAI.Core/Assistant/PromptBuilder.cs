@@ -39,13 +39,18 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
             : $"Text I selected on my screen:\n\"\"\"\n{selectedText.Trim()}\n\"\"\"\n\n{userText}";
 
     /// <param name="selectedText">Text the user selected in another application for this message (Read selection).</param>
+    /// <param name="userLanguage">
+    /// The language the user wrote or spoke this message in (ISO 639-1), when known: the reply is in that language,
+    /// whatever the assistant's voice. The voice speaks every language.
+    /// </param>
     public IReadOnlyList<ChatMessage> Build(
         IReadOnlyList<StoredMessage> history,
         string userText,
         MemoryContext memory,
         bool spoken,
         DateTimeOffset now,
-        string? selectedText = null)
+        string? selectedText = null,
+        string? userLanguage = null)
     {
         userText = WithSelection(userText, selectedText);
         var profile = assistant.Current;
@@ -64,10 +69,10 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
                 system.Append("\n- [[").Append(p.NoteTitle).Append("]] ").Append(p.Heading).Append(": ").Append(p.Text.ReplaceLineEndings(" "));
         }
 
-        var language = LanguageName(profile?.Language);
-        system.Append(language.Length > 0
-            ? $"\n\nAlways reply in {language}, even when the user writes or speaks another language. Never switch languages."
-            : "\n\nReply in the same language as the user's last message.");
+        // Replies follow the user: the language of their last message (text or voice), never the assistant's voice.
+        var language = LanguageName(userLanguage);
+        system.Append("\n\nAlways reply in the same language as the user's last message (text or speech), even if earlier " +
+                      "messages were in another language.");
 
         if (spoken) system.Append("\n\n").Append(_options.VoiceStyleHint);
 

@@ -30,9 +30,9 @@ public sealed class AssistantStoreTests : IDisposable
     {
         var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
         var index = new SqliteVaultIndex(_fx.Database);
-        var diana = _fx.Assistant.Current!;
-        await conversations.CreateAsync("Diana's chat");
-        await AddLegacyFactAsync(diana.Id, "User likes tea.");
+        var nova = _fx.Assistant.Current!;
+        await conversations.CreateAsync("Nova's chat");
+        await AddLegacyFactAsync(nova.Id, "User likes tea.");
 
         var marco = _fx.CreateAssistant("Marco");
         _fx.Assistant.Set(marco);
@@ -41,25 +41,25 @@ public sealed class AssistantStoreTests : IDisposable
         Assert.Empty(await conversations.SearchAsync("chat"));
         await conversations.CreateAsync("Marco's chat");
 
-        _fx.Assistant.Set(diana);
-        Assert.Equal("Diana's chat", Assert.Single(await conversations.ListAsync()).Title);
-        Assert.Equal("User likes tea.", Assert.Single(await index.TakeLegacyFactsAsync(diana.Id)));
-        Assert.Empty(await index.TakeLegacyFactsAsync(diana.Id)); // taken once
+        _fx.Assistant.Set(nova);
+        Assert.Equal("Nova's chat", Assert.Single(await conversations.ListAsync()).Title);
+        Assert.Equal("User likes tea.", Assert.Single(await index.TakeLegacyFactsAsync(nova.Id)));
+        Assert.Empty(await index.TakeLegacyFactsAsync(nova.Id)); // taken once
     }
 
     [Fact]
     public async Task Shortcut_is_saved_and_cleared()
     {
         var store = new SqliteAssistantStore(_fx.Database);
-        var diana = _fx.Assistant.Current!;
-        Assert.Null(diana.Hotkey);
+        var nova = _fx.Assistant.Current!;
+        Assert.Null(nova.Hotkey);
         Assert.True(HotkeyGesture.TryParse("Ctrl+Alt+D", out var gesture));
 
-        await store.SetHotkeyAsync(diana.Id, gesture);
-        Assert.Equal(gesture, (await store.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        await store.SetHotkeyAsync(nova.Id, gesture);
+        Assert.Equal(gesture, (await store.ListAsync()).Single(a => a.Id == nova.Id).Hotkey);
 
-        await store.SetHotkeyAsync(diana.Id, null);
-        Assert.Null((await store.ListAsync()).Single(a => a.Id == diana.Id).Hotkey);
+        await store.SetHotkeyAsync(nova.Id, null);
+        Assert.Null((await store.ListAsync()).Single(a => a.Id == nova.Id).Hotkey);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public sealed class AssistantStoreTests : IDisposable
         var store = new SqliteAssistantStore(_fx.Database);
         var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
         var index = new SqliteVaultIndex(_fx.Database);
-        var diana = _fx.Assistant.Current!;
+        var nova = _fx.Assistant.Current!;
         await conversations.CreateAsync("keep");
 
         var marco = _fx.CreateAssistant("Marco");
@@ -93,22 +93,22 @@ public sealed class AssistantStoreTests : IDisposable
 
         await store.DeleteAsync(marco.Id);
         Assert.Equal(new AssistantDataSummary(0, 0, 0), await store.GetDataSummaryAsync(marco.Id));
-        Assert.Equal(new AssistantDataSummary(1, 0, 0), await store.GetDataSummaryAsync(diana.Id));
+        Assert.Equal(new AssistantDataSummary(1, 0, 0), await store.GetDataSummaryAsync(nova.Id));
         Assert.Null(await conversations.GetAsync(doomed.Id));
         Assert.Empty(await index.ListNotesAsync(marco.Id));
         Assert.Null(await index.NextJobAsync(DateTimeOffset.Now.AddDays(1))); // its queued work goes too
-        Assert.Equal([diana.Id], (await store.ListAsync()).Select(a => a.Id));
+        Assert.Equal([nova.Id], (await store.ListAsync()).Select(a => a.Id));
     }
 
     [Fact]
     public async Task Names_are_unique_ignoring_case_and_model_voice_and_style_round_trip()
     {
         var store = new SqliteAssistantStore(_fx.Database);
-        await Assert.ThrowsAsync<SqliteException>(() => store.CreateAsync(SqliteFixture.Draft("DIANA"), VoiceStyle.Default));
+        await Assert.ThrowsAsync<SqliteException>(() => store.CreateAsync(SqliteFixture.Draft("NOVA"), VoiceStyle.Default));
 
         var style = new VoiceStyle { Speed = 1.2, Pitch = -2, Expressiveness = 0.4, Rhythm = 1.0 };
-        await store.SetVoiceStyleAsync(_fx.Assistant.CurrentId, style);
-        var saved = Assert.Single(await new SqliteAssistantStore(_fx.Reopen()).ListAsync());
+        var created = await store.CreateAsync(SqliteFixture.Draft("Ava"), style);
+        var saved = Assert.Single(await new SqliteAssistantStore(_fx.Reopen()).ListAsync(), a => a.Id == created.Id);
         Assert.Equal(("model", "en_US-lessac-medium", "en"), (saved.ModelId, saved.VoiceId, saved.Language));
         Assert.Equal(style, saved.VoiceStyle);
     }
@@ -135,16 +135,16 @@ public sealed class AssistantStoreTests : IDisposable
                     ALTER TABLE conversations ADD COLUMN assistant_id INTEGER REFERENCES assistants(id) ON DELETE CASCADE;
                     ALTER TABLE memories ADD COLUMN assistant_id INTEGER REFERENCES assistants(id) ON DELETE CASCADE;
                     INSERT INTO assistants(name, style_prompt, voices, created_at)
-                        VALUES ('Diana', 'Calm.', '{"en":"en_US-lessac-medium","pt":"pt_BR-cadu-medium"}', 0);
+                        VALUES ('Nova', 'Calm.', '{"en":"en_US-lessac-medium","pt":"pt_BR-cadu-medium"}', 0);
                     PRAGMA user_version = 2;
                     """;
                 await cmd.ExecuteNonQueryAsync();
             }
 
             var db = new SqliteDatabase(path, Microsoft.Extensions.Logging.Abstractions.NullLogger<SqliteDatabase>.Instance);
-            var diana = Assert.Single(await new SqliteAssistantStore(db).ListAsync());
-            Assert.Equal(("Diana", "Calm.", "pt_BR-cadu-medium", "pt", ""), (diana.Name, diana.StylePrompt, diana.VoiceId, diana.Language, diana.ModelId));
-            Assert.Equal(VoiceStyle.Default, diana.VoiceStyle);
+            var nova = Assert.Single(await new SqliteAssistantStore(db).ListAsync());
+            Assert.Equal(("Nova", "Calm.", "pt_BR-cadu-medium", "pt", ""), (nova.Name, nova.StylePrompt, nova.VoiceId, nova.Language, nova.ModelId));
+            Assert.Equal(VoiceStyle.Default, nova.VoiceStyle);
         }
         finally
         {
@@ -182,7 +182,7 @@ public sealed class AssistantStoreTests : IDisposable
 
             var db = new SqliteDatabase(path, Microsoft.Extensions.Logging.Abstractions.NullLogger<SqliteDatabase>.Instance);
             var context = new AssistantContext();
-            context.Set(await new SqliteAssistantStore(db).CreateAsync(SqliteFixture.Draft("Diana"), VoiceStyle.Default));
+            context.Set(await new SqliteAssistantStore(db).CreateAsync(SqliteFixture.Draft("Nova"), VoiceStyle.Default));
 
             Assert.Equal("old chat", Assert.Single(await new SqliteConversationStore(db, context).ListAsync()).Title);
             Assert.Equal("old fact", Assert.Single(await new SqliteVaultIndex(db).TakeLegacyFactsAsync(context.CurrentId)));

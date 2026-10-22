@@ -30,7 +30,7 @@ public static class StatusColors
     public const string Background = "#F2D14B";
 }
 
-public enum AppPage { Chat, Memory, Settings, Diagnostics }
+public enum AppPage { Chat, Settings, Diagnostics }
 
 /// <summary>
 /// Main screen state. Thin layer over <see cref="AssistantSession"/> and <see cref="VoiceConversationController"/>:
@@ -51,6 +51,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly MemoryVault _memory;
     private readonly ModelService _models;
     private readonly AssistantContext _assistant;
+    private readonly AssistantManager _manager;
     private readonly UserSettingsStore _settings;
     private readonly LocalAiPaths _paths;
     private readonly LocalAiOptions _options;
@@ -61,7 +62,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _searchCts;
 
     public MainWindowViewModel(
-        AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live,
+        AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live, AssistantManager manager,
         LiveSelection selection, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
         MemoryVault memory, MemoryWorker memoryWorker, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
@@ -96,7 +97,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _session.ConversationCreated += (_, c) => Ui(() => OnConversationCreated(c));
         _session.BusyChanged += (_, b) => Ui(() => IsBusy = b);
         _session.ConversationChanged += (_, id) => Ui(() => OnSessionConversationChanged(id));
-        _live.StateChanged += (_, s) => Ui(() => OnLiveStateChanged(s));
+        _live.StateChanged += (_, s) => Ui(() =>
+        {
+            OnLiveStateChanged(s);
+            UpdateAssistantTabs();
+        });
         _live.Failed += (_, reason) => Ui(() => BannerText = $"Could not start listening: {reason}");
         _voice.StateChanged += (_, s) => Ui(() => OnVoiceState(s));
         _voice.Warning += (_, w) => Ui(() => BannerText = w);
@@ -112,11 +117,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
         Settings.Changed += (_, _) => Ui(UpdateStatus);
         Settings.Assistants.DownloadsStarted += (_, _) => Ui(ShowDownloads);
+        Settings.Assistants.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AssistantsViewModel.IsAddingAssistant)) NotifyAssistantPopup();
+        };
         Settings.Assistants.WaysToTalkChanged += (_, _) => Ui(OnWaysToTalkChanged);
         _selection.PendingChanged += (_, _) => Ui(() => PendingSelection = _selection.Pending);
         _llm.StateChanged += (_, _) => Ui(OnModelsChanged);
         _models.Changed += (_, _) => Ui(OnModelsChanged);
         _assistant.Changed += (_, _) => Ui(OnAssistantChanged);
+        _manager = manager;
+        _manager.AssistantsChanged += (_, _) => Ui(() => _ = LoadAssistantTabsAsync());
+        _manager.LoadingChanged += (_, _) => Ui(UpdateAssistantTabs);
+        Ui(() => _ = LoadAssistantTabsAsync());
 
         UpdateStatus();
     }
@@ -124,6 +137,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _assistantName = "Local AI";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanToggleLive))] private bool _showWelcome;
     [ObservableProperty] private bool _welcomeIntro = true;
+
+    // The assistant popup: on first launch a welcome, then "Create your assistant"; later the same form, opened by
+    // "Add new assistant" (Settings, or + in the assistant tabs), with Cancel.
+    public bool ShowAssistantPopup => ShowWelcome || Settings.Assistants.IsAddingAssistant;
+    public bool ShowWelcomeIntro => ShowWelcome && WelcomeIntro;
+    public bool ShowAssistantForm => ShowAssistantPopup && !ShowWelcomeIntro;
+    public bool CanCancelAssistantPopup => !ShowWelcome;
+    public string AssistantPopupTitle => ShowWelcome ? "Create your assistant" : "Add new assistant";
+    public string AssistantPopupText => ShowWelcome
+        ? "Give your AI a name and, optionally, describe its personality. You can add more assistants later."
+        : "Give the new assistant a name and, optionally, describe its personality.";
+
+    private void NotifyAssistantPopup()
+    {
+        foreach (var name in new[] { nameof(ShowAssistantPopup), nameof(ShowWelcomeIntro), nameof(ShowAssistantForm),
+                     nameof(CanCancelAssistantPopup), nameof(AssistantPopupTitle), nameof(AssistantPopupText) })
+            OnPropertyChanged(name);
+    }
+
+    partial void OnShowWelcomeChanged(bool value) => NotifyAssistantPopup();
+    partial void OnWelcomeIntroChanged(bool value) => NotifyAssistantPopup();
     private bool _startupCompleted;
 
     public ObservableCollection<ConversationItemViewModel> Conversations { get; } = [];
@@ -150,7 +184,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _isRecording;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanToggleLive))] private bool _voiceAvailable;
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsChatPage), nameof(IsMemoryPage), nameof(IsSettingsPage), nameof(IsDiagnosticsPage))]
+    [NotifyPropertyChangedFor(nameof(IsChatPage), nameof(IsSettingsPage), nameof(IsDiagnosticsPage))]
     private AppPage _selectedPage = AppPage.Chat;
     [ObservableProperty] private bool _isMicOpen;
     /// <summary>Microphone level mapped to 0..1 over −60..0 dBFS (for the meter bar).</summary>
@@ -208,9 +242,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string SendButtonText => IsBusy ? "Stop" : "Send";
 
     /// <summary>Open pages, shown as tabs. The chat tab (named after the assistant) is always first and cannot be closed.</summary>
-    public ObservableCollection<PageTabViewModel> Tabs { get; } = [new(AppPage.Chat, "Local AI", isClosable: false) { IsSelected = true }];
+    /// <summary>One tab per assistant at the top of the window: a click shows that assistant's chat.</summary>
+    public ObservableCollection<AssistantTabViewModel> AssistantTabs { get; } = [];
     public bool IsChatPage => SelectedPage == AppPage.Chat;
-    public bool IsMemoryPage => SelectedPage == AppPage.Memory;
     public bool IsSettingsPage => SelectedPage == AppPage.Settings;
     public bool IsDiagnosticsPage => SelectedPage == AppPage.Diagnostics;
 
@@ -248,12 +282,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         Stop();
         AssistantName = _assistant.Current?.Name ?? "Local AI";
-        Tabs[0].Title = AssistantName;
+        UpdateAssistantTabs();
         ShowWelcome = _assistant.Current == null;
         NewConversation();
         _ = LoadConversationsAsync();
         _ = LoadMemoriesAsync();
-        Settings.RefreshVoice();
         OfferModelDownload();
     }
 
@@ -273,8 +306,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void OnModelsChanged()
     {
         UpdateStatus();
+        UpdateAssistantTabs();
         Settings.Models.Refresh();
-        if (IsSettingsPage) Settings.RefreshVoice();
+
     }
 
     private void OnSubsystem(SubsystemStatus s) => UpdateStatus();
@@ -286,6 +320,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         switch (_llm.State)
         {
+            case LanguageModelState.Ready when _assistant.Current != null && !_manager.IsActiveModelLoaded:
+                // Another assistant's model is loaded (switching tabs never loads one).
+                ModelText = $"Model: {_llm.Info!.DisplayName} (another assistant's)";
+                SetStatus(StatusLevel.Warning, "AI off");
+                break;
             case LanguageModelState.Ready:
                 var info = _llm.Info!;
                 ModelText = $"Model: {info.DisplayName} · {info.Quantization}";
@@ -297,6 +336,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             case LanguageModelState.Loading:
                 ModelText = "Model: loading…";
                 SetStatus(StatusLevel.Busy, "Loading model…");
+                break;
+            case LanguageModelState.NotLoaded when _startupCompleted && _models.HasLanguageModel && _assistant.Current != null:
+                ModelText = "Model: off";
+                SetStatus(StatusLevel.Warning, "AI off");
                 break;
             case LanguageModelState.Failed or LanguageModelState.NotLoaded when !_models.HasLanguageModel:
                 ModelText = "Model: none";
@@ -362,7 +405,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     // ---------------- Text chat ----------------
 
-    private bool CanSend() => IsBusy || !string.IsNullOrWhiteSpace(InputText);
+    /// <summary>Send (and Stop) only while the assistant's AI is on; with it off the button is disabled.</summary>
+    private bool CanSend() => AiOn && (IsBusy || !string.IsNullOrWhiteSpace(InputText));
+
+    /// <summary>Hover text of the disabled Send button while the AI is off (none otherwise).</summary>
+    public string? SendTip => AiOn ? null : "Assistant is offline";
 
     // Concurrent execution: while a turn runs, the same button acts as Stop.
     [RelayCommand(CanExecute = nameof(CanSend), AllowConcurrentExecutions = true)]
@@ -656,7 +703,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void OnVoiceState(VoiceState s)
     {
         IsRecording = s == VoiceState.Recording;
-        var mic = Settings.SelectedMicrophone?.Name ?? "no microphone";
         VoiceText = s switch
         {
             VoiceState.Listening when _voice.IsTyping => "⌨ Typing · microphone paused",
@@ -669,7 +715,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _ when _stt.State == ComponentState.Unavailable => "Voice: unavailable (" + (_stt.LastError ?? "speech recognition failed") + ")",
             _ when _stt.State != ComponentState.Ready => "Voice: loading…",
             _ when Settings.Microphones.Count == 0 => "Voice: no microphone found",
-            _ => IsContinuous ? "◉ Listening" : $"Voice: push-to-talk · {mic}",
+            _ => IsContinuous ? "◉ Listening" : "", // idle: nothing to show
         };
         if (s == VoiceState.Error && IsContinuous) ReplyMode = ReplyMode.Text;
     }
@@ -689,35 +735,145 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void ContinueWelcome() => WelcomeIntro = false;
 
-    // ---------------- Tabs ----------------
+    // ---------------- Top bar: assistants and pages ----------------
 
     [RelayCommand]
-    private void OpenPage(AppPage page)
+    private void OpenPage(AppPage page) => SelectedPage = page;
+
+    private async Task LoadAssistantTabsAsync()
     {
-        if (Tabs.All(t => t.Page != page)) Tabs.Add(new PageTabViewModel(page, page.ToString(), isClosable: true));
-        SelectedPage = page;
+        try
+        {
+            _profiles = await _manager.ListAsync();
+            AssistantTabs.Clear();
+            foreach (var a in _profiles) AssistantTabs.Add(new AssistantTabViewModel(a.Id, a.Name, a.Hotkey?.ToString()));
+            UpdateAssistantTabs();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not list the assistants");
+        }
     }
 
-    [RelayCommand]
-    private void ClosePage(AppPage page)
+    private IReadOnlyList<AssistantProfile> _profiles = [];
+
+    /// <summary>
+    /// Marks the active assistant's tab, the one listening in live mode, and whose AI is on: the loaded language model is
+    /// its own (assistants with the same model share it). Also refreshes the AI button above the conversations.
+    /// </summary>
+    private void UpdateAssistantTabs()
     {
-        var tab = Tabs.FirstOrDefault(t => t.Page == page && t.IsClosable);
+        var active = _assistant.Current?.Id;
+        var live = _live.State == LiveState.Live ? _live.Assistant?.Id : null;
+        foreach (var tab in AssistantTabs)
+        {
+            tab.IsActive = tab.Id == active;
+            tab.IsSelected = tab.IsActive && IsChatPage;
+            tab.IsLive = tab.Id == live;
+            tab.IsOnline = _manager.IsModelLoaded(_profiles.FirstOrDefault(p => p.Id == tab.Id));
+            // Yellow while anything of the active assistant loads: its language model or its voice.
+            tab.IsLoading = tab.IsActive && (_llm.State == LanguageModelState.Loading || _manager.IsLoadingVoice);
+        }
+
+        var current = _assistant.Current;
+        AiOn = _manager.IsActiveModelLoaded;
+        AiLoading = current != null && _llm.State == LanguageModelState.Loading;
+        var model = AiOn && _llm.Info is { } info ? info.DisplayName
+            : current == null ? ""
+            : _models.Find(current.ModelId)?.DisplayName ?? "Best installed model";
+        AnyLoading = AiLoading || (current != null && _manager.IsLoadingVoice);
+        AiStatusText = AiLoading ? "Starting" : AnyLoading ? "Loading voice" : AiOn ? "On" : "Off";
+        AiModelText = model;
+    }
+
+    /// <summary>The active assistant's AI (language model) is on.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AiButtonText), nameof(AiStatusBrush), nameof(SendTip))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
+    private bool _aiOn;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AiButtonText), nameof(AiStatusBrush))]
+    private bool _aiLoading;
+
+    [ObservableProperty] private string _aiStatusText = "";
+
+    /// <summary>The active assistant's model or voice is loading (yellow dot).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AiStatusBrush))]
+    private bool _anyLoading;
+    /// <summary>The active assistant's language model, shown under the on/off status.</summary>
+    [ObservableProperty] private string _aiModelText = "";
+
+    public string AiButtonText => AiOn || AiLoading ? "⏻  Turn off" : "⏻  Turn on";
+    public IBrush AiStatusBrush => AnyLoading ? LoadingBrush : AiOn ? LevelOk : LevelClip;
+
+    private static readonly IBrush LoadingBrush = new SolidColorBrush(Color.Parse(StatusColors.Background));
+
+    /// <summary>
+    /// The button above the conversations: turns the active assistant's AI (its language model) on or off. Only this
+    /// loads or unloads a model; switching tabs never does. One model runs at a time, so turning one on unloads another
+    /// assistant's.
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleAiAsync()
+    {
+        if (_assistant.Current is not { } current) return;
+        try
+        {
+            if (AiOn || AiLoading)
+            {
+                Stop();
+                if (IsLiveMode) ReplyMode = _lastNonLiveMode; // live mode needs the model
+                await Task.Run(() => _manager.UnloadModelAsync());
+            }
+            else
+            {
+                await Task.Run(() => _manager.LoadModelAsync(current));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not turn the AI of assistant {Id} on or off", current.Id);
+            BannerText = $"Could not turn {current.Name}'s AI on or off: {ex.Message}";
+        }
+        UpdateAssistantTabs();
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// Shows the assistant's chat. Never loads or unloads a model (the AI button does); its voice loads in the
+    /// background (yellow dot). The tabs stay clickable meanwhile: the last click wins.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task SelectAssistantAsync(AssistantTabViewModel? tab)
+    {
         if (tab == null) return;
-        var index = Tabs.IndexOf(tab);
-        Tabs.Remove(tab);
-        if (SelectedPage == page) SelectedPage = Tabs[index - 1].Page;
+        SelectedPage = AppPage.Chat;
+        if (tab.Id == _assistant.Current?.Id) return;
+        try
+        {
+            var profile = (await _manager.ListAsync()).FirstOrDefault(a => a.Id == tab.Id);
+            if (profile != null) await Task.Run(() => _manager.SwitchAsync(profile, loadModel: false));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not switch assistant");
+            BannerText = $"Could not switch to {tab.Name}: {ex.Message}";
+        }
+        UpdateStatus();
     }
 
     partial void OnSelectedPageChanged(AppPage oldValue, AppPage newValue)
     {
-        foreach (var tab in Tabs) tab.IsSelected = tab.Page == newValue;
+        UpdateAssistantTabs();
         if (oldValue == AppPage.Settings) Settings.OnClosed();
         switch (newValue)
         {
             case AppPage.Settings:
-                Settings.RefreshVoice();
                 Settings.Models.Refresh();
                 _ = Settings.Assistants.RefreshAsync();
+                _ = LoadMemoriesAsync();
                 break;
             case AppPage.Diagnostics:
                 DiagnosticsText = BuildDiagnostics();
@@ -727,7 +883,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     // ---------------- Memory & diagnostics ----------------
 
-    /// <summary>The Memory page: the active assistant's profile note and its conversation notes.</summary>
+    /// <summary>Settings › Memory: the active assistant's profile note and its conversation notes.</summary>
     private async Task LoadMemoriesAsync()
     {
         if (_assistant.Current == null)

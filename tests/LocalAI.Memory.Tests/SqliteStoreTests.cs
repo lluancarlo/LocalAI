@@ -18,7 +18,7 @@ public sealed class SqliteFixture : IDisposable
     public SqliteFixture()
     {
         Database = new SqliteDatabase(Path, NullLogger<SqliteDatabase>.Instance);
-        Assistant.Set(CreateAssistant("Diana"));
+        Assistant.Set(CreateAssistant("Nova"));
     }
 
     public AssistantProfile CreateAssistant(string name) =>
@@ -159,19 +159,19 @@ public sealed class SqliteVaultIndexTests : IDisposable
 
     public void Dispose() => _fx.Dispose();
 
-    private long Diana => _fx.Assistant.CurrentId;
+    private long Nova => _fx.Assistant.CurrentId;
 
     private Task<VaultNote> NoteAsync(string path, long? conversationId = null) =>
         _index.SaveNoteAsync(new VaultNote
         {
-            AssistantId = Diana, Path = path, Kind = conversationId == null ? NoteKind.Profile : NoteKind.Conversation,
+            AssistantId = Nova, Path = path, Kind = conversationId == null ? NoteKind.Profile : NoteKind.Conversation,
             ConversationId = conversationId, GeneratedText = "## Summary\nx", UpdatedAt = DateTimeOffset.Now,
         });
 
     [Fact]
     public async Task Notes_are_saved_found_and_updated_in_place()
     {
-        var note = await NoteAsync("diana/conversations/2026-10-22-chat.md", conversationId: 5);
+        var note = await NoteAsync("nova/conversations/2026-10-22-chat.md", conversationId: 5);
         Assert.True(note.Id > 0);
 
         var again = await _index.SaveNoteAsync(note with { FileHash = "abc", SourceUpdatedAt = DateTimeOffset.Now });
@@ -179,40 +179,40 @@ public sealed class SqliteVaultIndexTests : IDisposable
         var found = await new SqliteVaultIndex(_fx.Reopen()).FindConversationNoteAsync(5);
         Assert.Equal("abc", found!.FileHash);
         Assert.Equal("## Summary\nx", found.GeneratedText);
-        Assert.Equal(note.Id, (await _index.FindNoteAsync(Diana, note.Path))!.Id);
-        Assert.Single(await _index.ListNotesAsync(Diana));
+        Assert.Equal(note.Id, (await _index.FindNoteAsync(Nova, note.Path))!.Id);
+        Assert.Single(await _index.ListNotesAsync(Nova));
     }
 
     [Fact]
     public async Task Passages_keep_their_vectors_and_are_found_by_words_ignoring_accents()
     {
-        var note = await NoteAsync("diana/conversations/2026-10-22-orders-api.md", conversationId: 1);
+        var note = await NoteAsync("nova/conversations/2026-10-22-orders-api.md", conversationId: 1);
         await _index.ReplaceChunksAsync(note.Id,
         [
             new NoteChunk { Heading = "Summary", Text = "Paginação por cursor na API de pedidos.", Embedding = [1f, 0f], EmbeddingModel = "e" },
             new NoteChunk { Heading = "Decisions", Text = "Use PostgreSQL for orders." },
         ]);
 
-        var chunks = await _index.ListChunksAsync(Diana);
+        var chunks = await _index.ListChunksAsync(Nova);
         Assert.Equal(2, chunks.Count);
         Assert.Equal([1f, 0f], chunks[0].Embedding!);
         Assert.Equal("2026-10-22-orders-api", chunks[0].NoteTitle);
 
-        Assert.Equal([chunks[0].Id], await _index.SearchChunksAsync(Diana, "paginacao", 10));
-        Assert.Equal([chunks[1].Id], await _index.SearchChunksAsync(Diana, "which database for ORDERS? postgresql", 10));
-        Assert.Empty(await _index.SearchChunksAsync(Diana, "\"; DROP TABLE note_chunks; --", 10)); // user text is never FTS syntax
+        Assert.Equal([chunks[0].Id], await _index.SearchChunksAsync(Nova, "paginacao", 10));
+        Assert.Equal([chunks[1].Id], await _index.SearchChunksAsync(Nova, "which database for ORDERS? postgresql", 10));
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "\"; DROP TABLE note_chunks; --", 10)); // user text is never FTS syntax
 
         await _index.ReplaceChunksAsync(note.Id, [new NoteChunk { Heading = "Summary", Text = "Rewritten." }]);
-        Assert.Empty(await _index.SearchChunksAsync(Diana, "postgresql", 10));
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "postgresql", 10));
         await _index.DeleteNoteAsync(note.Id);
-        Assert.Empty(await _index.ListChunksAsync(Diana));
-        Assert.Empty(await _index.SearchChunksAsync(Diana, "rewritten", 10));
+        Assert.Empty(await _index.ListChunksAsync(Nova));
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "rewritten", 10));
     }
 
     [Fact]
     public async Task Passages_of_other_assistants_are_not_found()
     {
-        var note = await NoteAsync("diana/diana-profile.md");
+        var note = await NoteAsync("nova/nova-profile.md");
         await _index.ReplaceChunksAsync(note.Id, [new NoteChunk { Heading = "About", Text = "Likes espresso." }]);
         var marco = _fx.CreateAssistant("Marco");
         Assert.Empty(await _index.SearchChunksAsync(marco.Id, "espresso", 10));
@@ -232,11 +232,11 @@ public sealed class SqliteVaultIndexTests : IDisposable
             });
         var later = DateTimeOffset.Now.AddMinutes(1);
 
-        Assert.Equal([(chat.Id, Diana)], await _index.ConversationsNeedingNotesAsync(since, later));
+        Assert.Equal([(chat.Id, Nova)], await _index.ConversationsNeedingNotesAsync(since, later));
         Assert.Empty(await _index.ConversationsNeedingNotesAsync(since, DateTimeOffset.Now.AddMinutes(-5))); // not quiet yet
         Assert.Empty(await _index.ConversationsNeedingNotesAsync(later, later)); // older than the notes
 
-        var note = await NoteAsync("diana/conversations/chat.md", chat.Id);
+        var note = await NoteAsync("nova/conversations/chat.md", chat.Id);
         await _index.SaveNoteAsync(note with { SourceUpdatedAt = DateTimeOffset.Now.AddMinutes(1) });
         Assert.Empty(await _index.ConversationsNeedingNotesAsync(since, later)); // up to date
 
@@ -248,10 +248,10 @@ public sealed class SqliteVaultIndexTests : IDisposable
     public async Task The_queue_runs_jobs_in_time_order_without_duplicates()
     {
         var now = DateTimeOffset.Now;
-        await _index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, Diana, null, null, now.AddMinutes(5));
-        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Diana, 7, null, now.AddMinutes(1));
-        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Diana, 7, null, now); // same job, sooner
-        await _index.EnqueueAsync(MemoryJobKind.IndexNote, Diana, null, "diana/a.md", now.AddMinutes(2));
+        await _index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, Nova, null, null, now.AddMinutes(5));
+        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Nova, 7, null, now.AddMinutes(1));
+        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Nova, 7, null, now); // same job, sooner
+        await _index.EnqueueAsync(MemoryJobKind.IndexNote, Nova, null, "nova/a.md", now.AddMinutes(2));
 
         var first = await _index.NextJobAsync(now);
         Assert.Equal((MemoryJobKind.SummarizeConversation, 7L), (first!.Kind, first.ConversationId!.Value));

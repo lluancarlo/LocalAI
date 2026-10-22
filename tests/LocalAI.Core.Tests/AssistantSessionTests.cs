@@ -64,7 +64,7 @@ public sealed class AssistantSessionTests
         Assert.Equal(ChatRole.System, prompt[0].Role);
         Assert.Contains(prompt, m => m.Role == ChatRole.User && m.Content.Contains("My name is Ana.", StringComparison.Ordinal));
         Assert.Contains(prompt, m => m.Role == ChatRole.Assistant);
-        Assert.Equal("What is my name?", prompt[^1].Content);
+        Assert.Equal("What is my name?\n\n(Reply in English.)", prompt[^1].Content);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class AssistantSessionTests
 
         var prompt = _llm.Requests[^1];
         Assert.Contains(prompt, m => m.Role == ChatRole.User && m.Content.Contains("Buongiorno a tutti", StringComparison.Ordinal));
-        Assert.Equal("And more formally?", prompt[^1].Content);
+        Assert.Equal("And more formally?\n\n(Reply in English.)", prompt[^1].Content);
     }
 
     [Fact]
@@ -162,13 +162,13 @@ public sealed class AssistantSessionTests
     public async Task The_profile_and_relevant_notes_are_injected_into_the_system_prompt()
     {
         using var session = CreateSession();
-        var diana = await _memory.Assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Diana", "", "m", "v", "en"), VoiceStyle.Default);
-        _assistant.Set(diana);
-        _memory.Storage.Write("diana/diana-profile.md",
-            "---\ntype: profile\n---\n# Diana - Profile\n\n<!-- local-ai:begin -->\n## Preferences\n- User prefers C# for software development.\n<!-- local-ai:end -->\n");
-        _memory.Storage.Write("diana/conversations/2026-10-01-rest-api.md",
+        var nova = await _memory.Assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Nova", "", "m", "v", "en"), VoiceStyle.Default);
+        _assistant.Set(nova);
+        _memory.Storage.Write("nova/nova-profile.md",
+            "---\ntype: profile\n---\n# Nova - Profile\n\n<!-- local-ai:begin -->\n## Preferences\n- User prefers C# for software development.\n<!-- local-ai:end -->\n");
+        _memory.Storage.Write("nova/conversations/2026-10-01-rest-api.md",
             "---\ntype: conversation\nconversation: 9\n---\n# REST API\n\n<!-- local-ai:begin -->\n## Summary\nThe user designed the orders REST API with pagination.\n<!-- local-ai:end -->\n");
-        await _memory.Vault.ScanAsync(diana.Id, CancellationToken.None);
+        await _memory.Vault.ScanAsync(nova.Id, CancellationToken.None);
 
         await session.SubmitAsync(new TurnRequest("How did we paginate the orders API?", InputSource.Text));
 
@@ -179,17 +179,45 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
-    public async Task Replies_are_in_the_assistants_language_whatever_the_user_writes()
+    public async Task Replies_follow_the_language_the_user_writes_or_speaks_not_the_voice()
     {
-        _assistant.Set(PromptBuilderTests.Profile("it"));
+        _assistant.Set(PromptBuilderTests.Profile("it")); // an Italian voice
         using var session = CreateSession();
         var stored = new List<StoredMessage>();
         session.UserMessageAdded += (_, m) => stored.Add(m);
 
         await session.SubmitAsync(new TurnRequest("Explique o que é uma variável, por favor.", InputSource.Text));
-
-        Assert.Contains("Always reply in Italian", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
         Assert.Equal("pt", Assert.Single(stored).Language);
+        Assert.EndsWith("(Reply in Brazilian Portuguese.)", _llm.Requests[^1][^1].Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Italian", _llm.Requests[^1][0].Content, StringComparison.Ordinal);
+
+        // Speech: Whisper's language decides.
+        await session.SubmitAsync(new TurnRequest("What is a variable?", InputSource.Voice, "en"));
+        Assert.EndsWith("(Reply in English.)", _llm.Requests[^1][^1].Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task With_the_assistants_ai_off_nothing_is_answered_by_another_model()
+    {
+        var options = TestOptions.Create();
+        var assistants = new LocalAI.Core.Assistants.AssistantManager(new InMemoryAssistantStore(), _assistant, _llm, _tts,
+            new Configuration.UserSettingsStore(Path.Combine(LocalAI.Tests.TestPaths.New("settings"), "usersettings.json")), options,
+            NullLogger<LocalAI.Core.Assistants.AssistantManager>.Instance);
+        _llm.LoadsModel = () => options.Value.Llm.Model;
+        var nova = await assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Nova", "", "model-a", "v", "en"));
+        await assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Marco", "", "model-b", "v", "en"));
+        await assistants.SwitchAsync(nova, loadModel: false); // Marco's model stays loaded
+        _memory = new MemoryHarness(_llm, _store, _assistant, options: options);
+        using var session = new AssistantSession(_llm, _store, new PromptBuilder(options, _assistant), new HeuristicLanguageDetector(Languages),
+            _memory.Vault, new SpeechOutput(_tts, _player, Languages, NullLogger<SpeechOutput>.Instance), options,
+            NullLogger<AssistantSession>.Instance, assistants);
+        var requests = _llm.Requests.Count;
+
+        var result = await session.SubmitAsync(new TurnRequest("Hello?", InputSource.Text));
+
+        Assert.Equal(TurnOutcome.Failed, result.Outcome);
+        Assert.Equal(AssistantSession.AiOffMessage, result.Error);
+        Assert.Equal(requests, _llm.Requests.Count);
     }
 
     [Fact]
@@ -221,17 +249,18 @@ public sealed class PromptBuilderTests
     }
 
     internal static LocalAI.Core.Assistants.AssistantProfile Profile(string language) =>
-        new(1, "Diana", "Speaks like a pirate.", "model", "voice", language, VoiceStyle.Default, DateTimeOffset.Now);
+        new(1, "Nova", "Speaks like a pirate.", "model", "voice", language, VoiceStyle.Default, DateTimeOffset.Now);
 
     [Fact]
-    public void Adds_name_style_and_the_assistants_reply_language()
+    public void Adds_name_style_and_the_rule_to_reply_in_the_users_language()
     {
         var context = new LocalAI.Core.Assistants.AssistantContext();
         context.Set(Profile("it"));
         var system = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[0].Content;
-        Assert.Contains("You are Diana", system, StringComparison.Ordinal);
+        Assert.Contains("You are Nova", system, StringComparison.Ordinal);
         Assert.Contains("Speaks like a pirate.", system, StringComparison.Ordinal);
-        Assert.Contains("Always reply in Italian", system, StringComparison.Ordinal);
+        Assert.Contains("same language as the user's last message", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("Italian", system, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -239,8 +268,10 @@ public sealed class PromptBuilderTests
     {
         var context = new LocalAI.Core.Assistants.AssistantContext();
         context.Set(Profile("it"));
-        var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now);
-        Assert.Equal("Hello\n\n(Reply in Italian.)", prompt[^1].Content);
+        var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Olá", MemoryContext.Empty, false, DateTimeOffset.Now, userLanguage: "pt");
+        Assert.Equal("Olá\n\n(Reply in Brazilian Portuguese.)", prompt[^1].Content);
+        // Unknown language: no reminder, the system prompt's rule applies.
+        Assert.Equal("Hello", new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[^1].Content);
     }
 
     [Fact]

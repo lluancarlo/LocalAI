@@ -4,8 +4,8 @@ using LocalAI.Core.Speech;
 namespace LocalAI.Core.Assistants;
 
 /// <summary>
-/// One assistant. Name, style, language model and voice are chosen at creation and never change; the voice style
-/// (speed, pitch, ...) can be tuned later. The assistant always speaks and replies in its voice's language.
+/// One assistant. Name, style, language model, voice and voice style (speed, pitch, ...) are chosen at creation and
+/// never change. The assistant replies in the language the user writes or speaks, always with its own voice.
 /// Conversations and memories belong to exactly one assistant. <see cref="Hotkey"/> is the optional global shortcut
 /// that turns a live voice conversation with the assistant on and off.
 /// </summary>
@@ -24,15 +24,15 @@ public sealed record AssistantProfile(
 /// <param name="Memories">Memory notes (the profile and conversation notes).</param>
 public sealed record AssistantDataSummary(int Conversations, int Messages, int Memories);
 
-/// <summary>What the user chooses when creating an assistant.</summary>
-public sealed record NewAssistant(string Name, string StylePrompt, string ModelId, string VoiceId, string Language);
+/// <summary>What the user chooses when creating an assistant. <paramref name="VoiceStyle"/> null = the voice as it is.</summary>
+public sealed record NewAssistant(string Name, string StylePrompt, string ModelId, string VoiceId, string Language,
+    VoiceStyle? VoiceStyle = null);
 
 public interface IAssistantStore
 {
     Task<IReadOnlyList<AssistantProfile>> ListAsync(CancellationToken ct = default);
     /// <summary>Creates an assistant. The first one also adopts data created before assistants existed.</summary>
     Task<AssistantProfile> CreateAsync(NewAssistant assistant, VoiceStyle voiceStyle, CancellationToken ct = default);
-    Task SetVoiceStyleAsync(long id, VoiceStyle voiceStyle, CancellationToken ct = default);
     Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default);
     /// <summary>Counts the conversations, messages and memories that belong to the assistant.</summary>
     Task<AssistantDataSummary> GetDataSummaryAsync(long id, CancellationToken ct = default);
