@@ -17,7 +17,11 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.App.ViewModels;
 
-public sealed record ModelChoice(ModelPackage Package, string Text);
+/// <summary>An item of a model or voice list; a header (no package) titles a section and cannot be chosen.</summary>
+public sealed record ModelChoice(ModelPackage? Package, string Text)
+{
+    public bool IsHeader => Package == null;
+}
 
 /// <summary>
 /// Settings › Assistants and the first-launch dialog: the ways to talk offered in the chat (Text is always offered;
@@ -52,6 +56,9 @@ public sealed partial class AssistantsViewModel : ObservableObject
         _readAloudEnabled = _voice.ReadAloudEnabled;
         _liveEnabled = _voice.LiveEnabled;
         _readSelection = _voice.ReadSelection;
+        _reactionsIndex = (int)_voice.Reactions;
+        _waitForUnfinishedSentences = _voice.WaitForUnfinishedSentences;
+        _fillerDelayIndex = NearestFillerDelay(_voice.FillerDelayMs);
         _hotkeys = hotkeys;
         _manager = manager;
         _context = context;
@@ -147,6 +154,40 @@ public sealed partial class AssistantsViewModel : ObservableObject
         _selection.Refresh(); // starts or stops watching right away if live mode is on
     }
 
+    // ---------------- Live conversation ----------------
+
+    public static IReadOnlyList<string> ReactionLevels { get; } = ["Off", "Subtle", "Frequent"];
+    public static IReadOnlyList<string> FillerDelays { get; } = ["Never", "After 1 second", "After 1.5 seconds", "After 2 seconds", "After 3 seconds"];
+    private static readonly int[] FillerDelayMs = [0, 1000, 1500, 2000, 3000];
+
+    [ObservableProperty] private int _reactionsIndex;
+    [ObservableProperty] private bool _waitForUnfinishedSentences;
+    [ObservableProperty] private int _fillerDelayIndex;
+
+    partial void OnReactionsIndexChanged(int value)
+    {
+        if (value < 0) return;
+        _voice.Reactions = (ReactionLevel)value;
+        _settings.Set("Voice", "Reactions", _voice.Reactions.ToString());
+    }
+
+    partial void OnWaitForUnfinishedSentencesChanged(bool value)
+    {
+        _voice.WaitForUnfinishedSentences = value;
+        _settings.Set("Voice", "WaitForUnfinishedSentences", value);
+    }
+
+    partial void OnFillerDelayIndexChanged(int value)
+    {
+        if (value < 0) return;
+        _voice.FillerDelayMs = FillerDelayMs[value];
+        _settings.Set("Voice", "FillerDelayMs", _voice.FillerDelayMs);
+    }
+
+    /// <summary>The listed delay closest to the configured one.</summary>
+    private static int NearestFillerDelay(int ms) =>
+        ms <= 0 ? 0 : Array.IndexOf(FillerDelayMs, FillerDelayMs.Skip(1).MinBy(d => Math.Abs(d - ms)));
+
     // ---------------- Global shortcuts ----------------
 
     /// <summary>The assistant whose new shortcut is being recorded; the main window sends it the next key press.</summary>
@@ -221,23 +262,46 @@ public sealed partial class AssistantsViewModel : ObservableObject
     {
         _refreshingChoices = true;
         // Read the selection first: clearing the lists makes the combo boxes set it to null.
-        var modelId = SelectedModel?.Package.Id;
-        var voiceId = SelectedVoice?.Package.Id;
-        var recommended = _models.RecommendedLlm(_startup.Gpu?.TotalMemoryMb);
-        Replace(ModelChoices, _models.Packages.Where(p => p.Kind == ModelKind.Llm), p =>
-            Describe(p, p == recommended ? "recommended for your GPU" : null));
+        var modelId = SelectedModel?.Package?.Id;
+        var voiceId = SelectedVoice?.Package?.Id;
+        var vram = _startup.Gpu?.TotalMemoryMb;
+        var recommended = _models.RecommendedLlm(vram);
+        FillModelChoices(_models.Packages.Where(p => p.Kind == ModelKind.Llm).ToList(), vram, recommended);
         Replace(VoiceChoices, _models.Packages.Where(p => p.Kind == ModelKind.Voice).OrderBy(VoiceLocale, StringComparer.Ordinal),
             p => Describe(p, null, VoiceLabel(p)));
 
         // Until the user picks a model, follow the recommendation (it changes once the GPU is detected).
-        SelectedModel = (_modelPickedByUser ? ModelChoices.FirstOrDefault(c => c.Package.Id == modelId) : null)
+        SelectedModel = (_modelPickedByUser ? ModelChoices.FirstOrDefault(c => c.Package?.Id == modelId) : null)
                         ?? ModelChoices.FirstOrDefault(c => c.Package == recommended);
-        SelectedVoice = VoiceChoices.FirstOrDefault(c => c.Package.Id == voiceId) ?? DefaultVoice();
+        SelectedVoice = VoiceChoices.FirstOrDefault(c => c.Package?.Id == voiceId) ?? DefaultVoice();
         _refreshingChoices = false;
+    }
+
+    /// <summary>
+    /// The models that fit the GPU first (the recommended one on top), then the ones that need more VRAM: those still
+    /// run, split between GPU and CPU, but slower.
+    /// </summary>
+    private void FillModelChoices(IReadOnlyList<ModelPackage> llms, int? vram, ModelPackage? recommended)
+    {
+        ModelChoices.Clear();
+        var fits = llms.Where(p => (vram ?? 0) >= p.MinVramMb).ToList();
+        var larger = llms.Except(fits).ToList();
+        if (recommended != null && fits.Remove(recommended)) fits.Insert(0, recommended);
+        if (fits.Count > 0 && larger.Count > 0) ModelChoices.Add(new ModelChoice(null, "Fits your GPU"));
+        foreach (var p in fits) ModelChoices.Add(new ModelChoice(p, Describe(p, p == recommended ? "recommended for your GPU" : null)));
+        if (larger.Count == 0) return;
+        ModelChoices.Add(new ModelChoice(null, "Needs more VRAM (slower here)"));
+        foreach (var p in larger)
+            ModelChoices.Add(new ModelChoice(p, Describe(p, $"needs {p.MinVramMb / 1000.0:0.#} GB of VRAM")));
     }
 
     partial void OnSelectedModelChanged(ModelChoice? value)
     {
+        if (value is { IsHeader: true })
+        {
+            SelectedModel = null; // section titles cannot be chosen
+            return;
+        }
         if (!_refreshingChoices && value != null) _modelPickedByUser = true;
     }
 
@@ -270,8 +334,8 @@ public sealed partial class AssistantsViewModel : ObservableObject
     private ModelChoice? DefaultVoice()
     {
         var language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-        return VoiceChoices.FirstOrDefault(c => c.Package.IsDefault && c.Package.Language == language)
-               ?? VoiceChoices.FirstOrDefault(c => c.Package.IsDefault && c.Package.Language == "en")
+        return VoiceChoices.FirstOrDefault(c => c.Package is { IsDefault: true } p && p.Language == language)
+               ?? VoiceChoices.FirstOrDefault(c => c.Package is { IsDefault: true } p && p.Language == "en")
                ?? VoiceChoices.FirstOrDefault();
     }
 
@@ -287,35 +351,57 @@ public sealed partial class AssistantsViewModel : ObservableObject
     public string ExpressivenessText => $"{Expressiveness:0.00}";
     public string RhythmText => $"{Rhythm:0.00}";
 
+    /// <summary>The settings the chosen voice supports (the others are hidden) and their ranges.</summary>
+    [ObservableProperty] private VoiceTuning _voiceTuning = VoiceTuning.Piper;
+
+    // A setting the user left at the old voice's value follows the new voice; a changed one is kept, within range.
+    partial void OnSelectedVoiceChanged(ModelChoice? value)
+    {
+        if (value?.Package?.Tuning is not { } tuning || tuning == VoiceTuning) return;
+        var old = VoiceTuning;
+        VoiceTuning = tuning;
+        Speed = Follow(Speed, old.Speed, tuning.Speed);
+        Pitch = Follow(Pitch, old.Pitch, tuning.Pitch);
+        Expressiveness = Follow(Expressiveness, old.Expressiveness, tuning.Expressiveness);
+        Rhythm = Follow(Rhythm, old.Rhythm, tuning.Rhythm);
+    }
+
+    internal static double Follow(double value, VoiceSettingRange? old, VoiceSettingRange? range) =>
+        range == null ? value
+        : old == null || Math.Abs(value - old.Default) < 0.001 ? range.Default
+        : range.Clamp(value);
+
+    // Settings the voice does not have keep the engine-neutral value.
     private VoiceStyle NewVoiceStyle => new()
     {
-        Speed = Math.Round(Speed, 2),
-        Pitch = Math.Round(Pitch),
-        Expressiveness = Math.Round(Expressiveness, 2),
-        Rhythm = Math.Round(Rhythm, 2),
+        Speed = VoiceTuning.Speed == null ? VoiceStyle.Default.Speed : Math.Round(Speed, 2),
+        Pitch = VoiceTuning.Pitch == null ? VoiceStyle.Default.Pitch : Math.Round(Pitch),
+        Expressiveness = VoiceTuning.Expressiveness == null ? VoiceStyle.Default.Expressiveness : Math.Round(Expressiveness, 3),
+        Rhythm = VoiceTuning.Rhythm == null ? VoiceStyle.Default.Rhythm : Math.Round(Rhythm, 2),
     };
 
+    /// <summary>Back to the values the chosen voice was made for.</summary>
     [RelayCommand]
     private void ResetVoiceStyle()
     {
-        Speed = VoiceStyle.Default.Speed;
-        Pitch = VoiceStyle.Default.Pitch;
-        Expressiveness = VoiceStyle.Default.Expressiveness;
-        Rhythm = VoiceStyle.Default.Rhythm;
+        Speed = VoiceTuning.Speed?.Default ?? VoiceStyle.Default.Speed;
+        Pitch = VoiceTuning.Pitch?.Default ?? VoiceStyle.Default.Pitch;
+        Expressiveness = VoiceTuning.Expressiveness?.Default ?? VoiceStyle.Default.Expressiveness;
+        Rhythm = VoiceTuning.Rhythm?.Default ?? VoiceStyle.Default.Rhythm;
     }
 
     /// <summary>Plays the chosen voice with the chosen style (downloads the voice first if needed).</summary>
     [RelayCommand]
     private async Task PreviewVoiceAsync()
     {
-        if (SelectedVoice is not { } choice) return;
+        if (SelectedVoice is not { Package: not null } choice) return;
         Error = null;
         try
         {
-            if (!_models.IsInstalled(choice.Package))
+            if (!_models.IsInstalled(choice.Package!))
             {
                 PreviewStatus = "Downloading the voice…";
-                if (!await _modelsView.EnsureInstalledAsync(choice.Package))
+                if (!await _modelsView.EnsureInstalledAsync(choice.Package!))
                 {
                     Error = "The voice could not be downloaded (see Settings › Models).";
                     return;
@@ -343,14 +429,14 @@ public sealed partial class AssistantsViewModel : ObservableObject
     private async Task CreateAsync()
     {
         Error = null;
-        if (SelectedModel is not { } model || SelectedVoice is not { } voice)
+        if (SelectedModel is not { Package: not null } model || SelectedVoice is not { Package: not null } voice)
         {
             Error = "Choose a language model and a voice.";
             return;
         }
         try
         {
-            var draft = new NewAssistant(NewName, NewStyle, model.Package.Id, voice.Package.Id, voice.Package.Language ?? "", NewVoiceStyle);
+            var draft = new NewAssistant(NewName, NewStyle, model.Package!.Id, voice.Package!.Id, voice.Package.Language ?? "", NewVoiceStyle);
             await Task.Run(() => _manager.CreateAsync(draft));
             NewName = "";
             NewStyle = "";

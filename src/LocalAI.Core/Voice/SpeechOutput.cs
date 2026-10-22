@@ -26,8 +26,28 @@ public sealed class SpeechOutput
         _logger = logger;
     }
 
+    private readonly Lock _enqueueGate = new();
+    private long _replyClips;
+
     public bool IsAvailable => _tts.State == ComponentState.Ready;
     public IAudioPlayer Player => _player;
+
+    /// <summary>Clips of spoken replies queued so far: compare two readings to know whether a reply started speaking.</summary>
+    public long ReplyClips => Interlocked.Read(ref _replyClips);
+
+    /// <summary>
+    /// Plays <paramref name="clip"/> unless a reply clip was queued since <paramref name="replyClips"/> was read: a
+    /// phrase that fills the wait must never play after the reply started.
+    /// </summary>
+    public bool TryPlayBeforeReply(AudioClip clip, long replyClips)
+    {
+        lock (_enqueueGate)
+        {
+            if (Interlocked.Read(ref _replyClips) != replyClips) return false;
+            _player.Enqueue(clip);
+            return true;
+        }
+    }
 
     /// <summary>Raised when the first audio of an utterance is queued for playback (latency = time since Begin).</summary>
     public event EventHandler<TimeSpan>? SpeakingStarted;
@@ -86,7 +106,11 @@ public sealed class SpeechOutput
                     }
                     _ct.ThrowIfCancellationRequested();
                     if (clip.Samples.Length == 0) continue;
-                    _owner._player.Enqueue(clip);
+                    lock (_owner._enqueueGate)
+                    {
+                        _owner._player.Enqueue(clip);
+                        Interlocked.Increment(ref _owner._replyClips);
+                    }
                     if (first)
                     {
                         first = false;

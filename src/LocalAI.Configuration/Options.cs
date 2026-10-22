@@ -91,6 +91,8 @@ public sealed class AudioOptions
 /// <summary>How the assistant replies: text only, text read aloud, or a live spoken conversation (microphone open).</summary>
 public enum ReplyMode { Text, ReadAloud, Live }
 
+public enum ReactionLevel { Off, Subtle, Frequent }
+
 public sealed class VoiceOptions
 {
     public ReplyMode ReplyMode { get; set; } = ReplyMode.Text;
@@ -112,7 +114,22 @@ public sealed class VoiceOptions
     /// <summary>Minimum speech length for an utterance to count.</summary>
     public int MinSpeechMs { get; set; } = 250;
     /// <summary>Silence that ends an utterance.</summary>
-    public int EndOfSpeechSilenceMs { get; set; } = 600;
+    public int EndOfSpeechSilenceMs { get; set; } = 500;
+    /// <summary>
+    /// Live mode: when what the user said sounds unfinished (it ends with "and", "because", a comma...), the assistant
+    /// waits until this much silence in total before answering.
+    /// </summary>
+    public bool WaitForUnfinishedSentences { get; set; } = true;
+    public int UnfinishedSentenceSilenceMs { get; set; } = 1600;
+    /// <summary>Live mode: short spoken reactions ("mm-hmm") in the pauses while the user talks.</summary>
+    public ReactionLevel Reactions { get; set; } = ReactionLevel.Subtle;
+    /// <summary>Pause in the user's speech that is a chance to react. Shorter than <see cref="EndOfSpeechSilenceMs"/>.</summary>
+    public int ReactionPauseMs { get; set; } = 350;
+    /// <summary>
+    /// Live mode: when the spoken reply has not started this long after the user stopped talking, a short phrase
+    /// ("hmm, let me see...") fills the wait. 0 = never.
+    /// </summary>
+    public int FillerDelayMs { get; set; } = 1500;
     public int MaxUtteranceSeconds { get; set; } = 30;
     public bool BargeInEnabled { get; set; } = true;
     /// <summary>Sustained speech needed to interrupt the assistant.</summary>

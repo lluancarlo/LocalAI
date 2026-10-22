@@ -114,6 +114,7 @@ public static class LocalAiHost
         // Orchestration
         services.AddSingleton<PromptBuilder>();
         services.AddSingleton<SpeechOutput>();
+        services.AddSingleton<ConversationCues>();
         services.AddSingleton<LiveSelection>();
         services.AddSingleton<AssistantManager>();
         services.AddSingleton<AssistantSession>();

@@ -37,6 +37,8 @@ public sealed class UtteranceSegmenter
     }
 
     public bool InSpeech => _phase == Phase.Speech;
+    /// <summary>No speech, not even unconfirmed speech, since the last utterance.</summary>
+    public bool IsSilent => _phase == Phase.Silence;
 
     public SegmenterEvent Process(float[] frame, bool isSpeech)
     {

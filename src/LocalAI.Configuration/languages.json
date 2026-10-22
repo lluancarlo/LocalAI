@@ -1,5 +1,5 @@
 {
-  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, section titles of the memory notes, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
+  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, section titles of the memory notes, the reactions and wait phrases spoken in Live mode, words an unfinished sentence ends with, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
   "languages": {
     "pt": {
       "name": "Portuguese (Brazil)",
@@ -21,7 +21,10 @@
         "summary": "Resumo", "decisions": "Decisões", "openItems": "Pendências", "factsLearned": "Fatos aprendidos",
         "about": "Sobre", "preferences": "Preferências", "skills": "Habilidades", "projects": "Projetos", "routine": "Rotina",
         "profile": "Perfil"
-      }
+      },
+      "reactions": ["Aham.", "Sei.", "Entendo.", "Certo."],
+      "fillers": ["Então, deixa eu ver...", "Bom, deixa eu pensar...", "Deixa eu ver aqui...", "Só um instante..."],
+      "unfinishedEndings": ["e", "ou", "mas", "porque", "que", "de", "do", "da", "dos", "das", "no", "na", "nos", "nas", "em", "para", "pra", "com", "por", "pelo", "pela", "o", "a", "os", "as", "um", "uma", "se", "quando", "então", "entao", "tipo", "como", "sobre", "meu", "minha", "seu", "sua", "ao", "até", "ate", "sem", "nem", "onde", "qual", "hum", "ah", "eh"]
     },
     "it": {
       "name": "Italian",
@@ -43,7 +46,10 @@
         "summary": "Riepilogo", "decisions": "Decisioni", "openItems": "Da fare", "factsLearned": "Cose imparate",
         "about": "Chi sono", "preferences": "Preferenze", "skills": "Competenze", "projects": "Progetti", "routine": "Abitudini",
         "profile": "Profilo"
-      }
+      },
+      "reactions": ["Sì.", "Certo.", "Capisco.", "Ah, ecco."],
+      "fillers": ["Allora, vediamo...", "Un attimo...", "Vediamo un po'...", "Fammi pensare..."],
+      "unfinishedEndings": ["e", "o", "ma", "perché", "perche", "che", "di", "del", "della", "dei", "delle", "a", "al", "alla", "in", "nel", "nella", "per", "con", "su", "sul", "il", "lo", "la", "i", "gli", "le", "un", "una", "uno", "se", "quando", "quindi", "cioè", "cioe", "tipo", "come", "mio", "mia", "tuo", "tua", "da", "dal", "dalla", "fino", "senza", "dove", "quale", "ehm", "uhm"]
     },
     "en": {
       "name": "English",
@@ -63,7 +69,10 @@
         "summary": "Summary", "decisions": "Decisions", "openItems": "Open items", "factsLearned": "Facts learned",
         "about": "About", "preferences": "Preferences", "skills": "Skills", "projects": "Projects", "routine": "Routine",
         "profile": "Profile"
-      }
+      },
+      "reactions": ["Mm-hmm.", "Uh-huh.", "Right.", "I see."],
+      "fillers": ["Hmm, let me see...", "Hmm, one moment...", "Let me think..."],
+      "unfinishedEndings": ["and", "or", "but", "because", "that", "the", "a", "an", "to", "of", "in", "on", "at", "for", "with", "about", "from", "if", "when", "my", "your", "our", "their", "which", "into", "than", "um", "uh", "umm", "uhh", "er"]
     }
   },
   "transcriptNoise": [

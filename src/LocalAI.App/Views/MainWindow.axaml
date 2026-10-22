@@ -357,6 +357,26 @@
                 </StackPanel>
                 </Border>
 
+                <!-- Turn-taking in Live mode -->
+                <Border Classes="card" IsEnabled="{Binding LiveEnabled}">
+                <StackPanel>
+                <TextBlock Classes="section" Text="Live conversation" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                  <TextBlock Grid.Row="0" Text="Reactions while you talk" VerticalAlignment="Center" Margin="0,0,16,0" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="180" ItemsSource="{x:Static vm:AssistantsViewModel.ReactionLevels}"
+                            SelectedIndex="{Binding ReactionsIndex}"
+                            ToolTip.Tip="Short sounds like &quot;mm-hmm&quot; in the pauses while you talk" />
+                  <TextBlock Grid.Row="1" Text="Say &quot;hmm, let me see...&quot;" VerticalAlignment="Center" Margin="0,8,16,0" />
+                  <ComboBox Grid.Row="1" Grid.Column="1" MinWidth="180" Margin="0,8,0,0" ItemsSource="{x:Static vm:AssistantsViewModel.FillerDelays}"
+                            SelectedIndex="{Binding FillerDelayIndex}"
+                            ToolTip.Tip="When the reply takes longer than this to start" />
+                </Grid>
+                <CheckBox Margin="0,10,0,0" IsChecked="{Binding WaitForUnfinishedSentences}" Content="Wait when you pause mid-sentence" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
+                           Text="If what you said sounds unfinished (it ends with &quot;and&quot;, &quot;because&quot;...), the assistant waits a little longer before answering." />
+                </StackPanel>
+                </Border>
+
                 <Border Classes="card">
                 <StackPanel>
                 <DockPanel>

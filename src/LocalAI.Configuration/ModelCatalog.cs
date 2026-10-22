@@ -34,6 +34,12 @@ public sealed record VoiceCatalogEntry
     public string Url { get; init; } = "";
     public long SizeBytes { get; init; }
     public bool Default { get; init; }
+    /// <summary>The synthesis engine; it decides which voice settings exist (<see cref="VoiceTuning.ForEngine"/>).</summary>
+    public string Engine { get; init; } = VoiceTuning.PiperEngine;
+    /// <summary>Changes to the engine's settings for this voice, e.g. the values in its .onnx.json.</summary>
+    public VoiceSettingsOverride? Settings { get; init; }
+
+    public VoiceTuning Tuning => VoiceTuning.ForEngine(Engine).With(Settings);
 }
 
 public sealed record RuntimeCatalogEntry

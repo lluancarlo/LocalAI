@@ -19,6 +19,9 @@ public enum VoiceState { Off, Ready, Listening, Recording, Transcribing, Thinkin
 /// that interrupted becomes the next utterance. In continuous mode the user can also type: the microphone is ignored
 /// while text is being typed, and the typed message is answered aloud like a spoken one. With Read selection on, each
 /// message in continuous mode carries the text the user last selected in another application (<see cref="LiveSelection"/>).
+/// To feel like a conversation, continuous mode also waits longer when what the user said sounds unfinished
+/// (<see cref="SentenceCompleteness"/>), joins speech that goes on before the reply into one message, reacts in the
+/// user's pauses (<see cref="ReactionPlanner"/>) and fills a slow reply with a short phrase (<see cref="ConversationCues"/>).
 /// </summary>
 public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 {
@@ -29,8 +32,11 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     private readonly LiveSelection _selection;
     private readonly IOptionsMonitor<LocalAiOptions> _options;
     private readonly LanguageData _languages;
+    private readonly ConversationCues _cues;
     private readonly ILogger<VoiceConversationController> _logger;
     private readonly Lock _gate = new();
+    /// <summary>Decides when to react (tests set a fixed one).</summary>
+    internal Random ReactionRandom { get; init; } = Random.Shared;
 
     private IAudioCaptureSession? _captureSession;
     private CancellationTokenSource? _loopCts;
@@ -43,6 +49,12 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     private readonly List<float> _pttBuffer = [];
     private int _turnGeneration;
     private string? _inputDeviceId;
+    // The user's turn before it is answered (guarded by _gate): the audio heard so far, and the transcript of a
+    // sentence that sounds unfinished, held until _heldUntil (Environment.TickCount64) in case the user goes on.
+    private float[]? _turnAudio;
+    private Transcription? _held;
+    private long _heldUntil;
+    private volatile string? _userLanguage;
 
     public VoiceConversationController(
         IAudioCapture capture,
@@ -52,6 +64,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         LiveSelection selection,
         IOptionsMonitor<LocalAiOptions> options,
         LanguageData languages,
+        ConversationCues cues,
         ILogger<VoiceConversationController> logger)
     {
         _capture = capture;
@@ -61,6 +74,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         _selection = selection;
         _options = options;
         _languages = languages;
+        _cues = cues;
         _logger = logger;
         _inputDeviceId = NullIfEmpty(options.CurrentValue.Audio.InputDeviceId);
         _session.Speech.SpeakingStarted += (_, latency) =>
@@ -129,8 +143,10 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         if (_continuous) return;
         if (!EnsureSpeechReady()) return;
         _continuous = true;
+        ClearTurn();
         if (!await EnsureCaptureAsync().ConfigureAwait(false)) { _continuous = false; return; }
         _selection.SetLive(true);
+        _cues.Prepare(_userLanguage);
         SetState(VoiceState.Listening);
         _logger.LogInformation("Continuous voice mode started");
     }
@@ -141,6 +157,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         _continuous = false;
         _selection.SetLive(false);
         Interlocked.Increment(ref _turnGeneration);
+        ClearTurn();
         _session.CancelCurrentTurn();
         if (!_monitoring) await CloseCaptureAsync().ConfigureAwait(false);
         SetState(VoiceState.Ready);
@@ -178,7 +195,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
             return;
         }
         var generation = Interlocked.Increment(ref _turnGeneration);
-        _ = ProcessUtteranceAsync(samples, generation);
+        _ = ProcessUtteranceAsync(samples, generation, holdIfUnfinished: false, 0);
     }
 
     // ---------- Typing in continuous mode ----------
@@ -191,7 +208,9 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     {
         if (_typing == typing) return;
         _typing = typing;
-        if (typing && State == VoiceState.Transcribing) Interrupt();
+        if (!typing) return;
+        if (State == VoiceState.Transcribing) Interrupt();
+        ClearTurn();
     }
 
     /// <summary>
@@ -202,6 +221,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     {
         _typing = false;
         Interlocked.Exchange(ref _discardAudio, 1);
+        ClearTurn();
         var generation = Interlocked.Increment(ref _turnGeneration);
         try
         {
@@ -219,6 +239,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     public void Interrupt()
     {
         Interlocked.Increment(ref _turnGeneration);
+        ClearTurn();
         _session.CancelCurrentTurn();
         if (State is VoiceState.Thinking or VoiceState.Speaking or VoiceState.Transcribing) SetState(IdleState);
     }
@@ -281,6 +302,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         var frameMs = frameSize * 1000 / ISpeechToText.SampleRate;
         var segmenter = new UtteranceSegmenter(Voice);
         var bargeIn = new BargeInDetector(Voice, frameMs);
+        var reactions = new ReactionPlanner(Voice, frameMs, ReactionRandom);
         var pending = new List<float>(frameSize * 4);
         var player = _session.Speech.Player;
         var wasBusy = false;
@@ -337,7 +359,8 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
                     pending.RemoveRange(0, frameSize);
 
                     var state = State;
-                    var busy = state is VoiceState.Transcribing or VoiceState.Thinking or VoiceState.Speaking;
+                    // While transcribing, the user still holds the floor: more speech continues their message.
+                    var busy = state is VoiceState.Thinking or VoiceState.Speaking;
                     if (wasBusy && !busy && state == VoiceState.Listening)
                     {
                         // Turn finished normally: drop whatever echo the segmenter collected while the assistant talked.
@@ -360,16 +383,37 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
                         wasBusy = false; // don't reset the segmenter on the next frame: it holds the user's speech
                     }
 
+                    if (busy) reactions.Reset();
+                    else if (Voice.Reactions != ReactionLevel.Off && reactions.Update(gated) && _cues.TryPlayReaction(_userLanguage))
+                        _logger.LogDebug("Reacted in a pause of the user's speech");
+
                     var ev = segmenter.Process(frame, gated);
-                    if (ev == SegmenterEvent.UtteranceCompleted)
+                    if (ev == SegmenterEvent.SpeechStarted)
+                    {
+                        ContinueTurn();
+                    }
+                    else if (ev == SegmenterEvent.UtteranceCompleted)
                     {
                         var utterance = segmenter.TakeUtterance();
                         if (utterance != null && State == VoiceState.Listening)
                         {
-                            var generation = Interlocked.Increment(ref _turnGeneration);
+                            float[] audio;
+                            int generation;
+                            lock (_gate)
+                            {
+                                // What the user said before pausing and what they said after it are one message.
+                                audio = _turnAudio is { } before ? [.. before, .. utterance] : utterance;
+                                _turnAudio = audio;
+                                _held = null;
+                                generation = Interlocked.Increment(ref _turnGeneration);
+                            }
                             SetState(VoiceState.Transcribing);
-                            _ = ProcessUtteranceAsync(utterance, generation);
+                            _ = ProcessUtteranceAsync(audio, generation, holdIfUnfinished: true, Environment.TickCount64);
                         }
+                    }
+                    else if (segmenter.IsSilent)
+                    {
+                        AnswerHeldIfDue();
                     }
                 }
             }
@@ -385,7 +429,9 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 
     // ---------- Turn processing ----------
 
-    private async Task ProcessUtteranceAsync(float[] samples, int generation)
+    /// <param name="holdIfUnfinished">Continuous mode: a sentence that sounds unfinished waits for more speech.</param>
+    /// <param name="completedAt">Environment.TickCount64 when the utterance ended (the end-of-speech silence elapsed).</param>
+    private async Task ProcessUtteranceAsync(float[] samples, int generation, bool holdIfUnfinished, long completedAt)
     {
         try
         {
@@ -397,18 +443,34 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
             _logger.LogInformation("Transcribed {Seconds:F1}s of audio in {Ms:F0} ms (language {Lang} p={P:F2})",
                 transcription.AudioDuration.TotalSeconds, sw.Elapsed.TotalMilliseconds, transcription.Language, transcription.LanguageProbability);
 
-            if (TranscriptFilter.IsNoise(transcription.Text, _languages.TranscriptNoise))
+            var noise = TranscriptFilter.IsNoise(transcription.Text, _languages.TranscriptNoise);
+            var hold = !noise && holdIfUnfinished && Voice.WaitForUnfinishedSentences
+                && SentenceCompleteness.LooksUnfinished(transcription.Text, transcription.Language, _languages);
+            lock (_gate)
+            {
+                if (generation != Volatile.Read(ref _turnGeneration)) return; // the user went on talking
+                if (hold)
+                {
+                    _held = transcription;
+                    _heldUntil = completedAt + Math.Max(0, Voice.UnfinishedSentenceSilenceMs - Voice.EndOfSpeechSilenceMs);
+                }
+                else
+                {
+                    _turnAudio = null; // answered (or dropped): later speech is a new message
+                }
+            }
+            if (noise)
             {
                 SetState(IdleState);
                 return;
             }
-            Transcribed?.Invoke(this, transcription);
-
-            SetState(VoiceState.Thinking);
-            // The selection made while speaking (or since the previous message) goes with what was said.
-            await _session.SubmitAsync(new TurnRequest(transcription.Text, InputSource.Voice, transcription.Language, Speak: true,
-                    SelectedText: TakeSelection()))
-                .ConfigureAwait(false);
+            if (hold)
+            {
+                _logger.LogInformation("The sentence sounds unfinished: waiting for more speech");
+                SetState(VoiceState.Listening);
+                return;
+            }
+            await AnswerAsync(transcription, generation).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -418,6 +480,85 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         finally
         {
             if (generation == Volatile.Read(ref _turnGeneration)) SetState(IdleState);
+        }
+    }
+
+    private async Task AnswerAsync(Transcription transcription, int generation)
+    {
+        try
+        {
+            if (transcription.Language != null) _userLanguage = transcription.Language;
+            Transcribed?.Invoke(this, transcription);
+            SetState(VoiceState.Thinking);
+            // Starting the turn stops playback: let a reaction that is still playing finish first.
+            await _cues.WaitForReactionAsync().ConfigureAwait(false);
+            if (generation != Volatile.Read(ref _turnGeneration)) return;
+
+            if (Voice.FillerDelayMs > 0) _ = FillWaitAsync(generation, _session.Speech.ReplyClips);
+            // The selection made while speaking (or since the previous message) goes with what was said.
+            var result = await _session.SubmitAsync(new TurnRequest(transcription.Text, InputSource.Voice, transcription.Language, Speak: true,
+                    SelectedText: TakeSelection()))
+                .ConfigureAwait(false);
+            // Idle now: get the sounds of the user's language ready for the next message.
+            if (result.Outcome == TurnOutcome.Completed && _continuous) _cues.Prepare(_userLanguage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Voice turn failed");
+            LastError = ex.Message;
+        }
+        finally
+        {
+            if (generation == Volatile.Read(ref _turnGeneration)) SetState(IdleState);
+        }
+    }
+
+    /// <summary>When the reply has not started speaking after <see cref="VoiceOptions.FillerDelayMs"/>, fills the wait.</summary>
+    private async Task FillWaitAsync(int generation, long replyClips)
+    {
+        await Task.Delay(Voice.FillerDelayMs).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _turnGeneration) || State != VoiceState.Thinking) return;
+        if (_cues.TryPlayFiller(_userLanguage, replyClips)) _logger.LogInformation("The reply is slow to start: played a wait phrase");
+    }
+
+    /// <summary>
+    /// The user started speaking again before the reply: if their message has not been answered yet, what they say
+    /// now continues it (a transcription in progress is dropped and redone with all the audio).
+    /// </summary>
+    private void ContinueTurn()
+    {
+        lock (_gate)
+        {
+            if (_turnAudio == null) return;
+            _held = null;
+            if (State != VoiceState.Transcribing) return;
+            Interlocked.Increment(ref _turnGeneration);
+        }
+        SetState(VoiceState.Listening);
+    }
+
+    /// <summary>Answers a sentence that sounded unfinished once the user stayed silent long enough.</summary>
+    private void AnswerHeldIfDue()
+    {
+        Transcription held;
+        int generation;
+        lock (_gate)
+        {
+            if (_held == null || Environment.TickCount64 < _heldUntil || State != VoiceState.Listening) return;
+            held = _held;
+            _held = null;
+            _turnAudio = null;
+            generation = Interlocked.Increment(ref _turnGeneration);
+        }
+        _ = AnswerAsync(held, generation);
+    }
+
+    private void ClearTurn()
+    {
+        lock (_gate)
+        {
+            _turnAudio = null;
+            _held = null;
         }
     }
 

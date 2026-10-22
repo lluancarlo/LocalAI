@@ -17,6 +17,12 @@ public sealed record LlamaServerStartInfo
     public int ParallelSlots { get; init; } = 1;
     public bool Embedding { get; init; }
     public bool DisableReasoning { get; init; } = true;
+    /// <summary>
+    /// The model is larger than the GPU: llama.cpp splits it between GPU and CPU (<c>--fit on</c>) instead of the
+    /// app's fixed placement, leaving <see cref="FitMarginMb"/> free for the other models on the GPU.
+    /// </summary>
+    public bool FitToMemory { get; init; }
+    public int FitMarginMb { get; init; } = 2560;
     public TimeSpan StartupTimeout { get; init; } = TimeSpan.FromSeconds(120);
     public string Name { get; init; } = "llama-server";
 }
@@ -106,18 +112,27 @@ public sealed class LlamaServerProcess : IAsyncDisposable
             "--host", "127.0.0.1",
             "--port", port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--ctx-size", info.ContextSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--n-gpu-layers", info.GpuLayers < 0 ? "999" : info.GpuLayers.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--flash-attn", info.FlashAttention ? "on" : "off",
             "--parallel", Math.Max(1, info.ParallelSlots).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--no-webui",
             "--offline",
-            "--fit", "off", // explicit, predictable placement; the app decides layers/context
         };
+        if (info.FitToMemory && info.GpuLayers != 0)
+        {
+            // Too big for the GPU: llama.cpp places as many layers (and MoE experts) on it as fit, the rest on the CPU.
+            args.AddRange(["--fit", "on", "--fit-target", info.FitMarginMb.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        }
+        else
+        {
+            // Explicit, predictable placement: the app decides the layers and the context.
+            args.AddRange(["--n-gpu-layers", info.GpuLayers < 0 ? "999" : info.GpuLayers.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+            args.AddRange(["--fit", "off"]);
+        }
         if (info.ParallelSlots > 1) args.Add("--kv-unified");
         // Fully offloaded: read the weights once and upload them, instead of keeping the file memory-mapped.
         // Measured on Gemma 4 12B: 2.4 s vs 3.8 s load, 1.4 GB vs 7.2 GB resident RAM, same tok/s.
         // Partial/CPU inference keeps mmap (weights are used from host memory anyway).
-        if (info.GpuLayers < 0) args.AddRange(["--load-mode", "none"]);
+        if (info.GpuLayers < 0 && !info.FitToMemory) args.AddRange(["--load-mode", "none"]);
         if (info.Embedding) args.Add("--embedding");
         else if (info.DisableReasoning) args.AddRange(["--reasoning", "off"]);
         return args;

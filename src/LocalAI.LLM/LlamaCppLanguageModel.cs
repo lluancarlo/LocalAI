@@ -58,13 +58,14 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
 
             var gpu = await _gpu.GetGpuInfoAsync(cancellationToken).ConfigureAwait(false);
             var selection = ModelSelector.Select(_catalog, _options.Llm, _paths.ModelsDirectory, gpu?.TotalMemoryMb);
-            _logger.LogInformation("Selected model {Model} ({Quant}), ctx {Ctx}, GPU layers {Layers}, est. VRAM {Vram} MB (GPU: {Gpu})",
-                selection.Entry.Id, selection.Entry.Quantization, selection.ContextSize, selection.GpuLayers,
+            _logger.LogInformation("Selected model {Model} ({Quant}), ctx {Ctx}, GPU layers {Layers}{Fit}, est. VRAM {Vram} MB (GPU: {Gpu})",
+                selection.Entry.Id, selection.Entry.Quantization, selection.ContextSize,
+                selection.GpuLayers, selection.FitToMemory ? " (split GPU + CPU: needs more VRAM)" : "",
                 selection.EstimatedVramMb, gpu?.Name ?? "none");
 
             var sw = Stopwatch.StartNew();
             var usedBefore = gpu?.UsedMemoryMb;
-            var backend = selection.GpuLayers == 0 ? "CPU" : "CUDA";
+            var backend = selection.GpuLayers == 0 ? "CPU" : selection.FitToMemory ? "CUDA + CPU" : "CUDA";
             var gpuLayers = selection.GpuLayers;
             try
             {
@@ -140,6 +141,7 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
             ModelPath = selection.FullPath,
             ContextSize = selection.ContextSize,
             GpuLayers = gpuLayers,
+            FitToMemory = selection.FitToMemory && gpuLayers != 0,
             FlashAttention = _options.Llm.FlashAttention,
             ParallelSlots = _options.Llm.ParallelSlots,
             StartupTimeout = TimeSpan.FromSeconds(_options.Llm.StartupTimeoutSeconds),

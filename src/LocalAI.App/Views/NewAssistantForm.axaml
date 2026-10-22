@@ -3,6 +3,19 @@
              xmlns:vm="using:LocalAI.App.ViewModels"
              x:Class="LocalAI.App.Views.NewAssistantForm"
              x:DataType="vm:AssistantsViewModel">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.header">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+    <Style Selector="Border.group">
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+  </UserControl.Styles>
   <StackPanel Spacing="6">
     <TextBlock Text="Name" />
     <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Nova" />
@@ -12,48 +25,65 @@
              PlaceholderText="Personality, tone and characteristics. e.g. Warm and witty, explains things with analogies, a bit of humor, never verbose." />
     <TextBlock Text="Language model" Margin="0,8,0,0" />
     <ComboBox ItemsSource="{Binding ModelChoices}" SelectedItem="{Binding SelectedModel}" HorizontalAlignment="Stretch">
+      <ComboBox.Styles>
+        <!-- Section titles ("Fits your GPU", "Needs more VRAM") are not choices -->
+        <Style Selector="ComboBoxItem" x:DataType="vm:ModelChoice">
+          <Setter Property="IsEnabled" Value="{Binding !IsHeader}" />
+        </Style>
+      </ComboBox.Styles>
       <ComboBox.ItemTemplate>
-        <DataTemplate x:DataType="vm:ModelChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+        <DataTemplate x:DataType="vm:ModelChoice">
+          <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" Classes.header="{Binding IsHeader}" />
+        </DataTemplate>
       </ComboBox.ItemTemplate>
     </ComboBox>
-    <TextBlock Text="Voice" Margin="0,8,0,0" />
-    <Grid ColumnDefinitions="*,Auto">
-      <ComboBox ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
-        <ComboBox.ItemTemplate>
-          <DataTemplate x:DataType="vm:ModelChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
-        </ComboBox.ItemTemplate>
-      </ComboBox>
-      <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
-              ToolTip.Tip="Play a sample (downloads the voice if needed)" />
-    </Grid>
-    <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-    <!-- How the voice sounds: fixed once the assistant is created; ▶ plays it with these settings -->
-    <Grid ColumnDefinitions="110,*,Auto" Margin="0,6,0,0" ToolTip.Tip="How fast the assistant speaks">
-      <TextBlock Text="Speed" VerticalAlignment="Center" />
-      <Slider Grid.Column="1" Minimum="0.75" Maximum="1.5" SmallChange="0.05" LargeChange="0.05"
-              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
-      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
-    </Grid>
-    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Semitones lower or higher than the original voice">
-      <TextBlock Text="Pitch" VerticalAlignment="Center" />
-      <Slider Grid.Column="1" Minimum="-6" Maximum="6" SmallChange="1" LargeChange="1"
-              TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
-      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
-    </Grid>
-    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is flatter, higher is more varied intonation">
-      <TextBlock Text="Expressiveness" VerticalAlignment="Center" />
-      <Slider Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05"
-              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Expressiveness}" />
-      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding ExpressivenessText}" />
-    </Grid>
-    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is more regular, higher is more natural timing">
-      <TextBlock Text="Rhythm" VerticalAlignment="Center" />
-      <Slider Grid.Column="1" Minimum="0" Maximum="1.2" SmallChange="0.05" LargeChange="0.05"
-              TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Rhythm}" />
-      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding RhythmText}" />
-    </Grid>
-    <Button Classes="flat" HorizontalAlignment="Left" Padding="8,2" Content="Reset voice settings" Command="{Binding ResetVoiceStyleCommand}"
-            ToolTip.Tip="Back to the voice's original settings" />
+    <!-- Voice settings: the voice, a sample and how it sounds. Fixed once the assistant is created; ▶ plays the voice
+         with these settings. Each slider's range comes from the chosen voice, and settings it does not have are hidden. -->
+    <Border Classes="group" Margin="0,8,0,0">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Voice settings" FontWeight="SemiBold" />
+        <Grid ColumnDefinitions="*,Auto">
+          <ComboBox ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ModelChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
+                  ToolTip.Tip="Play a sample (downloads the voice if needed)" />
+        </Grid>
+        <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <Grid ColumnDefinitions="110,*,Auto" Margin="0,6,0,0" ToolTip.Tip="How fast the assistant speaks"
+              IsVisible="{Binding VoiceTuning.Speed, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <TextBlock Text="Speed" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Speed.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Speed.Max, FallbackValue=1}"
+                  SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
+          <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
+        </Grid>
+        <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Semitones lower or higher than the original voice"
+              IsVisible="{Binding VoiceTuning.Pitch, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <TextBlock Text="Pitch" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Pitch.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Pitch.Max, FallbackValue=1}"
+                  SmallChange="1" LargeChange="1" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
+          <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
+        </Grid>
+        <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is flatter, higher is more varied intonation"
+              IsVisible="{Binding VoiceTuning.Expressiveness, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <TextBlock Text="Expressiveness" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Expressiveness.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Expressiveness.Max, FallbackValue=1}"
+                  SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Expressiveness}" />
+          <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding ExpressivenessText}" />
+        </Grid>
+        <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Lower is more regular, higher is more natural timing"
+              IsVisible="{Binding VoiceTuning.Rhythm, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <TextBlock Text="Rhythm" VerticalAlignment="Center" />
+          <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Rhythm.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Rhythm.Max, FallbackValue=1}"
+                  SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Rhythm}" />
+          <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding RhythmText}" />
+        </Grid>
+        <Button Classes="flat" HorizontalAlignment="Left" Padding="8,2" Content="Reset voice settings" Command="{Binding ResetVoiceStyleCommand}"
+                ToolTip.Tip="Back to the voice's original settings" />
+      </StackPanel>
+    </Border>
     <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
                Text="The assistant replies in the language you write or speak, always with this voice. Name, style, model, voice and voice settings cannot be changed later; anything not downloaded yet is downloaded after creating." />
     <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"

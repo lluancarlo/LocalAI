@@ -92,7 +92,7 @@ public sealed class ModelLibrary
             {
                 Id = e.Id, Kind = ModelKind.Voice, DisplayName = string.IsNullOrEmpty(e.DisplayName) ? e.Id : e.DisplayName,
                 Source = new Uri(e.Url), InstallPath = Full(e.Dir), SizeBytes = e.SizeBytes, IsArchive = true,
-                Language = e.Language, IsDefault = e.Default,
+                Language = e.Language, IsDefault = e.Default, Tuning = e.Tuning,
             });
         return packages;
 

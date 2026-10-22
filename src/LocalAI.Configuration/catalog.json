@@ -1,9 +1,20 @@
 {
-  "$comment": "Everything the app can download from Settings > Models. Files are stored next to the application (models/ and runtime/).",
+  "$comment": "Everything the app can download from Settings > Models. Files are stored next to the application (models/ and runtime/). A voice's optional \"settings\" change its engine's voice settings (VoiceTuning): min, max and default per setting (defaults from the voice's .onnx.json; speed = 1 / length_scale), and \"unsupported\" hides settings.",
   "llm": [
     {
+      "id": "qwen3.5-35b-a3b-q4kxl",
+      "displayName": "Qwen3.5 35B-A3B",
+      "file": "llm/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 22241950336,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 35,
+      "minVramMb": 26000,
+      "defaultContext": 16384
+    },
+    {
       "id": "gemma-4-26b-a4b-qat-q4kxl",
-      "displayName": "Gemma 4 26B-A4B Instruct (QAT)",
+      "displayName": "Gemma 4 26B-A4B",
       "file": "llm/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
       "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
       "sizeBytes": 14249047104,
@@ -13,8 +24,30 @@
       "defaultContext": 16384
     },
     {
+      "id": "qwen3.5-27b-q4kxl",
+      "displayName": "Qwen3.5 27B",
+      "file": "llm/Qwen3.5-27B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 17621125024,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 27,
+      "minVramMb": 21000,
+      "defaultContext": 16384
+    },
+    {
+      "id": "gpt-oss-20b-mxfp4",
+      "displayName": "gpt-oss 20B",
+      "file": "llm/gpt-oss-20b-MXFP4.gguf",
+      "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf",
+      "sizeBytes": 12109566624,
+      "quantization": "MXFP4",
+      "parametersB": 21,
+      "minVramMb": 14500,
+      "defaultContext": 16384
+    },
+    {
       "id": "gemma-4-12b-qat-q4_0",
-      "displayName": "Gemma 4 12B Instruct (QAT)",
+      "displayName": "Gemma 4 12B",
       "file": "llm/gemma-4-12b-it-qat-q4_0.gguf",
       "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
       "sizeBytes": 6975879296,
@@ -24,12 +57,34 @@
       "defaultContext": 16384
     },
     {
+      "id": "qwen3.5-9b-q4kxl",
+      "displayName": "Qwen3.5 9B",
+      "file": "llm/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 5966095584,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 9,
+      "minVramMb": 7500,
+      "defaultContext": 16384
+    },
+    {
       "id": "gemma-4-e4b-qat-q4_0",
-      "displayName": "Gemma 4 E4B Instruct (QAT)",
+      "displayName": "Gemma 4 E4B",
       "file": "llm/gemma-4-E4B_q4_0-it.gguf",
       "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf",
       "sizeBytes": 5154941280,
       "quantization": "Q4_0 (QAT)",
+      "parametersB": 4,
+      "minVramMb": 0,
+      "defaultContext": 8192
+    },
+    {
+      "id": "qwen3.5-4b-q4kxl",
+      "displayName": "Qwen3.5 4B",
+      "file": "llm/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 2912109728,
+      "quantization": "UD-Q4_K_XL",
       "parametersB": 4,
       "minVramMb": 0,
       "defaultContext": 8192
@@ -119,7 +174,8 @@
       "dir": "tts/vits-piper-it_IT-paola-medium",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-it_IT-paola-medium.tar.bz2",
       "default": true,
-      "sizeBytes": 67221173
+      "sizeBytes": 67221173,
+      "settings": { "expressiveness": { "default": 0.8 } }
     },
     {
       "id": "it_IT-riccardo-x_low",
@@ -192,7 +248,8 @@
       "displayName": "HFC (en-US, male)",
       "dir": "tts/vits-piper-en_US-hfc_male-medium",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_male-medium.tar.bz2",
-      "sizeBytes": 67214049
+      "sizeBytes": 67214049,
+      "settings": { "speed": { "default": 1.25, "max": 1.75 }, "expressiveness": { "default": 0.333 } }
     }
   ],
   "runtime": {

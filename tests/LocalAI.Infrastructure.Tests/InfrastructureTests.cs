@@ -160,6 +160,39 @@ public sealed class ConfigurationTests
         Assert.All(catalog.Whisper.Concat(catalog.Vad).Concat(catalog.Embedding), e => Assert.True(e.SizeBytes > 0));
         Assert.NotEmpty(catalog.Runtime.Urls);
     }
+
+    [Fact]
+    public void A_voice_gets_its_engine_settings_with_its_own_changes()
+    {
+        var catalog = ModelCatalog.Parse("""
+            { "tts": [
+              { "id": "plain", "language": "en", "dir": "tts/a" },
+              { "id": "tuned", "language": "en", "dir": "tts/b",
+                "settings": { "speed": { "default": 1.25, "max": 1.75 }, "expressiveness": { "default": 5 }, "unsupported": ["Rhythm"] } },
+              { "id": "other", "language": "en", "dir": "tts/c", "engine": "something-else" } ] }
+            """);
+        Assert.Equal(VoiceTuning.Piper, catalog.Tts[0].Tuning);
+
+        var tuned = catalog.Tts[1].Tuning;
+        Assert.Equal(new VoiceSettingRange(0.75, 1.75, 1.25), tuned.Speed);
+        Assert.Equal(1.0, tuned.Expressiveness!.Default); // kept within the range
+        Assert.Null(tuned.Rhythm);
+        Assert.Equal(VoiceTuning.Piper.Pitch, tuned.Pitch);
+
+        var other = catalog.Tts[2].Tuning;
+        Assert.NotNull(other.Pitch); // applied after synthesis, so every engine has it
+        Assert.Null(other.Speed);
+    }
+
+    [Fact]
+    public void Repository_voices_start_from_the_values_in_their_onnx_json()
+    {
+        var voices = ModelCatalog.LoadDefault().Tts.ToDictionary(v => v.Id);
+        Assert.Equal(0.8, voices["it_IT-paola-medium"].Tuning.Expressiveness!.Default);
+        Assert.Equal(1.25, voices["en_US-hfc_male-medium"].Tuning.Speed!.Default); // length_scale 0.8
+        Assert.Equal(0.333, voices["en_US-hfc_male-medium"].Tuning.Expressiveness!.Default);
+        Assert.Equal(VoiceTuning.Piper, voices["pt_BR-faber-medium"].Tuning);
+    }
 }
 
 public sealed class ModelSelectorTests : IDisposable
@@ -226,6 +259,14 @@ public sealed class ModelSelectorTests : IDisposable
         Assert.Equal(4096, explicitModel.ContextSize);
         Assert.True(explicitModel.EstimatedVramMb > 600);
     }
+
+    [Theory]
+    [InlineData("big", 16376, true)] // needs 22 GB on a 16 GB GPU: split between GPU and CPU
+    [InlineData("big", 24576, false)]
+    [InlineData("mid", 16376, false)]
+    [InlineData("big", null, false)] // no GPU: CPU only, nothing to split
+    public void A_model_larger_than_the_gpu_is_split_between_gpu_and_cpu(string model, int? vram, bool split) =>
+        Assert.Equal(split, ModelSelector.Select(_catalog, new LlmOptions { Model = model }, _dir, vram).FitToMemory);
 }
 
 public sealed class LlamaServerTests
@@ -246,6 +287,21 @@ public sealed class LlamaServerTests
         Assert.Contains("--reasoning off", joined, StringComparison.Ordinal);
         Assert.Contains("--load-mode none", joined, StringComparison.Ordinal);
         Assert.DoesNotContain(args, a => a.Contains("api-key", StringComparison.Ordinal)); // key goes via environment
+    }
+
+    [Fact]
+    public void A_model_larger_than_the_gpu_lets_llama_cpp_fit_it_with_room_for_the_other_models()
+    {
+        var args = LlamaServerProcess.BuildArguments(new LlamaServerStartInfo
+        {
+            ExecutablePath = "x", ModelPath = "big.gguf", GpuLayers = -1, FitToMemory = true,
+        }, 1);
+        var joined = string.Join(' ', args);
+        Assert.Contains("--fit on", joined, StringComparison.Ordinal);
+        Assert.Contains("--fit-target 2560", joined, StringComparison.Ordinal);
+        Assert.DoesNotContain("--n-gpu-layers", args); // llama.cpp decides how many layers fit
+        Assert.DoesNotContain("--load-mode", args); // weights partly used from host memory: keep mmap
+        Assert.Contains("--reasoning off", joined, StringComparison.Ordinal);
     }
 
     [Fact]

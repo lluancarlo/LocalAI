@@ -3,7 +3,9 @@ using LocalAI.Core.Llm;
 
 namespace LocalAI.LLM;
 
-public sealed record ModelSelection(LlmCatalogEntry Entry, string FullPath, int ContextSize, int GpuLayers, int EstimatedVramMb);
+/// <param name="FitToMemory">The model needs more VRAM than the GPU has: it is split between GPU and CPU (slower).</param>
+public sealed record ModelSelection(LlmCatalogEntry Entry, string FullPath, int ContextSize, int GpuLayers, int EstimatedVramMb,
+    bool FitToMemory = false);
 
 /// <summary>
 /// Chooses the LLM and its settings: the active assistant's model, or with "auto" the strongest installed catalog
@@ -40,7 +42,8 @@ public static class ModelSelector
         var context = options.ContextSize > 0 ? options.ContextSize : entry.DefaultContext;
         var gpuLayers = gpuTotalVramMb is null or 0 ? 0 : options.GpuLayers;
         var fileSize = new FileInfo(path).Length;
-        return new ModelSelection(entry, path, context, gpuLayers, EstimateVramMb(fileSize, context, gpuLayers));
+        var fit = gpuLayers < 0 && gpuTotalVramMb is > 0 && entry.MinVramMb > gpuTotalVramMb;
+        return new ModelSelection(entry, path, context, gpuLayers, EstimateVramMb(fileSize, context, gpuLayers), fit);
     }
 
     /// <summary>

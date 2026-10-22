@@ -76,9 +76,14 @@ Main runtime flows:
 - **Voice** (`VoiceConversationController`): one loop reads microphone frames. VAD and `UtteranceSegmenter` find
   utterances, Whisper transcribes them, and the session answers. `BargeInDetector` lets the user interrupt the
   assistant by talking, without reacting to the assistant's own voice from the speakers. `LiveActivation` and
-  `AssistantHotkeys` connect each assistant's global shortcut to live mode.
+  `AssistantHotkeys` connect each assistant's global shortcut to live mode. Turn-taking in live mode
+  (`TurnTaking.cs`, `ConversationCues`): a transcript that sounds unfinished is held for a longer silence, speech
+  before the reply starts is joined into the same message, `ReactionPlanner` plays a short reaction in the user's
+  pauses, and a phrase fills a reply that is slow to start. The phrases are pre-synthesized with the active voice
+  (from `languages.json`) and are skipped when not ready.
 - **Assistants** (`AssistantManager`, `AssistantContext`): each assistant has its own model, voice, conversations and
-  memory notes. The stores read and write only the active assistant's data. Switching assistants applies the new
+  memory notes. The stores read and write only the active assistant's data. The voice settings a voice supports and
+  their ranges (`VoiceTuning`) come from its engine, changed by the voice's `settings` in `catalog.json`. Switching assistants applies the new
   assistant's model and voice.
 - **LLM process** (`LlamaServerProcess`): `llama-server` runs as a child process on 127.0.0.1 with a random port,
   a random API key passed in its environment, `--offline`, and a Job Object that ties it to the app's lifetime.

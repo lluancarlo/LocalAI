@@ -15,6 +15,12 @@ public sealed record LanguageProfile
     public IReadOnlyList<string> LetterGroups { get; init; } = [];
     /// <summary>Section titles of the memory notes written in this language.</summary>
     public MemoryHeadings? MemoryHeadings { get; init; }
+    /// <summary>Short sounds the assistant makes while the user talks, in Live mode ("mm-hmm").</summary>
+    public IReadOnlyList<string> Reactions { get; init; } = [];
+    /// <summary>Phrases that fill the wait when a spoken reply is slow to start ("hmm, let me see...").</summary>
+    public IReadOnlyList<string> Fillers { get; init; } = [];
+    /// <summary>Lower-case words a finished sentence rarely ends with (and, because, the...).</summary>
+    public IReadOnlyList<string> UnfinishedEndings { get; init; } = [];
 }
 
 /// <summary>Section titles of the memory notes (conversation notes and the profile).</summary>

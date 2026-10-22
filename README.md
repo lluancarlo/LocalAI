@@ -21,7 +21,8 @@
 </p>
 
 - **Your own assistants:** each with a name, personality, language model, voice and voice settings (speed, pitch,
-  expressiveness, rhythm), chosen when you create it, plus its own conversations and memories.
+  expressiveness, rhythm), chosen when you create it, plus its own conversations and memories. The voice settings
+  start at the values the voice was made for, and their ranges follow the chosen voice.
 - **One click away:** one tab per assistant at the top of the window, **＋** to add a new one. The dot on a tab shows
   its AI: green on, yellow loading (its model or its voice), red off. Switching tabs never loads a model: the
   **Turn on / Turn off** button above the conversations does (one model runs at a time; assistants with the same model
@@ -32,8 +33,11 @@
 - **Always at hand:** it runs in the notification area. Give each assistant a global shortcut to start and stop a
   voice conversation from any application; the tray icon blinks while it listens.
 - **A memory you can read:** each assistant keeps what it learns as Markdown notes, ready to open in Obsidian (see below).
-- **Fully offline:** llama.cpp (Gemma 4), Whisper, Piper and SQLite on your GPU. The Internet is used only to download
-  models.
+- **Fully offline:** llama.cpp (Gemma 4, Qwen3.5 or gpt-oss), Whisper, Piper and SQLite on your GPU. The Internet is
+  used only to download models.
+- **Models for your GPU:** from Qwen3.5 4B for small cards to Qwen3.5 35B-A3B for 32 GB ones. When you create an
+  assistant, the models that fit your GPU come first, with one recommended; larger ones still run, split between GPU
+  and CPU, but slower.
 - **Portable:** everything stays in the app folder. Copy it to install, delete it to remove every trace.
 
 <table>
@@ -94,6 +98,20 @@ In **Settings › Assistants › Ways to talk** you can turn Read aloud and Live
   does **Live mode** in the tray icon's menu. The tray icon blinks while the assistant listens. Shortcuts are
   unavailable while Live is turned off.
 - **Esc** stops the current reply in every mode. Live mode needs a microphone and the speech recognition model.
+
+### A natural conversation
+
+Live mode takes turns the way people do. You can change each of these in **Settings › Assistants › Live conversation**:
+
+- **Pausing mid-sentence:** if what you said sounds unfinished ("I went to the store and…"), the assistant waits a
+  little longer before answering. If you go on talking before the reply starts, what you said before and after the
+  pause becomes one message.
+- **Reactions while you talk:** in the pauses of a longer message, the assistant sometimes says *"mm-hmm"* or
+  *"I see"*, in your language and in the assistant's voice. Choose **Subtle** (the default), **Frequent** or **Off**.
+- **Filling a slow reply:** when the reply takes more than 1.5 seconds to start, the assistant says *"hmm, let me
+  see..."* first. Choose the delay or **Never**.
+
+The phrases for each language are in `languages.json`, next to the executable.
 
 ## Ask about what's on your screen
 
@@ -208,7 +226,7 @@ headset); a device you pick yourself is used from then on, and while it is unplu
 |---|---|
 | Platform | C# on [.NET 10](https://dotnet.microsoft.com/), Windows 11 x64, published self-contained (no .NET install needed) |
 | User interface | [Avalonia UI](https://avaloniaui.net/) (Fluent theme, Inter font), MVVM with [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) |
-| Language model | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` with CUDA, running Google [Gemma 4](https://huggingface.co/google) models (GGUF, QAT) |
+| Language model | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` with CUDA, running Google [Gemma 4](https://huggingface.co/google), [Qwen3.5](https://huggingface.co/Qwen) and OpenAI [gpt-oss](https://huggingface.co/openai) models (GGUF) |
 | Memory | Markdown notes (Obsidian-compatible) indexed with [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) embeddings on llama.cpp and FTS5 full-text search in [SQLite](https://www.sqlite.org/) ([Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/)) |
 | Speech recognition | [Whisper.net](https://github.com/sandrohanea/whisper.net) ([whisper.cpp](https://github.com/ggml-org/whisper.cpp)) with Whisper large-v3-turbo on CUDA |
 | Speech synthesis and voice detection | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with [Piper](https://github.com/rhasspy/piper) voices and [Silero VAD](https://github.com/snakers4/silero-vad) |

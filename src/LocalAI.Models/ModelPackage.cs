@@ -1,3 +1,5 @@
+using LocalAI.Configuration;
+
 namespace LocalAI.Models;
 
 public enum ModelKind { Llm, SpeechRecognition, VoiceActivity, Embedding, Voice }
@@ -15,4 +17,6 @@ public sealed record ModelPackage
     public string? Language { get; init; }
     public int MinVramMb { get; init; }
     public bool IsDefault { get; init; }
+    /// <summary>Voices only: the settings the voice supports and their ranges.</summary>
+    public VoiceTuning? Tuning { get; init; }
 }
