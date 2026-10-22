@@ -71,9 +71,7 @@ internal sealed class AssistantsHarness
     public AssistantsHarness()
     {
         var options = Options;
-        var memory = new MemoryService(new InMemoryMemoryStore(), new NoMemoryRetriever(), new FakeEmbeddings(), Llm, options,
-            NullLogger<MemoryService>.Instance);
-        Manager = new AssistantManager(Store, Context, Llm, new FakeTts(), memory,
+        Manager = new AssistantManager(Store, Context, Llm, new FakeTts(),
             new UserSettingsStore(Path.Combine(TestPaths.New("settings"), "usersettings.json")), options, NullLogger<AssistantManager>.Instance);
     }
 
@@ -208,9 +206,8 @@ public sealed class LiveActivationTests : IDisposable
 
     public LiveActivationTests()
     {
-        var options = TestOptions.Create(o => o.Memory.AutoExtract = false);
-        var memory = new MemoryService(new InMemoryMemoryStore(), new NoMemoryRetriever(), new FakeEmbeddings(), _assistants.Llm, options,
-            NullLogger<MemoryService>.Instance);
+        var options = TestOptions.Create();
+        var memory = new MemoryHarness(_assistants.Llm, context: _assistants.Context, assistants: _assistants.Store, options: options).Vault;
         var speech = new SpeechOutput(new FakeTts(), new FakePlayer(), Languages, NullLogger<SpeechOutput>.Instance);
         _session = new AssistantSession(_assistants.Llm, new InMemoryConversationStore(), new PromptBuilder(options, _assistants.Context),
             new HeuristicLanguageDetector(Languages), memory, speech, options, NullLogger<AssistantSession>.Instance);

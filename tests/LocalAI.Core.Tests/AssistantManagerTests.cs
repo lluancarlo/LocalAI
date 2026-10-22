@@ -22,9 +22,7 @@ public sealed class AssistantManagerTests
     {
         var options = TestOptions.Create();
         _options = options.Value;
-        var memory = new MemoryService(new InMemoryMemoryStore(), new NoMemoryRetriever(), new FakeEmbeddings(), _llm, options,
-            NullLogger<MemoryService>.Instance);
-        _manager = new AssistantManager(_store, _context, _llm, _tts, memory, new UserSettingsStore(_settingsPath), options,
+        _manager = new AssistantManager(_store, _context, _llm, _tts, new UserSettingsStore(_settingsPath), options,
             NullLogger<AssistantManager>.Instance);
     }
 

@@ -95,7 +95,7 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
             SELECT
                 (SELECT COUNT(*) FROM conversations WHERE assistant_id = $id),
                 (SELECT COUNT(*) FROM messages m JOIN conversations cv ON cv.id = m.conversation_id WHERE cv.assistant_id = $id),
-                (SELECT COUNT(*) FROM memories WHERE assistant_id = $id);
+                (SELECT COUNT(*) FROM vault_notes WHERE assistant_id = $id);
             """;
         cmd.Parameters.AddWithValue("$id", id);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);

@@ -1,31 +1,5 @@
 namespace LocalAI.Core.Memory;
 
-public sealed record MemoryItem
-{
-    public long Id { get; init; }
-    public required string Content { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-    public long? SourceConversationId { get; init; }
-    public float[]? Embedding { get; init; }
-    public string? EmbeddingModel { get; init; }
-}
-
-public sealed record ScoredMemory(MemoryItem Memory, float Score);
-
-/// <summary>Persistent long-term memory (facts about the user).</summary>
-public interface IMemoryStore
-{
-    Task<MemoryItem> AddAsync(MemoryItem item, CancellationToken ct = default);
-    Task<IReadOnlyList<MemoryItem>> ListAsync(CancellationToken ct = default);
-    Task DeleteAsync(long id, CancellationToken ct = default);
-    Task UpdateEmbeddingAsync(long id, float[] embedding, string model, CancellationToken ct = default);
-}
-
-public interface IMemoryRetriever
-{
-    Task<IReadOnlyList<ScoredMemory>> RetrieveAsync(string query, int topK, float minScore, CancellationToken ct = default);
-}
-
 public enum EmbeddingPurpose { Query, Document }
 
 public interface IEmbeddingService

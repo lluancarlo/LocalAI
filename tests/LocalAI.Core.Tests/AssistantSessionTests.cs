@@ -3,7 +3,7 @@ using LocalAI.Core.Assistant;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,19 +16,15 @@ public sealed class AssistantSessionTests
     private readonly FakeLanguageModel _llm = new();
     private readonly LocalAI.Core.Assistants.AssistantContext _assistant = new();
     private readonly InMemoryConversationStore _store = new();
-    private readonly InMemoryMemoryStore _memories = new();
-    private readonly NoMemoryRetriever _retriever = new();
     private readonly FakeTts _tts = new();
     private readonly FakePlayer _player = new();
+    private MemoryHarness _memory = null!;
 
     private AssistantSession CreateSession(Action<Configuration.LocalAiOptions>? configure = null)
     {
-        var options = TestOptions.Create(o =>
-        {
-            o.Memory.AutoExtract = false;
-            configure?.Invoke(o);
-        });
-        var memory = new MemoryService(_memories, _retriever, new FakeEmbeddings(), _llm, options, NullLogger<MemoryService>.Instance);
+        var options = TestOptions.Create(o => configure?.Invoke(o));
+        _memory = new MemoryHarness(_llm, _store, _assistant, options: options);
+        var memory = _memory.Vault;
         var speech = new SpeechOutput(_tts, _player, Languages, NullLogger<SpeechOutput>.Instance);
         return new AssistantSession(_llm, _store, new PromptBuilder(options, _assistant), new HeuristicLanguageDetector(Languages), memory, speech, options,
             NullLogger<AssistantSession>.Instance);
@@ -163,13 +159,23 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
-    public async Task Relevant_memories_are_injected_into_the_system_prompt()
+    public async Task The_profile_and_relevant_notes_are_injected_into_the_system_prompt()
     {
-        _retriever.Results.Add(new ScoredMemory(new MemoryItem { Id = 1, Content = "User prefers C# for software development." }, 0.8f));
         using var session = CreateSession();
-        await session.SubmitAsync(new TurnRequest("What language should I use?", InputSource.Text));
+        var diana = await _memory.Assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Diana", "", "m", "v", "en"), VoiceStyle.Default);
+        _assistant.Set(diana);
+        _memory.Storage.Write("diana/diana-profile.md",
+            "---\ntype: profile\n---\n# Diana - Profile\n\n<!-- local-ai:begin -->\n## Preferences\n- User prefers C# for software development.\n<!-- local-ai:end -->\n");
+        _memory.Storage.Write("diana/conversations/2026-10-01-rest-api.md",
+            "---\ntype: conversation\nconversation: 9\n---\n# REST API\n\n<!-- local-ai:begin -->\n## Summary\nThe user designed the orders REST API with pagination.\n<!-- local-ai:end -->\n");
+        await _memory.Vault.ScanAsync(diana.Id, CancellationToken.None);
+
+        await session.SubmitAsync(new TurnRequest("How did we paginate the orders API?", InputSource.Text));
+
         var system = _llm.Requests[^1][0].Content;
         Assert.Contains("User prefers C# for software development.", system, StringComparison.Ordinal);
+        Assert.Contains("[[2026-10-01-rest-api]]", system, StringComparison.Ordinal);
+        Assert.Contains("orders REST API with pagination", system, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -205,7 +211,7 @@ public sealed class PromptBuilderTests
         var history = Enumerable.Range(0, 20)
             .Select(i => Msg(i % 2 == 0 ? ChatRole.User : ChatRole.Assistant, $"message number {i} " + new string('x', 60)))
             .ToList();
-        var prompt = builder.Build(history, "latest", [], false, DateTimeOffset.Now);
+        var prompt = builder.Build(history, "latest", MemoryContext.Empty, false, DateTimeOffset.Now);
 
         Assert.True(prompt.Count < 10);
         Assert.Equal(ChatRole.System, prompt[0].Role);
@@ -222,7 +228,7 @@ public sealed class PromptBuilderTests
     {
         var context = new LocalAI.Core.Assistants.AssistantContext();
         context.Set(Profile("it"));
-        var system = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", [], false, DateTimeOffset.Now)[0].Content;
+        var system = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[0].Content;
         Assert.Contains("You are Diana", system, StringComparison.Ordinal);
         Assert.Contains("Speaks like a pirate.", system, StringComparison.Ordinal);
         Assert.Contains("Always reply in Italian", system, StringComparison.Ordinal);
@@ -233,7 +239,7 @@ public sealed class PromptBuilderTests
     {
         var context = new LocalAI.Core.Assistants.AssistantContext();
         context.Set(Profile("it"));
-        var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", [], false, DateTimeOffset.Now);
+        var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now);
         Assert.Equal("Hello\n\n(Reply in Italian.)", prompt[^1].Content);
     }
 
@@ -241,7 +247,7 @@ public sealed class PromptBuilderTests
     public void Without_an_assistant_the_reply_follows_the_users_language()
     {
         var system = new PromptBuilder(TestOptions.Create(), new LocalAI.Core.Assistants.AssistantContext())
-            .Build([], "Hello", [], false, DateTimeOffset.Now)[0].Content;
+            .Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[0].Content;
         Assert.Contains("same language as the user's last message", system, StringComparison.Ordinal);
     }
 
@@ -250,61 +256,9 @@ public sealed class PromptBuilderTests
     {
         var builder = new PromptBuilder(TestOptions.Create(), new LocalAI.Core.Assistants.AssistantContext());
         var history = new List<StoredMessage> { Msg(ChatRole.User, "a"), Msg(ChatRole.User, "b"), Msg(ChatRole.Assistant, "c") };
-        var prompt = builder.Build(history, "d", [], false, DateTimeOffset.Now);
+        var prompt = builder.Build(history, "d", MemoryContext.Empty, false, DateTimeOffset.Now);
         var roles = prompt.Skip(1).Select(m => m.Role).ToList();
         Assert.Equal([ChatRole.User, ChatRole.Assistant, ChatRole.User], roles);
     }
 }
 
-public sealed class MemoryServiceTests
-{
-    [Theory]
-    [InlineData("[\"User prefers C#.\"]", 1)]
-    [InlineData("Sure! Here you go:\n```json\n[\"User likes coffee.\", \"User lives in Rome.\"]\n```", 2)]
-    [InlineData("[]", 0)]
-    [InlineData("I could not find anything.", 0)]
-    [InlineData("[not json", 0)]
-    public void Parses_facts_robustly(string raw, int expected) =>
-        Assert.Equal(expected, MemoryService.ParseFacts(raw).Count);
-
-    [Fact]
-    public async Task Extracts_and_deduplicates_memories()
-    {
-        var llm = new FakeLanguageModel { Responder = _ => ["[\"User prefers C# for software.\"]"] };
-        var store = new InMemoryMemoryStore();
-        var service = new MemoryService(store, new NoMemoryRetriever(), new FakeEmbeddings(), llm,
-            TestOptions.Create(), NullLogger<MemoryService>.Instance);
-
-        var first = await service.ExtractAndStoreAsync(1, "I prefer writing software in C#.", "Noted.", CancellationToken.None);
-        var second = await service.ExtractAndStoreAsync(1, "Did I say I like C#?", "Yes.", CancellationToken.None);
-
-        Assert.Single(first);
-        Assert.Empty(second); // same fact → duplicate by embedding similarity
-        Assert.Single(store.Items);
-        Assert.NotNull(store.Items[0].Embedding);
-        Assert.Equal("fake-embed", store.Items[0].EmbeddingModel);
-        Assert.True(llm.Requests[0].Count == 2 && llm.Requests[0][0].Content.Contains("JSON array", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task Stores_without_vector_when_embeddings_are_unavailable()
-    {
-        var store = new InMemoryMemoryStore();
-        var service = new MemoryService(store, new NoMemoryRetriever(), new FakeEmbeddings { IsAvailable = false }, new FakeLanguageModel(),
-            TestOptions.Create(), NullLogger<MemoryService>.Instance);
-        var item = await service.RememberAsync("User likes coffee.", null, CancellationToken.None);
-        Assert.NotNull(item);
-        Assert.Null(store.Items[0].Embedding);
-        Assert.Null(await service.RememberAsync("user likes coffee.", null, CancellationToken.None)); // exact duplicate
-    }
-
-    [Fact]
-    public async Task Disabled_memory_returns_nothing()
-    {
-        var retriever = new NoMemoryRetriever();
-        retriever.Results.Add(new ScoredMemory(new MemoryItem { Content = "x" }, 1));
-        var service = new MemoryService(new InMemoryMemoryStore(), retriever, new FakeEmbeddings(), new FakeLanguageModel(),
-            TestOptions.Create(o => o.Memory.Enabled = false), NullLogger<MemoryService>.Instance);
-        Assert.Empty(await service.RecallAsync("anything", CancellationToken.None));
-    }
-}

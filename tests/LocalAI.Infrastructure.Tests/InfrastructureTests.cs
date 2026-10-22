@@ -34,7 +34,11 @@ public sealed class DependencyInjectionTests
         Assert.IsType<LocalAI.Speech.WhisperSpeechToText>(provider.GetRequiredService<ISpeechToText>());
         Assert.IsType<LocalAI.Speech.SherpaTextToSpeech>(provider.GetRequiredService<ITextToSpeech>());
         Assert.IsType<LocalAI.Memory.SqliteConversationStore>(provider.GetRequiredService<IConversationStore>());
-        Assert.IsType<LocalAI.Memory.MemoryRetriever>(provider.GetRequiredService<IMemoryRetriever>());
+        Assert.IsType<LocalAI.Memory.SqliteVaultIndex>(provider.GetRequiredService<LocalAI.Core.Memory.Vault.IVaultIndex>());
+        Assert.IsType<LocalAI.Memory.FileVaultStorage>(provider.GetRequiredService<LocalAI.Core.Memory.Vault.IVaultStorage>());
+        Assert.NotNull(provider.GetRequiredService<LocalAI.Core.Memory.Vault.MemoryWorker>());
+        // The notes stay in the application folder unless the user picks a vault.
+        Assert.StartsWith(paths.DataDirectory, provider.GetRequiredService<LocalAI.Core.Memory.Vault.IVaultStorage>().Root, StringComparison.OrdinalIgnoreCase);
         Assert.IsType<LlamaCppEmbeddingService>(provider.GetRequiredService<IEmbeddingService>());
         Assert.NotNull(provider.GetRequiredService<IAudioCapture>());
         Assert.NotNull(provider.GetRequiredService<AssistantSession>());

@@ -4,12 +4,12 @@ using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using Microsoft.Extensions.Options;
 
 namespace LocalAI.Core.Assistant;
 
-/// <summary>Assembles the model input: system prompt + relevant memories + recent history within a token budget.</summary>
+/// <summary>Assembles the model input: system prompt + memory (profile and note passages) + recent history within a token budget.</summary>
 public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantContext assistant)
 {
     private readonly AssistantOptions _options = options.Value.Assistant;
@@ -42,7 +42,7 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
     public IReadOnlyList<ChatMessage> Build(
         IReadOnlyList<StoredMessage> history,
         string userText,
-        IReadOnlyList<ScoredMemory> memories,
+        MemoryContext memory,
         bool spoken,
         DateTimeOffset now,
         string? selectedText = null)
@@ -54,10 +54,14 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
             system.Append("\n\nPersonality and style defined by the user:\n").Append(profile.StylePrompt);
         system.Append(CultureInfo.InvariantCulture, $"\nCurrent local date/time: {now:yyyy-MM-dd HH:mm} ({now:dddd}).");
 
-        if (memories.Count > 0)
+        if (!string.IsNullOrWhiteSpace(memory.Profile))
+            system.Append("\n\nWhat you know about the user (your memory; use only when relevant, do not mention it unprompted):\n")
+                .Append(memory.Profile.Trim());
+        if (memory.Passages.Count > 0)
         {
-            system.Append("\n\nLong-term memory about the user (use only when relevant; do not mention it unprompted):");
-            foreach (var m in memories) system.Append("\n- ").Append(m.Memory.Content);
+            system.Append("\n\nNotes from past conversations that may be relevant (when you use one, you can name it as [[title]]):");
+            foreach (var p in memory.Passages)
+                system.Append("\n- [[").Append(p.NoteTitle).Append("]] ").Append(p.Heading).Append(": ").Append(p.Text.ReplaceLineEndings(" "));
         }
 
         var language = LanguageName(profile?.Language);

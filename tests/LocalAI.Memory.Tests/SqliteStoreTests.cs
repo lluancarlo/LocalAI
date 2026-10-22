@@ -2,7 +2,7 @@ using LocalAI.Tests;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -145,94 +145,132 @@ public sealed class SqliteConversationStoreTests : IDisposable
     }
 }
 
-public sealed class SqliteMemoryStoreTests : IDisposable
+public sealed class SqliteVaultIndexTests : IDisposable
 {
     private readonly SqliteFixture _fx = new();
+    private readonly SqliteVaultIndex _index;
+    private readonly SqliteConversationStore _conversations;
+
+    public SqliteVaultIndexTests()
+    {
+        _index = new SqliteVaultIndex(_fx.Database);
+        _conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
+    }
+
     public void Dispose() => _fx.Dispose();
 
-    [Fact]
-    public async Task Stores_memories_with_embeddings()
-    {
-        var store = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
-        var vector = new[] { 0.1f, -0.5f, 3.25f };
-        var a = await store.AddAsync(new MemoryItem { Content = "User prefers C#.", CreatedAt = DateTimeOffset.Now, Embedding = vector, EmbeddingModel = "e", SourceConversationId = 7 });
-        var b = await store.AddAsync(new MemoryItem { Content = "User likes coffee.", CreatedAt = DateTimeOffset.Now });
+    private long Diana => _fx.Assistant.CurrentId;
 
-        var list = await new SqliteMemoryStore(_fx.Reopen(), _fx.Assistant).ListAsync();
-        Assert.Equal(2, list.Count);
-        Assert.Equal(vector, list[0].Embedding!);
-        Assert.Equal(7, list[0].SourceConversationId);
-        Assert.Null(list[1].Embedding);
-
-        await store.UpdateEmbeddingAsync(b.Id, [1f, 2f], "e2");
-        await store.DeleteAsync(a.Id);
-        var after = Assert.Single(await store.ListAsync());
-        Assert.Equal([1f, 2f], after.Embedding!);
-        Assert.Equal("e2", after.EmbeddingModel);
-    }
+    private Task<VaultNote> NoteAsync(string path, long? conversationId = null) =>
+        _index.SaveNoteAsync(new VaultNote
+        {
+            AssistantId = Diana, Path = path, Kind = conversationId == null ? NoteKind.Profile : NoteKind.Conversation,
+            ConversationId = conversationId, GeneratedText = "## Summary\nx", UpdatedAt = DateTimeOffset.Now,
+        });
 
     [Fact]
-    public async Task Memories_survive_conversation_deletion()
+    public async Task Notes_are_saved_found_and_updated_in_place()
     {
-        var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
-        var memories = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
-        var c = await conversations.CreateAsync("chat");
-        await memories.AddAsync(new MemoryItem { Content = "fact", CreatedAt = DateTimeOffset.Now, SourceConversationId = c.Id });
-        await conversations.DeleteAsync(c.Id);
-        Assert.Single(await memories.ListAsync());
-    }
-}
+        var note = await NoteAsync("diana/conversations/2026-10-22-chat.md", conversationId: 5);
+        Assert.True(note.Id > 0);
 
-public sealed class MemoryRetrieverTests
-{
-    private sealed class ListStore(params MemoryItem[] items) : IMemoryStore
-    {
-        public Task<MemoryItem> AddAsync(MemoryItem item, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<MemoryItem>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<MemoryItem>>(items);
-        public Task DeleteAsync(long id, CancellationToken ct = default) => Task.CompletedTask;
-        public Task UpdateEmbeddingAsync(long id, float[] embedding, string model, CancellationToken ct = default) => Task.CompletedTask;
-    }
-
-    private sealed class AxisEmbeddings(bool available = true) : IEmbeddingService
-    {
-        public bool IsAvailable => available;
-        public string ModelId => "axis";
-        public Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default) =>
-            Task.FromResult(text.Contains("language", StringComparison.OrdinalIgnoreCase) ? new[] { 1f, 0.1f } : new[] { 0f, 1f });
+        var again = await _index.SaveNoteAsync(note with { FileHash = "abc", SourceUpdatedAt = DateTimeOffset.Now });
+        Assert.Equal(note.Id, again.Id);
+        var found = await new SqliteVaultIndex(_fx.Reopen()).FindConversationNoteAsync(5);
+        Assert.Equal("abc", found!.FileHash);
+        Assert.Equal("## Summary\nx", found.GeneratedText);
+        Assert.Equal(note.Id, (await _index.FindNoteAsync(Diana, note.Path))!.Id);
+        Assert.Single(await _index.ListNotesAsync(Diana));
     }
 
     [Fact]
-    public async Task Ranks_by_cosine_and_applies_threshold()
+    public async Task Passages_keep_their_vectors_and_are_found_by_words_ignoring_accents()
     {
-        var store = new ListStore(
-            new MemoryItem { Id = 1, Content = "User prefers C#.", Embedding = [1f, 0f], EmbeddingModel = "axis" },
-            new MemoryItem { Id = 2, Content = "User likes coffee.", Embedding = [0f, 1f], EmbeddingModel = "axis" },
-            new MemoryItem { Id = 3, Content = "Old model vector", Embedding = [1f, 0f], EmbeddingModel = "other" });
-        var retriever = new MemoryRetriever(store, new AxisEmbeddings(), NullLogger<MemoryRetriever>.Instance);
+        var note = await NoteAsync("diana/conversations/2026-10-22-orders-api.md", conversationId: 1);
+        await _index.ReplaceChunksAsync(note.Id,
+        [
+            new NoteChunk { Heading = "Summary", Text = "Paginação por cursor na API de pedidos.", Embedding = [1f, 0f], EmbeddingModel = "e" },
+            new NoteChunk { Heading = "Decisions", Text = "Use PostgreSQL for orders." },
+        ]);
 
-        var results = await retriever.RetrieveAsync("Which language should I use?", 5, 0.5f);
-        var top = Assert.Single(results); // coffee below threshold, foreign-model vector ignored
-        Assert.Equal(1, top.Memory.Id);
-        Assert.True(top.Score > 0.9f);
+        var chunks = await _index.ListChunksAsync(Diana);
+        Assert.Equal(2, chunks.Count);
+        Assert.Equal([1f, 0f], chunks[0].Embedding!);
+        Assert.Equal("2026-10-22-orders-api", chunks[0].NoteTitle);
+
+        Assert.Equal([chunks[0].Id], await _index.SearchChunksAsync(Diana, "paginacao", 10));
+        Assert.Equal([chunks[1].Id], await _index.SearchChunksAsync(Diana, "which database for ORDERS? postgresql", 10));
+        Assert.Empty(await _index.SearchChunksAsync(Diana, "\"; DROP TABLE note_chunks; --", 10)); // user text is never FTS syntax
+
+        await _index.ReplaceChunksAsync(note.Id, [new NoteChunk { Heading = "Summary", Text = "Rewritten." }]);
+        Assert.Empty(await _index.SearchChunksAsync(Diana, "postgresql", 10));
+        await _index.DeleteNoteAsync(note.Id);
+        Assert.Empty(await _index.ListChunksAsync(Diana));
+        Assert.Empty(await _index.SearchChunksAsync(Diana, "rewritten", 10));
     }
 
     [Fact]
-    public async Task Falls_back_to_keywords_without_embeddings()
+    public async Task Passages_of_other_assistants_are_not_found()
     {
-        var store = new ListStore(
-            new MemoryItem { Id = 1, Content = "User prefers writing software in C#." },
-            new MemoryItem { Id = 2, Content = "User likes coffee." });
-        var retriever = new MemoryRetriever(store, new AxisEmbeddings(available: false), NullLogger<MemoryRetriever>.Instance);
-        var results = await retriever.RetrieveAsync("what software should I write", 5, 0.9f);
-        Assert.Equal(1, Assert.Single(results).Memory.Id);
+        var note = await NoteAsync("diana/diana-profile.md");
+        await _index.ReplaceChunksAsync(note.Id, [new NoteChunk { Heading = "About", Text = "Likes espresso." }]);
+        var marco = _fx.CreateAssistant("Marco");
+        Assert.Empty(await _index.SearchChunksAsync(marco.Id, "espresso", 10));
+        Assert.Empty(await _index.ListChunksAsync(marco.Id));
     }
 
     [Fact]
-    public void Cosine_similarity_basics()
+    public async Task Quiet_new_conversations_with_a_reply_and_no_current_note_need_one()
     {
-        Assert.Equal(1f, VectorMath.Cosine([1f, 2f], [2f, 4f]), 4);
-        Assert.Equal(0f, VectorMath.Cosine([1f, 0f], [0f, 1f]), 4);
-        Assert.Equal(0f, VectorMath.Cosine([1f], [1f, 2f]));
-        Assert.Equal(0f, VectorMath.Cosine([0f, 0f], [1f, 1f]));
+        var since = DateTimeOffset.Now.AddMinutes(-1);
+        var chat = await _conversations.CreateAsync("chat");
+        var empty = await _conversations.CreateAsync("only a question");
+        foreach (var (conversation, role) in new[] { (chat, ChatRole.User), (chat, ChatRole.Assistant), (empty, ChatRole.User) })
+            await _conversations.AddMessageAsync(new StoredMessage
+            {
+                ConversationId = conversation.Id, Role = role, Content = "x", CreatedAt = DateTimeOffset.Now, Source = InputSource.Text,
+            });
+        var later = DateTimeOffset.Now.AddMinutes(1);
+
+        Assert.Equal([(chat.Id, Diana)], await _index.ConversationsNeedingNotesAsync(since, later));
+        Assert.Empty(await _index.ConversationsNeedingNotesAsync(since, DateTimeOffset.Now.AddMinutes(-5))); // not quiet yet
+        Assert.Empty(await _index.ConversationsNeedingNotesAsync(later, later)); // older than the notes
+
+        var note = await NoteAsync("diana/conversations/chat.md", chat.Id);
+        await _index.SaveNoteAsync(note with { SourceUpdatedAt = DateTimeOffset.Now.AddMinutes(1) });
+        Assert.Empty(await _index.ConversationsNeedingNotesAsync(since, later)); // up to date
+
+        await _index.DeleteNoteAsync(note.Id); // the user deleted the file
+        Assert.Single(await _index.ConversationsNeedingNotesAsync(since, later));
+    }
+
+    [Fact]
+    public async Task The_queue_runs_jobs_in_time_order_without_duplicates()
+    {
+        var now = DateTimeOffset.Now;
+        await _index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, Diana, null, null, now.AddMinutes(5));
+        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Diana, 7, null, now.AddMinutes(1));
+        await _index.EnqueueAsync(MemoryJobKind.SummarizeConversation, Diana, 7, null, now); // same job, sooner
+        await _index.EnqueueAsync(MemoryJobKind.IndexNote, Diana, null, "diana/a.md", now.AddMinutes(2));
+
+        var first = await _index.NextJobAsync(now);
+        Assert.Equal((MemoryJobKind.SummarizeConversation, 7L), (first!.Kind, first.ConversationId!.Value));
+        Assert.Null(await new SqliteVaultIndex(_fx.Reopen()).NextJobAsync(now.AddSeconds(-1)));
+
+        await _index.PostponeJobAsync(first.Id, now.AddMinutes(10), failed: true);
+        Assert.Equal(MemoryJobKind.IndexNote, (await _index.NextJobAsync(now.AddMinutes(3)))!.Kind);
+        await _index.CompleteJobAsync((await _index.NextJobAsync(now.AddMinutes(3)))!.Id);
+        Assert.Equal(MemoryJobKind.ConsolidateProfile, (await _index.NextJobAsync(now.AddMinutes(6)))!.Kind);
+        await _index.CompleteJobAsync((await _index.NextJobAsync(now.AddMinutes(6)))!.Id);
+        Assert.Equal(1, (await _index.NextJobAsync(now.AddMinutes(11)))!.Attempts);
+    }
+
+    [Fact]
+    public async Task State_is_kept_across_restarts()
+    {
+        Assert.Null(await _index.GetStateAsync("notes-since"));
+        await _index.SetStateAsync("notes-since", "a");
+        await _index.SetStateAsync("notes-since", "b");
+        Assert.Equal("b", await new SqliteVaultIndex(_fx.Reopen()).GetStateAsync("notes-since"));
     }
 }

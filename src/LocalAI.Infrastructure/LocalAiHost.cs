@@ -11,6 +11,7 @@ using LocalAI.Core.Diagnostics;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.LLM;
@@ -75,9 +76,14 @@ public static class LocalAiHost
         services.AddSingleton<AssistantContext>();
         services.AddSingleton<IAssistantStore, SqliteAssistantStore>();
         services.AddSingleton<IConversationStore, SqliteConversationStore>();
-        services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
-        services.AddSingleton<IMemoryRetriever, MemoryRetriever>();
-        services.AddSingleton<MemoryService>();
+        // Memory: Markdown notes (the truth) in data\memory or the chosen Obsidian vault, indexed in the database
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<FileVaultStorage>();
+        services.AddSingleton<IVaultStorage>(sp => sp.GetRequiredService<FileVaultStorage>());
+        services.AddSingleton<IVaultIndex, SqliteVaultIndex>();
+        services.AddSingleton<MemoryVault>();
+        services.AddSingleton<IAssistantActivity, AssistantActivity>();
+        services.AddSingleton<MemoryWorker>();
 
         // Speech
         services.AddSingleton<ISpeechToText, WhisperSpeechToText>();

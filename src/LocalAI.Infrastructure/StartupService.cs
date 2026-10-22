@@ -2,7 +2,7 @@ using System.Diagnostics;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Diagnostics;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.LLM;
@@ -25,7 +25,7 @@ public sealed class StartupService(
     SqliteDatabase database,
     AssistantManager assistants,
     AssistantContext assistant,
-    MemoryService memory,
+    MemoryWorker memory,
     VoiceConversationController voice,
     IGpuInfoProvider gpu,
     ILogger<StartupService> logger)
@@ -83,10 +83,11 @@ public sealed class StartupService(
         var embTask = RunAsync("Embeddings", async () =>
         {
             await embeddings.StartAsync(ct).ConfigureAwait(false);
-            if (embeddings.IsAvailable) await memory.BackfillEmbeddingsAsync(ct).ConfigureAwait(false);
             return embeddings.IsAvailable ? (ComponentState.Ready, embeddings.ModelId) : (ComponentState.Unavailable, embeddings.LastError);
         });
         await Task.WhenAll(ttsTask, sttTask, embTask).ConfigureAwait(false);
+        // Background memory work (notes, profile, index) once the engines are up; it always yields to the assistant.
+        memory.Start();
         logger.LogInformation("Startup complete in {Ms:F0} ms", total.Elapsed.TotalMilliseconds);
     }
 

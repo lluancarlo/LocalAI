@@ -5,7 +5,7 @@ using LocalAI.Configuration;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Language;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Voice;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,8 +27,9 @@ public sealed class AssistantDeltaEventArgs(long conversationId, string delta) :
 
 /// <summary>
 /// The conversation orchestrator. Text and voice input both go through <see cref="SubmitAsync"/>:
-/// persist user message → recall memories → build prompt → stream LLM (→ optional speech) → persist reply →
-/// extract memories in the background. Only one turn runs at a time; a new turn or <see cref="CancelCurrentTurn"/>
+/// persist user message → recall memory (profile and note passages) → build prompt → stream LLM (→ optional speech) →
+/// persist reply. The memory notes are written later, in the background (<see cref="MemoryWorker"/>). Only one turn
+/// runs at a time; a new turn or <see cref="CancelCurrentTurn"/>
 /// stops generation, synthesis and playback.
 /// </summary>
 public sealed class AssistantSession : IDisposable
@@ -37,7 +38,7 @@ public sealed class AssistantSession : IDisposable
     private readonly IConversationStore _store;
     private readonly PromptBuilder _promptBuilder;
     private readonly ILanguageDetector _languageDetector;
-    private readonly MemoryService _memory;
+    private readonly MemoryVault _memory;
     private readonly SpeechOutput _speech;
     private readonly LocalAiOptions _options;
     private readonly ILogger<AssistantSession> _logger;
@@ -51,7 +52,7 @@ public sealed class AssistantSession : IDisposable
         IConversationStore store,
         PromptBuilder promptBuilder,
         ILanguageDetector languageDetector,
-        MemoryService memory,
+        MemoryVault memory,
         SpeechOutput speech,
         IOptions<LocalAiOptions> options,
         ILogger<AssistantSession> logger)
@@ -152,9 +153,13 @@ public sealed class AssistantSession : IDisposable
         }, CancellationToken.None).ConfigureAwait(false);
         UserMessageAdded?.Invoke(this, userMessage);
 
-        var memories = await _memory.RecallAsync(request.Text, ct).ConfigureAwait(false);
+        // What was selected on screen helps find the right notes too.
+        var query = userMessage.SelectedText is { } selected
+            ? request.Text + "\n" + selected[..Math.Min(selected.Length, 300)]
+            : request.Text;
+        var memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
-        var prompt = _promptBuilder.Build(history, request.Text, memories, speak, DateTimeOffset.Now, userMessage.SelectedText);
+        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText);
 
         var options = new GenerationOptions
         {
@@ -201,8 +206,8 @@ public sealed class AssistantSession : IDisposable
         }
 
         _logger.LogInformation(
-            "Turn {Outcome}: {Tokens} tokens, TTFT {Ttft:F0} ms, {Tps:F1} tok/s, total {Total:F0} ms, memories {Memories}",
-            outcome, stats?.GeneratedTokens, stats?.TimeToFirstTokenMs, stats?.TokensPerSecond, sw.Elapsed.TotalMilliseconds, memories.Count);
+            "Turn {Outcome}: {Tokens} tokens, TTFT {Ttft:F0} ms, {Tps:F1} tok/s, total {Total:F0} ms, memory passages {Passages}",
+            outcome, stats?.GeneratedTokens, stats?.TimeToFirstTokenMs, stats?.TokensPerSecond, sw.Elapsed.TotalMilliseconds, memory.Passages.Count);
 
         StoredMessage? assistantMessage = null;
         if (reply.Length > 0)
@@ -221,31 +226,14 @@ public sealed class AssistantSession : IDisposable
                     interrupted = outcome != TurnOutcome.Completed,
                     spoken = speak,
                     stats,
-                    memoriesUsed = memories.Select(m => m.Memory.Id).ToArray(),
+                    memoryPassages = memory.Passages.Select(p => p.Id).ToArray(),
                 }),
             }, CancellationToken.None).ConfigureAwait(false);
         }
 
         var result = new TurnResult(outcome, assistantMessage, stats, error);
         TurnCompleted?.Invoke(this, result);
-
-        if (outcome == TurnOutcome.Completed && assistantMessage != null)
-            _ = ExtractMemoriesInBackgroundAsync(conversationId, request.Text, assistantMessage.Content);
-
         return result;
-    }
-
-    private async Task ExtractMemoriesInBackgroundAsync(long conversationId, string userText, string reply)
-    {
-        try
-        {
-            await _memory.ExtractAndStoreAsync(conversationId, userText, reply, _lifetime.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Background memory extraction failed");
-        }
     }
 
     private async Task<long> EnsureConversationAsync(string firstMessage, CancellationToken ct)

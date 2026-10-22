@@ -4,6 +4,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using LocalAI.App.ViewModels;
 using LocalAI.Core.Voice;
 
 namespace LocalAI.App.Services;
@@ -11,37 +12,44 @@ namespace LocalAI.App.Services;
 /// <summary>
 /// The notification-area icon: always present while the app runs. Click or "Open" shows the window, "Live mode" turns
 /// the live voice conversation on and off (checked while it is on), "Exit" quits.
-/// While a live voice conversation is on, the icon blinks a green dot (the assistant is listening); while a shortcut
-/// is starting one (switching assistant, loading its model), it shows a steady amber dot.
+/// While a live voice conversation is on, the icon blinks a red dot (the assistant is listening); while a shortcut
+/// is starting one (switching assistant, loading its model), it shows a steady amber dot; otherwise, while memory work
+/// runs in the background, a steady yellow dot. Live comes first: the yellow dot shows only when nobody is listening.
 /// </summary>
 internal sealed class TrayIconController : IDisposable
 {
     private const string AppName = "Local AI";
     private static readonly TimeSpan BlinkInterval = TimeSpan.FromMilliseconds(600);
-    private static readonly Color LiveColor = Color.Parse("#9ECE6A");
+    private static readonly Color LiveColor = Color.Parse("#F7768E");
     private static readonly Color StartingColor = Color.Parse("#E0AF68");
+    private static readonly Color WorkingColor = Color.Parse(StatusColors.Background);
 
     private readonly LiveActivation _live;
     private readonly Func<(bool CanStart, bool IsLive)> _liveMode;
+    private readonly Func<bool> _isWorking;
     private readonly NativeMenuItem _liveItem;
     private readonly TrayIcon _tray;
     private readonly WindowIcon _normalIcon;
     private readonly WindowIcon _liveIcon;
     private readonly WindowIcon _startingIcon;
+    private readonly WindowIcon _workingIcon;
     private readonly DispatcherTimer _blink;
     private bool _blinkLit;
 
     /// <param name="liveMode">Whether live mode can be turned on now (offered, microphone ready), and whether it is on.</param>
     /// <param name="toggleLive">Turns live mode on or off (runs on the UI thread).</param>
+    /// <param name="isWorking">Whether memory work runs in the background.</param>
     public TrayIconController(Application application, LiveActivation live, Func<(bool CanStart, bool IsLive)> liveMode,
-        Action toggleLive, Action showWindow, Action exit)
+        Action toggleLive, Func<bool> isWorking, Action showWindow, Action exit)
     {
         _live = live;
         _liveMode = liveMode;
+        _isWorking = isWorking;
         using (var baseImage = new Bitmap(OpenAppIcon()))
         {
             _liveIcon = WithDot(baseImage, LiveColor);
             _startingIcon = WithDot(baseImage, StartingColor);
+            _workingIcon = WithDot(baseImage, WorkingColor);
         }
         _normalIcon = new WindowIcon(OpenAppIcon());
 
@@ -103,8 +111,9 @@ internal sealed class TrayIconController : IDisposable
                 break;
             default:
                 _blink.Stop();
-                _tray.Icon = _normalIcon;
-                _tray.ToolTipText = AppName;
+                var working = _isWorking();
+                _tray.Icon = working ? _workingIcon : _normalIcon;
+                _tray.ToolTipText = working ? $"{AppName}: updating memory in the background" : AppName;
                 break;
         }
     }

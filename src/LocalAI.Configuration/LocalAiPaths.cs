@@ -28,6 +28,8 @@ public sealed class LocalAiPaths
     public string LogsDirectory => Path.Combine(DataDirectory, "logs");
     public string TempDirectory => Path.Combine(DataDirectory, "temp");
     public string UserSettingsPath => Path.Combine(DataDirectory, "usersettings.json");
+    /// <summary>Default home of the memory notes (Markdown) when no Obsidian vault is chosen.</summary>
+    public string MemoryDirectory => Path.Combine(DataDirectory, "memory");
 
     public static LocalAiPaths ForApplication() => new(AppContext.BaseDirectory);
 }

@@ -42,10 +42,11 @@ public sealed class App : Application
             // Shutdown() (tray Exit), so cleanup hooked there never ran.
             desktop.Exit += (_, _) => Shutdown();
             _tray = new TrayIconController(this, _services.GetRequiredService<LiveActivation>(),
-                () => (vm.CanToggleLive, vm.IsLiveMode), vm.ToggleLive, ShowMainWindow, Exit);
+                () => (vm.CanToggleLive, vm.IsLiveMode), vm.ToggleLive, () => vm.IsBackgroundWorking, ShowMainWindow, Exit);
             vm.PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName is nameof(MainWindowViewModel.CanToggleLive) or nameof(MainWindowViewModel.IsLiveMode)) _tray?.Update();
+                if (e.PropertyName is nameof(MainWindowViewModel.CanToggleLive) or nameof(MainWindowViewModel.IsLiveMode)
+                    or nameof(MainWindowViewModel.IsBackgroundWorking)) _tray?.Update();
             };
             Program.Instance?.OnShowRequested(() => Dispatcher.UIThread.Post(ShowMainWindow));
 
@@ -87,6 +88,7 @@ public sealed class App : Application
         services.AddLocalAi(configuration, paths);
         services.AddSingleton<ModelsViewModel>();
         services.AddSingleton<AssistantsViewModel>();
+        services.AddSingleton<MemorySettingsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
     }

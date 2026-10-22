@@ -1,5 +1,5 @@
 {
-  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
+  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, section titles of the memory notes, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
   "languages": {
     "pt": {
       "name": "Portuguese (Brazil)",
@@ -16,7 +16,12 @@
       ],
       "wordEndings": ["ção", "ções", "ões", "amos", "agem", "inho"],
       "letters": "ãõçâêô",
-      "letterGroups": ["lh", "nh"]
+      "letterGroups": ["lh", "nh"],
+      "memoryHeadings": {
+        "summary": "Resumo", "decisions": "Decisões", "openItems": "Pendências", "factsLearned": "Fatos aprendidos",
+        "about": "Sobre", "preferences": "Preferências", "skills": "Habilidades", "projects": "Projetos", "routine": "Rotina",
+        "profile": "Perfil"
+      }
     },
     "it": {
       "name": "Italian",
@@ -33,7 +38,12 @@
       ],
       "wordEndings": ["isco", "iamo", "ere", "zione", "zioni", "ggio"],
       "letters": "òùì",
-      "letterGroups": ["gli", "cch", "ggi"]
+      "letterGroups": ["gli", "cch", "ggi"],
+      "memoryHeadings": {
+        "summary": "Riepilogo", "decisions": "Decisioni", "openItems": "Da fare", "factsLearned": "Cose imparate",
+        "about": "Chi sono", "preferences": "Preferenze", "skills": "Competenze", "projects": "Progetti", "routine": "Abitudini",
+        "profile": "Profilo"
+      }
     },
     "en": {
       "name": "English",
@@ -48,7 +58,12 @@
       ],
       "wordEndings": ["tion", "ness", "ing", "ould"],
       "letters": "",
-      "letterGroups": ["th"]
+      "letterGroups": ["th"],
+      "memoryHeadings": {
+        "summary": "Summary", "decisions": "Decisions", "openItems": "Open items", "factsLearned": "Facts learned",
+        "about": "About", "preferences": "Preferences", "skills": "Skills", "projects": "Projects", "routine": "Routine",
+        "profile": "Profile"
+      }
     }
   },
   "transcriptNoise": [

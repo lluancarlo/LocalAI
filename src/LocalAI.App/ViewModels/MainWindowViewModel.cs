@@ -10,7 +10,7 @@ using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.Infrastructure;
@@ -20,7 +20,15 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.App.ViewModels;
 
-public enum StatusLevel { Ok, Busy, Warning, Error }
+/// <summary>Ok (green), Busy (blue: starting, loading the model), Background (yellow: memory work in the background), Warning, Error.</summary>
+public enum StatusLevel { Ok, Busy, Warning, Error, Background }
+
+/// <summary>Colors shared by the status dot and the tray icon.</summary>
+public static class StatusColors
+{
+    /// <summary>Yellow: the app is working in the background (memory notes).</summary>
+    public const string Background = "#F2D14B";
+}
 
 public enum AppPage { Chat, Memory, Settings, Diagnostics }
 
@@ -40,7 +48,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly LlamaCppEmbeddingService _embeddings;
     private readonly ISpeechToText _stt;
     private readonly ITextToSpeech _tts;
-    private readonly MemoryService _memory;
+    private readonly MemoryVault _memory;
     private readonly ModelService _models;
     private readonly AssistantContext _assistant;
     private readonly UserSettingsStore _settings;
@@ -56,7 +64,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssistantSession session, IConversationStore store, VoiceConversationController voice, LiveActivation live,
         LiveSelection selection, StartupService startup,
         ILanguageModel llm, LlamaCppEmbeddingService embeddings, ISpeechToText stt, ITextToSpeech tts,
-        MemoryService memory, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
+        MemoryVault memory, MemoryWorker memoryWorker, ModelService models, AssistantContext assistant, UserSettingsStore settings, SettingsViewModel settingsViewModel,
         LocalAiPaths paths, IOptions<LocalAiOptions> options, ILogger<MainWindowViewModel> logger)
     {
         _session = session;
@@ -94,7 +102,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _voice.Warning += (_, w) => Ui(() => BannerText = w);
         _voice.Transcribed += (_, _) => Ui(() => BannerText = null);
         _startup.StatusChanged += (_, s) => Ui(() => OnSubsystem(s));
-        _memory.MemoriesChanged += (_, _) => Ui(() => _ = LoadMemoriesAsync());
+        _memory.NotesChanged += (_, _) => Ui(() => _ = LoadMemoriesAsync());
+        memoryWorker.WorkingChanged += (_, working) => Ui(() => OnWorkingChanged(working));
         _voice.InputLevel += (_, db) => Ui(() => OnInputLevel(db));
         _voice.CaptureChanged += (_, open) => Ui(() =>
         {
@@ -309,8 +318,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void SetStatus(StatusLevel level, string text)
     {
+        _baseStatus = (level, text);
+        ApplyStatus();
+    }
+
+    /// <summary>The status without background work; background work turns a green status yellow.</summary>
+    private (StatusLevel Level, string Text) _baseStatus = (StatusLevel.Busy, "Starting…");
+
+    private void ApplyStatus()
+    {
+        var (level, text) = _baseStatus;
+        if (IsBackgroundWorking && level == StatusLevel.Ok)
+        {
+            level = StatusLevel.Background;
+            text += " · updating memory…";
+        }
         StatusLevel = level;
         StatusText = text;
+    }
+
+    /// <summary>True while memory work runs in the background (stays on briefly between jobs, so it does not flicker).</summary>
+    [ObservableProperty] private bool _isBackgroundWorking;
+
+    partial void OnIsBackgroundWorkingChanged(bool value) => ApplyStatus();
+
+    private DispatcherTimer? _workingOff;
+
+    private void OnWorkingChanged(bool working)
+    {
+        _workingOff?.Stop();
+        if (working)
+        {
+            IsBackgroundWorking = true;
+            return;
+        }
+        _workingOff ??= new DispatcherTimer(TimeSpan.FromMilliseconds(800), DispatcherPriority.Background, (_, _) =>
+        {
+            _workingOff!.Stop();
+            IsBackgroundWorking = false;
+        });
+        _workingOff.Start();
     }
 
     // ---------------- Text chat ----------------
@@ -473,6 +520,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         item ??= SelectedConversation;
         if (item == null) return;
+        await _memory.DeleteConversationNoteAsync(item.Id); // the note goes with the conversation
         await _store.DeleteAsync(item.Id);
         Conversations.Remove(item);
         if (SelectedConversation == item || _session.CurrentConversationId == item.Id) NewConversation();
@@ -679,31 +727,73 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     // ---------------- Memory & diagnostics ----------------
 
+    /// <summary>The Memory page: the active assistant's profile note and its conversation notes.</summary>
     private async Task LoadMemoriesAsync()
     {
         if (_assistant.Current == null)
         {
             Memories.Clear();
+            MemoryProfile = null;
+            HasMemoryNotes = false;
             return;
         }
         try
         {
-            var items = await _memory.ListAsync(CancellationToken.None);
+            var notes = await _memory.ListNotesAsync();
+            var shown = await Task.Run(() => notes.Select(n => (Note: n, Content: _memory.ReadForDisplay(n))).Where(x => x.Content != null).ToList());
+            MemoryProfile = shown.FirstOrDefault(x => x.Note.Kind == NoteKind.Profile).Content?.Body;
             Memories.Clear();
-            foreach (var m in items.OrderByDescending(m => m.CreatedAt)) Memories.Add(new MemoryItemViewModel(m.Id, m.Content, m.CreatedAt));
+            foreach (var (note, content) in shown.Where(x => x.Note.Kind == NoteKind.Conversation))
+                Memories.Add(new MemoryItemViewModel(_memory.FullPath(note.Path), content!.Value.Title, content.Value.Body));
+            HasMemoryNotes = Memories.Count > 0;
+            MemoryFolder = await _memory.AssistantFolderPathAsync();
             DiagnosticsText = BuildDiagnostics();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load memories");
+            _logger.LogError(ex, "Failed to load the memory notes");
         }
     }
 
+    /// <summary>The profile note's text (what the assistant knows about the user), or null before the first one.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMemoryProfile))]
+    private string? _memoryProfile;
+
+    public bool HasMemoryProfile => !string.IsNullOrWhiteSpace(MemoryProfile);
+
+    [ObservableProperty] private bool _hasMemoryNotes;
+
+    /// <summary>The active assistant's notes folder.</summary>
+    [ObservableProperty] private string? _memoryFolder;
+
     [RelayCommand]
-    private async Task DeleteMemoryAsync(MemoryItemViewModel? item)
+    private void OpenMemoryFolder()
     {
-        if (item == null) return;
-        await _memory.DeleteAsync(item.Id, CancellationToken.None);
+        if (MemoryFolder is not { } folder) return;
+        Directory.CreateDirectory(folder);
+        OpenWithShell(folder);
+    }
+
+    /// <summary>Opens the notes folder in Obsidian (asks Obsidian to open it as, or within, a vault).</summary>
+    [RelayCommand]
+    private void OpenMemoryInObsidian()
+    {
+        if (MemoryFolder is not { } folder) return;
+        Directory.CreateDirectory(folder);
+        OpenWithShell("obsidian://open?path=" + Uri.EscapeDataString(folder));
+    }
+
+    [RelayCommand]
+    private static void OpenMemoryNote(MemoryItemViewModel? item)
+    {
+        if (item != null) OpenWithShell(item.Path);
+    }
+
+    private static void OpenWithShell(string target)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true }); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
     }
 
     private string BuildDiagnostics()
@@ -741,7 +831,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         sb.AppendLine($"  Speaker         {Settings.SelectedSpeaker?.Name ?? "none"}");
 
         sb.AppendLine().AppendLine("Memory");
-        sb.AppendLine($"  Long-term       {Memories.Count} memories, {(_embeddings.IsAvailable ? "semantic (" + _embeddings.ModelId + ")" : "keyword (" + _embeddings.LastError + ")")}");
+        sb.AppendLine($"  Notes           {Memories.Count} conversation notes, {(HasMemoryProfile ? "profile" : "no profile yet")}, search {(_embeddings.IsAvailable ? "semantic (" + _embeddings.ModelId + ") + words" : "words only (" + _embeddings.LastError + ")")}");
+        sb.AppendLine($"  Folder          {_memory.Root}");
         sb.AppendLine($"  Database        {_paths.DatabasePath}");
         sb.AppendLine($"  Logs            {_paths.LogsDirectory}");
 

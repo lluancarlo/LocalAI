@@ -7,6 +7,7 @@ using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Audio;
 using LocalAI.Core.Desktop;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.Infrastructure;
@@ -36,14 +37,16 @@ public sealed partial class AssistantsViewModel : ObservableObject
     private readonly StartupService _startup;
     private readonly AssistantHotkeys _hotkeys;
     private readonly LiveSelection _selection;
+    private readonly MemoryVault _vault;
     private readonly UserSettingsStore _settings;
     private readonly VoiceOptions _voice;
 
     public AssistantsViewModel(AssistantManager manager, AssistantContext context, ModelService models, ModelsViewModel modelsView,
         ITextToSpeech tts, IAudioPlayer player, LanguageData languages, StartupService startup, AssistantHotkeys hotkeys,
-        LiveSelection selection, UserSettingsStore settings, IOptions<LocalAiOptions> options, ILogger<AssistantsViewModel> logger)
+        LiveSelection selection, MemoryVault vault, UserSettingsStore settings, IOptions<LocalAiOptions> options, ILogger<AssistantsViewModel> logger)
     {
         _selection = selection;
+        _vault = vault;
         _settings = settings;
         _voice = options.Value.Voice;
         _readAloudEnabled = _voice.ReadAloudEnabled;
@@ -335,7 +338,11 @@ public sealed partial class AssistantsViewModel : ObservableObject
     {
         try
         {
-            await Task.Run(() => _manager.DeleteAsync(pending.Item.Profile));
+            await Task.Run(async () =>
+            {
+                await _vault.DeleteAssistantNotesAsync(pending.Item.Profile); // its folder is found by name: before the assistant goes
+                await _manager.DeleteAsync(pending.Item.Profile);
+            });
             PendingDelete = null;
             await RefreshAsync();
         }
@@ -427,7 +434,7 @@ public sealed partial class DeleteAssistantViewModel(
     public string Title => $"Delete {Item.Name}?";
     public string ConversationsText => Count(summary.Conversations, "conversation", "conversations") +
                                        $" ({Count(summary.Messages, "message", "messages")})";
-    public string MemoriesText => Count(summary.Memories, "memory", "memories");
+    public string MemoriesText => Count(summary.Memories, "memory note", "memory notes");
     public string? Consequence { get; } = consequence;
     public bool HasConsequence => Consequence != null;
     public string ConfirmText => IsDeleting ? "Deleting…" : "Delete permanently";

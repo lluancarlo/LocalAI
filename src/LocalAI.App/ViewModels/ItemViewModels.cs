@@ -70,9 +70,11 @@ public sealed partial class PageTabViewModel(AppPage page, string title, bool is
     [ObservableProperty] private bool _isSelected;
 }
 
-public sealed partial class MemoryItemViewModel(long id, string content, DateTimeOffset createdAt) : ObservableObject
+/// <summary>A conversation note on the Memory page.</summary>
+public sealed class MemoryItemViewModel(string path, string title, string body)
 {
-    public long Id { get; } = id;
-    public string Content { get; } = content;
-    public string Created { get; } = createdAt.ToString("dd MMM yyyy HH:mm");
+    /// <summary>Absolute path of the note file.</summary>
+    public string Path { get; } = path;
+    public string Title { get; } = title;
+    public string Body { get; } = body;
 }

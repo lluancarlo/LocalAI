@@ -172,29 +172,28 @@ public sealed class BackendIntegrationTests(LocalAiFixture fx, ITestOutputHelper
     }
 
     [Fact]
-    public async Task Long_term_memory_is_extracted_stored_and_recalled()
+    public async Task A_conversation_becomes_notes_that_later_conversations_recall()
     {
-        var memory = Get<MemoryService>();
+        var vault = Get<LocalAI.Core.Memory.Vault.MemoryVault>();
         var session = Get<AssistantSession>();
+        var assistant = Get<LocalAI.Core.Assistants.AssistantContext>().Current!;
         session.SelectConversation(null);
+        await session.SubmitAsync(new TurnRequest("I prefer writing software in C#. Please remember that.", InputSource.Text));
+        var conversationId = session.CurrentConversationId!.Value;
 
-        var stored = await memory.ExtractAndStoreAsync(0, "I prefer writing software in C#. Please remember that.",
-            "Got it, I'll keep in mind that you prefer C#.", CancellationToken.None);
-        output.WriteLine("Stored: " + string.Join(" | ", stored.Select(m => m.Content)));
-        var all = await memory.ListAsync(CancellationToken.None);
-        Assert.Contains(all, m => m.Content.Contains("C#", StringComparison.Ordinal));
+        Assert.True(await vault.WriteConversationNoteAsync(assistant.Id, conversationId, CancellationToken.None));
+        Assert.True(await vault.ConsolidateProfileAsync(assistant.Id, CancellationToken.None));
+        var profile = File.ReadAllText(vault.FullPath(LocalAI.Core.Memory.Vault.VaultLayout.ProfilePath(await vault.AssistantFolderAsync(assistant))));
+        output.WriteLine("Profile:\n" + profile);
+        Assert.Contains("C#", profile, StringComparison.Ordinal);
 
-        var recalled = await memory.RecallAsync("What language should I use for this application?", CancellationToken.None);
-        output.WriteLine("Recalled: " + string.Join(" | ", recalled.Select(r => $"{r.Score:F2} {r.Memory.Content}")));
-        Assert.Contains(recalled, r => r.Memory.Content.Contains("C#", StringComparison.Ordinal));
+        var recalled = await vault.RecallAsync("What language should I use for this application?", CancellationToken.None);
+        Assert.Contains("C#", recalled.Profile, StringComparison.Ordinal);
 
-        // And the assistant uses it.
+        // And a new conversation uses it.
+        session.SelectConversation(null);
         var reply = await session.SubmitAsync(new TurnRequest("What programming language should I use for my new desktop application? One sentence.", InputSource.Text));
         output.WriteLine("Reply: " + reply.AssistantMessage?.Content);
         Assert.Contains("C#", reply.AssistantMessage!.Content, StringComparison.Ordinal);
-
-        // Duplicates are not stored twice.
-        var again = await memory.RememberAsync("User prefers C# for software development.", null, CancellationToken.None);
-        Assert.Null(again);
     }
 }

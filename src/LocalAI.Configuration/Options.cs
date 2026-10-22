@@ -124,10 +124,20 @@ public sealed class VoiceOptions
 public sealed class MemoryOptions
 {
     public bool Enabled { get; set; } = true;
-    /// <summary>Extract long-term facts from conversations automatically (local LLM).</summary>
-    public bool AutoExtract { get; set; } = true;
-    public int RetrieveTopK { get; set; } = 5;
+    /// <summary>
+    /// Folder of an Obsidian vault the notes are kept in (they go to its <c>local-ai</c> folder). Empty = the
+    /// application's own <c>data\memory</c> folder. This is the only place outside the application folder the app
+    /// writes to, and only when the user chooses it.
+    /// </summary>
+    public string VaultPath { get; set; } = "";
+    /// <summary>Language the notes are written in (ISO 639-1). Replies follow the assistant's language regardless.</summary>
+    public string NotesLanguage { get; set; } = "en";
+    /// <summary>A conversation without new messages for this long gets its note written.</summary>
+    public int ConversationIdleMinutes { get; set; } = 10;
+    /// <summary>Note passages recalled for a prompt (besides the profile).</summary>
+    public int RetrieveTopKChunks { get; set; } = 6;
+    /// <summary>Approximate tokens of memory (profile and passages) added to a prompt.</summary>
+    public int MemoryTokenBudget { get; set; } = 1500;
+    /// <summary>Lowest cosine similarity for a passage to count as related by meaning.</summary>
     public float MinRelevance { get; set; } = 0.45f;
-    /// <summary>Cosine similarity above which a new memory is considered a duplicate.</summary>
-    public float DuplicateThreshold { get; set; } = 0.88f;
 }

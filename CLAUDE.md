@@ -44,8 +44,8 @@ Project dependencies point inward to `LocalAI.Core`:
 - **LocalAI.Core**: domain logic and interfaces only, with no native or OS dependencies (`ILanguageModel`,
   `ISpeechToText`, `ITextToSpeech`, `IAudioCapture`/`IAudioPlayer`, the stores, `IGlobalHotkeys`, ...).
 - **Adapters** that implement the Core interfaces: `LocalAI.LLM` (llama.cpp), `LocalAI.Speech` (Whisper, Piper
-  through sherpa-onnx, Silero VAD), `LocalAI.Audio` (WASAPI), `LocalAI.Memory` (SQLite stores), `LocalAI.Desktop`
-  (Win32 global hotkeys), `LocalAI.Models` (catalog, downloads, `ModelLibrary`).
+  through sherpa-onnx, Silero VAD), `LocalAI.Audio` (WASAPI), `LocalAI.Memory` (SQLite stores, the notes index and the
+  note files), `LocalAI.Desktop` (Win32 global hotkeys, reading text selected in other applications), `LocalAI.Models` (catalog, downloads, `ModelLibrary`).
 - **LocalAI.Infrastructure**: `LocalAiHost` is the composition root. It layers configuration (`appsettings.json`,
   then `data\usersettings.json`, then `LOCALAI_` environment variables), sets up Serilog file logging, points
   TEMP/TMP to `data\temp`, adds the llama.cpp folder to PATH (Whisper's CUDA backend uses llama.cpp's CUDA DLLs) and
@@ -58,16 +58,27 @@ Project dependencies point inward to `LocalAI.Core`:
 Main runtime flows:
 
 - **Turn pipeline** (`AssistantSession.SubmitAsync`, the same for text and voice): save the user message, recall
-  memories, build the prompt (`PromptBuilder`), stream the LLM reply (and, if needed, speak it through
-  `SpeechOutput`: sentence chunks to TTS to queued playback), save the reply, then extract memories in the
-  background (`MemoryService`). Only one turn runs at a time, and a new turn cancels generation, synthesis and
-  playback.
+  memory (`MemoryVault.RecallAsync`), build the prompt (`PromptBuilder`), stream the LLM reply (and, if needed, speak
+  it through `SpeechOutput`: sentence chunks to TTS to queued playback), then save the reply. Only one turn runs at a
+  time, and a new turn cancels generation, synthesis and playback.
+- **Memory** (`src/LocalAI.Core/Memory/Vault`): each assistant's memory is Markdown notes, the source of truth, in
+  `<root>/local-ai/<assistant>/` (root = `data\memory`, or the Obsidian vault in `Memory:VaultPath`): a profile of the
+  user and one note per conversation. Names are kebab-case ASCII (`VaultLayout`). The language model always answers
+  JSON and `NoteFormats` renders the Markdown. Generated text sits between `<!-- local-ai:begin/end -->` markers
+  (`NoteDocument`); the user's edits win: a block whose hash differs from what the app wrote is never overwritten,
+  profile items the user wrote always survive, and text outside the markers is never touched. The SQLite index
+  (`SqliteVaultIndex`: notes, passages with embeddings and FTS5, job queue) can be rebuilt from the files. Recall
+  ranks passages by meaning and words (reciprocal rank fusion) within `MemoryTokenBudget`.
+- **Background memory work** (`MemoryWorker`): writing conversation notes (after `ConversationIdleMinutes` or when
+  the user leaves the conversation), merging the profile and indexing notes run from a queue in the database, only
+  after the assistant has been idle for a few seconds (`IAssistantActivity`). When the user sends a message or speaks,
+  the running job is cancelled and requeued, so the assistant always comes first.
 - **Voice** (`VoiceConversationController`): one loop reads microphone frames. VAD and `UtteranceSegmenter` find
   utterances, Whisper transcribes them, and the session answers. `BargeInDetector` lets the user interrupt the
   assistant by talking, without reacting to the assistant's own voice from the speakers. `LiveActivation` and
   `AssistantHotkeys` connect each assistant's global shortcut to live mode.
 - **Assistants** (`AssistantManager`, `AssistantContext`): each assistant has its own model, voice, conversations and
-  memories. The stores read and write only the active assistant's data. Switching assistants applies the new
+  memory notes. The stores read and write only the active assistant's data. Switching assistants applies the new
   assistant's model and voice.
 - **LLM process** (`LlamaServerProcess`): `llama-server` runs as a child process on 127.0.0.1 with a random port,
   a random API key passed in its environment, `--offline`, and a Job Object that ties it to the app's lifetime.
@@ -90,6 +101,9 @@ temporary files, downloaded models and partial downloads. Copying the folder ins
 everything the software ever created. `scripts\publish.ps1` replaces the program files and never touches `data\`.
 
 - Get every path from `LocalAiPaths`. Add a property there for any new kind of file.
+- The only exception: the memory notes move to the Obsidian vault the user picks in Settings › Memory
+  (`Memory:VaultPath`, `FileVaultStorage`). The app then writes only inside that vault's `local-ai` folder, and the
+  index stays in `data\`. Nothing else may be written outside the application folder.
 - Never use `Environment.SpecialFolder`, `GetFolderPath`, `Path.GetTempPath`/`GetTempFileName`, `%LOCALAPPDATA%`,
   `%APPDATA%`, `%USERPROFILE%`, the registry or isolated storage in `src/`. `SelfContainedFolderTests` fails if you do.
 - TEMP/TMP point to `data\temp` for the app and its child processes (`LocalAiHost.ConfigureTempDirectory`), so

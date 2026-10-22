@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistants;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using LocalAI.LLM;
@@ -26,7 +26,7 @@ public sealed class ModelService(
     ISpeechToText stt,
     ITextToSpeech tts,
     VoiceConversationController voice,
-    MemoryService memory,
+    MemoryWorker memory,
     IOptions<LocalAiOptions> options,
     ILogger<ModelService> logger) : IDisposable
 {
@@ -115,7 +115,7 @@ public sealed class ModelService(
                 break;
             case ModelKind.Embedding when package.Id == _options.Embedding.Model:
                 await embeddings.StartAsync(CancellationToken.None).ConfigureAwait(false);
-                if (embeddings.IsAvailable) await memory.BackfillEmbeddingsAsync(CancellationToken.None).ConfigureAwait(false);
+                if (embeddings.IsAvailable) await memory.RescanAsync().ConfigureAwait(false); // embed the notes
                 break;
             case ModelKind.SpeechRecognition when package.Id == _options.SpeechToText.Model:
                 await stt.InitializeAsync().ConfigureAwait(false);

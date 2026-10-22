@@ -3,7 +3,7 @@ using LocalAI.Core.Assistants;
 using LocalAI.Core.Conversations;
 using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using Microsoft.Data.Sqlite;
 
@@ -14,24 +14,37 @@ public sealed class AssistantStoreTests : IDisposable
     private readonly SqliteFixture _fx = new();
     public void Dispose() => _fx.Dispose();
 
+    /// <summary>A fact of the memory used before notes, as the old store saved it.</summary>
+    private async Task AddLegacyFactAsync(long assistantId, string content)
+    {
+        await using var c = await _fx.Database.OpenAsync();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "INSERT INTO memories(content, created_at, assistant_id) VALUES ($c, 0, $a);";
+        cmd.Parameters.AddWithValue("$c", content);
+        cmd.Parameters.AddWithValue("$a", assistantId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     [Fact]
-    public async Task Conversations_and_memories_are_isolated_per_assistant()
+    public async Task Conversations_and_old_memories_are_isolated_per_assistant()
     {
         var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
-        var memories = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
+        var index = new SqliteVaultIndex(_fx.Database);
         var diana = _fx.Assistant.Current!;
         await conversations.CreateAsync("Diana's chat");
-        await memories.AddAsync(new MemoryItem { Content = "User likes tea.", CreatedAt = DateTimeOffset.Now });
+        await AddLegacyFactAsync(diana.Id, "User likes tea.");
 
-        _fx.Assistant.Set(_fx.CreateAssistant("Marco"));
+        var marco = _fx.CreateAssistant("Marco");
+        _fx.Assistant.Set(marco);
         Assert.Empty(await conversations.ListAsync());
-        Assert.Empty(await memories.ListAsync());
+        Assert.Empty(await index.TakeLegacyFactsAsync(marco.Id));
         Assert.Empty(await conversations.SearchAsync("chat"));
         await conversations.CreateAsync("Marco's chat");
 
         _fx.Assistant.Set(diana);
         Assert.Equal("Diana's chat", Assert.Single(await conversations.ListAsync()).Title);
-        Assert.Equal("User likes tea.", Assert.Single(await memories.ListAsync()).Content);
+        Assert.Equal("User likes tea.", Assert.Single(await index.TakeLegacyFactsAsync(diana.Id)));
+        Assert.Empty(await index.TakeLegacyFactsAsync(diana.Id)); // taken once
     }
 
     [Fact]
@@ -53,25 +66,8 @@ public sealed class AssistantStoreTests : IDisposable
     public async Task Before_any_assistant_exists_there_is_nothing_to_list()
     {
         var none = new AssistantContext();
-        Assert.Empty(await new SqliteMemoryStore(_fx.Database, none).ListAsync());
         Assert.Empty(await new SqliteConversationStore(_fx.Database, none).ListAsync());
         Assert.Empty(await new SqliteConversationStore(_fx.Database, none).SearchAsync("x"));
-    }
-
-    [Fact]
-    public async Task Memory_from_a_conversation_belongs_to_that_conversations_assistant()
-    {
-        var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
-        var memories = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
-        var diana = _fx.Assistant.Current!;
-        var chat = await conversations.CreateAsync("chat");
-
-        _fx.Assistant.Set(_fx.CreateAssistant("Marco"));
-        await memories.AddAsync(new MemoryItem { Content = "late fact", CreatedAt = DateTimeOffset.Now, SourceConversationId = chat.Id });
-        Assert.Empty(await memories.ListAsync());
-
-        _fx.Assistant.Set(diana);
-        Assert.Single(await memories.ListAsync());
     }
 
     [Fact]
@@ -79,7 +75,7 @@ public sealed class AssistantStoreTests : IDisposable
     {
         var store = new SqliteAssistantStore(_fx.Database);
         var conversations = new SqliteConversationStore(_fx.Database, _fx.Assistant);
-        var memories = new SqliteMemoryStore(_fx.Database, _fx.Assistant);
+        var index = new SqliteVaultIndex(_fx.Database);
         var diana = _fx.Assistant.Current!;
         await conversations.CreateAsync("keep");
 
@@ -91,14 +87,16 @@ public sealed class AssistantStoreTests : IDisposable
             {
                 ConversationId = doomed.Id, Role = role, Content = "hi", CreatedAt = DateTimeOffset.Now, Source = InputSource.Text,
             });
-        await memories.AddAsync(new MemoryItem { Content = "doomed fact", CreatedAt = DateTimeOffset.Now });
+        await index.SaveNoteAsync(new VaultNote { AssistantId = marco.Id, Path = "marco/marco-profile.md", Kind = NoteKind.Profile });
+        await index.EnqueueAsync(MemoryJobKind.ConsolidateProfile, marco.Id, null, null, DateTimeOffset.Now);
         Assert.Equal(new AssistantDataSummary(1, 2, 1), await store.GetDataSummaryAsync(marco.Id));
 
         await store.DeleteAsync(marco.Id);
         Assert.Equal(new AssistantDataSummary(0, 0, 0), await store.GetDataSummaryAsync(marco.Id));
         Assert.Equal(new AssistantDataSummary(1, 0, 0), await store.GetDataSummaryAsync(diana.Id));
         Assert.Null(await conversations.GetAsync(doomed.Id));
-        Assert.Empty(await memories.ListAsync());
+        Assert.Empty(await index.ListNotesAsync(marco.Id));
+        Assert.Null(await index.NextJobAsync(DateTimeOffset.Now.AddDays(1))); // its queued work goes too
         Assert.Equal([diana.Id], (await store.ListAsync()).Select(a => a.Id));
     }
 
@@ -187,7 +185,7 @@ public sealed class AssistantStoreTests : IDisposable
             context.Set(await new SqliteAssistantStore(db).CreateAsync(SqliteFixture.Draft("Diana"), VoiceStyle.Default));
 
             Assert.Equal("old chat", Assert.Single(await new SqliteConversationStore(db, context).ListAsync()).Title);
-            Assert.Equal("old fact", Assert.Single(await new SqliteMemoryStore(db, context).ListAsync()).Content);
+            Assert.Equal("old fact", Assert.Single(await new SqliteVaultIndex(db).TakeLegacyFactsAsync(context.CurrentId)));
         }
         finally
         {

@@ -80,6 +80,53 @@ public sealed class SqliteDatabase
         """
         ALTER TABLE messages ADD COLUMN selected_text TEXT;
         """,
+        // v6: memory notes (Markdown files are the truth; this is their index), their sections with embeddings and
+        // full-text search, the queue of background memory work, and small app state
+        """
+        CREATE TABLE vault_notes (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            assistant_id      INTEGER NOT NULL REFERENCES assistants(id) ON DELETE CASCADE,
+            path              TEXT    NOT NULL,
+            kind              TEXT    NOT NULL,
+            conversation_id   INTEGER,
+            generated         TEXT,
+            file_hash         TEXT    NOT NULL DEFAULT '',
+            source_updated_at INTEGER,
+            updated_at        INTEGER NOT NULL,
+            UNIQUE (assistant_id, path)
+        );
+        CREATE INDEX ix_vault_notes_conversation ON vault_notes(conversation_id);
+        CREATE TABLE note_chunks (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id         INTEGER NOT NULL REFERENCES vault_notes(id) ON DELETE CASCADE,
+            heading         TEXT    NOT NULL,
+            text            TEXT    NOT NULL,
+            embedding       BLOB,
+            embedding_model TEXT
+        );
+        CREATE INDEX ix_note_chunks_note ON note_chunks(note_id);
+        CREATE VIRTUAL TABLE note_chunks_fts USING fts5(
+            heading, text, content='note_chunks', content_rowid='id', tokenize='unicode61 remove_diacritics 2');
+        CREATE TRIGGER note_chunks_ai AFTER INSERT ON note_chunks BEGIN
+            INSERT INTO note_chunks_fts(rowid, heading, text) VALUES (new.id, new.heading, new.text);
+        END;
+        CREATE TRIGGER note_chunks_ad AFTER DELETE ON note_chunks BEGIN
+            INSERT INTO note_chunks_fts(note_chunks_fts, rowid, heading, text) VALUES ('delete', old.id, old.heading, old.text);
+        END;
+        CREATE TABLE memory_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind            TEXT    NOT NULL,
+            assistant_id    INTEGER NOT NULL REFERENCES assistants(id) ON DELETE CASCADE,
+            conversation_id INTEGER,
+            path            TEXT,
+            not_before      INTEGER NOT NULL,
+            attempts        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE app_state (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        """,
     ];
 
     public SqliteDatabase(string databasePath, ILogger<SqliteDatabase> logger)

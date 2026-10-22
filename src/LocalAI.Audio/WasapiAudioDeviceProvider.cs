@@ -7,6 +7,12 @@ namespace LocalAI.Audio;
 [SupportedOSPlatform("windows")]
 public sealed class WasapiAudioDeviceProvider : IAudioDeviceProvider
 {
+    /// <summary>
+    /// The device Windows calls the default (Sound settings), not the "default communication device", which can be a
+    /// different headset. "System default" in the settings means this one.
+    /// </summary>
+    internal const Role DefaultRole = Role.Console;
+
     public IReadOnlyList<AudioDevice> GetInputDevices() => Enumerate(DataFlow.Capture);
     public IReadOnlyList<AudioDevice> GetOutputDevices() => Enumerate(DataFlow.Render);
 
@@ -17,9 +23,9 @@ public sealed class WasapiAudioDeviceProvider : IAudioDeviceProvider
         {
             using var enumerator = new MMDeviceEnumerator();
             string? defaultId = null;
-            if (enumerator.HasDefaultAudioEndpoint(flow, Role.Communications))
+            if (enumerator.HasDefaultAudioEndpoint(flow, DefaultRole))
             {
-                using var def = enumerator.GetDefaultAudioEndpoint(flow, Role.Communications);
+                using var def = enumerator.GetDefaultAudioEndpoint(flow, DefaultRole);
                 defaultId = def.ID;
             }
             foreach (var d in enumerator.EnumerateAudioEndPoints(flow, DeviceState.Active))
@@ -46,8 +52,8 @@ public sealed class WasapiAudioDeviceProvider : IAudioDeviceProvider
             }
             catch (System.Runtime.InteropServices.COMException) { /* unplugged: fall back to default */ }
         }
-        if (!enumerator.HasDefaultAudioEndpoint(flow, Role.Communications))
+        if (!enumerator.HasDefaultAudioEndpoint(flow, DefaultRole))
             throw new AudioDeviceException(flow == DataFlow.Capture ? "No microphone found." : "No audio output device found.");
-        return enumerator.GetDefaultAudioEndpoint(flow, Role.Communications);
+        return enumerator.GetDefaultAudioEndpoint(flow, DefaultRole);
     }
 }

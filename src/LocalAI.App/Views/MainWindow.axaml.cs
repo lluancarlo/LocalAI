@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using LocalAI.App.ViewModels;
 
@@ -152,6 +153,18 @@ public sealed partial class MainWindow : Window
             Vm.CancelRenameCommand.Execute(item);
             e.Handled = true;
         }
+    }
+
+    /// <summary>Settings › Memory: pick the Obsidian vault the notes move to.</summary>
+    private async void ChooseVault_Click(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is not { } vm) return;
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose your Obsidian vault",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 1 && folders[0].TryGetLocalPath() is { } path) await vm.Settings.Memory.UseVaultAsync(path);
     }
 
     private void RenameBox_LostFocus(object? sender, RoutedEventArgs e)

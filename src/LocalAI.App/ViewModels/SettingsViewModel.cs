@@ -12,8 +12,8 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.App.ViewModels;
 
 /// <summary>
-/// Settings menu: audio devices, echo cancellation, microphone test, the active assistant's voice style, assistants and
-/// models. Changes apply immediately; device settings go to usersettings.json, the voice style to the assistant.
+/// Settings menu: audio devices, echo cancellation, microphone test, the active assistant's voice style, assistants,
+/// models and where the memory notes live. Changes apply immediately; device settings go to usersettings.json, the voice style to the assistant.
 /// </summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
@@ -34,13 +34,14 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public SettingsViewModel(VoiceConversationController voice, IAudioDeviceProvider devices, IAudioPlayer player,
         ITextToSpeech tts, UserSettingsStore settings, AssistantManager assistants, AssistantContext assistant, ModelsViewModel models,
-        AssistantsViewModel assistantsViewModel, LanguageData languageData, ModelCatalog catalog, IOptions<LocalAiOptions> options,
+        AssistantsViewModel assistantsViewModel, MemorySettingsViewModel memory, LanguageData languageData, ModelCatalog catalog, IOptions<LocalAiOptions> options,
         ILogger<SettingsViewModel> logger)
     {
         _catalog = catalog;
         _languageData = languageData;
         Models = models;
         Assistants = assistantsViewModel;
+        Memory = memory;
         _assistants = assistants;
         _assistant = assistant;
         _voice = voice;
@@ -61,6 +62,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public ModelsViewModel Models { get; }
     public AssistantsViewModel Assistants { get; }
+    public MemorySettingsViewModel Memory { get; }
     public ObservableCollection<AudioDevice> Microphones { get; } = [];
     public ObservableCollection<AudioDevice> Speakers { get; } = [];
 
@@ -83,30 +85,48 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ---------------- Devices ----------------
 
+    /// <summary>
+    /// Lists the devices. The first item follows the Windows default device (saved as an empty id, so the app always
+    /// opens whatever the default is at that moment); picking a device saves it for good. A saved device that is not
+    /// connected stays chosen and the default is used until it comes back.
+    /// </summary>
     [RelayCommand]
     private void RefreshDevices()
     {
         _loading = true;
-        Microphones.Clear();
-        foreach (var d in _devices.GetInputDevices()) Microphones.Add(d);
-        Speakers.Clear();
-        foreach (var d in _devices.GetOutputDevices()) Speakers.Add(d);
-        SelectedMicrophone = Microphones.FirstOrDefault(d => d.Id == _options.Audio.InputDeviceId)
-                             ?? Microphones.FirstOrDefault(d => d.IsDefault) ?? Microphones.FirstOrDefault();
-        SelectedSpeaker = Speakers.FirstOrDefault(d => d.Id == _options.Audio.OutputDeviceId)
-                          ?? Speakers.FirstOrDefault(d => d.IsDefault) ?? Speakers.FirstOrDefault();
+        Fill(Microphones, _devices.GetInputDevices(), _options.Audio.InputDeviceId);
+        Fill(Speakers, _devices.GetOutputDevices(), _options.Audio.OutputDeviceId);
+        SelectedMicrophone = Microphones.FirstOrDefault(d => d.Id == _options.Audio.InputDeviceId) ?? Microphones.FirstOrDefault();
+        SelectedSpeaker = Speakers.FirstOrDefault(d => d.Id == _options.Audio.OutputDeviceId) ?? Speakers.FirstOrDefault();
         _loading = false;
-        _ = _voice.SetInputDeviceAsync(SelectedMicrophone?.Id);
-        _player.SetDevice(SelectedSpeaker?.Id);
+        // The saved choice, not the device shown: an empty id keeps following the system default.
+        _ = _voice.SetInputDeviceAsync(NullIfEmpty(_options.Audio.InputDeviceId));
+        _player.SetDevice(NullIfEmpty(_options.Audio.OutputDeviceId));
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    private static void Fill(ObservableCollection<AudioDevice> list, IReadOnlyList<AudioDevice> devices, string savedId)
+    {
+        list.Clear();
+        if (devices.Count == 0) return; // the combo box shows "No ... found"
+        var current = devices.FirstOrDefault(d => d.IsDefault);
+        list.Add(new AudioDevice(SystemDefaultId, current != null ? $"System default ({current.Name})" : "System default", true));
+        foreach (var d in devices) list.Add(d);
+        if (savedId.Length > 0 && devices.All(d => d.Id != savedId))
+            list.Add(new AudioDevice(savedId, "Chosen device (not connected: using the system default)", false));
+    }
+
+    /// <summary>Id of the "System default" item: an empty saved id means "always the Windows default".</summary>
+    private const string SystemDefaultId = "";
+
+    private static string? NullIfEmpty(string id) => id.Length == 0 ? null : id;
 
     partial void OnSelectedMicrophoneChanged(AudioDevice? value)
     {
         if (_loading || value == null) return;
         _options.Audio.InputDeviceId = value.Id;
         _settings.Set("Audio", "InputDeviceId", value.Id);
-        _ = _voice.SetInputDeviceAsync(value.Id); // reopens the mic if it is in use
+        _ = _voice.SetInputDeviceAsync(NullIfEmpty(value.Id)); // reopens the mic if it is in use
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -115,7 +135,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (_loading || value == null) return;
         _options.Audio.OutputDeviceId = value.Id;
         _settings.Set("Audio", "OutputDeviceId", value.Id);
-        _player.SetDevice(value.Id);
+        _player.SetDevice(NullIfEmpty(value.Id));
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

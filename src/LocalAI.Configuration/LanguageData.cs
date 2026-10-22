@@ -13,6 +13,23 @@ public sealed record LanguageProfile
     /// <summary>Letters that appear in this language and not in the other supported ones.</summary>
     public string Letters { get; init; } = "";
     public IReadOnlyList<string> LetterGroups { get; init; } = [];
+    /// <summary>Section titles of the memory notes written in this language.</summary>
+    public MemoryHeadings? MemoryHeadings { get; init; }
+}
+
+/// <summary>Section titles of the memory notes (conversation notes and the profile).</summary>
+public sealed record MemoryHeadings
+{
+    public string Summary { get; init; } = "Summary";
+    public string Decisions { get; init; } = "Decisions";
+    public string OpenItems { get; init; } = "Open items";
+    public string FactsLearned { get; init; } = "Facts learned";
+    public string About { get; init; } = "About";
+    public string Preferences { get; init; } = "Preferences";
+    public string Skills { get; init; } = "Skills";
+    public string Projects { get; init; } = "Projects";
+    public string Routine { get; init; } = "Routine";
+    public string Profile { get; init; } = "Profile";
 }
 
 /// <summary>languages.json (shipped next to the executable): per-language text data, kept out of the code.</summary>

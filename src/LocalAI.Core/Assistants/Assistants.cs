@@ -21,6 +21,7 @@ public sealed record AssistantProfile(
     HotkeyGesture? Hotkey = null);
 
 /// <summary>How much an assistant has stored: what deleting it removes.</summary>
+/// <param name="Memories">Memory notes (the profile and conversation notes).</param>
 public sealed record AssistantDataSummary(int Conversations, int Messages, int Memories);
 
 /// <summary>What the user chooses when creating an assistant.</summary>

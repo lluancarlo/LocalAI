@@ -1,7 +1,6 @@
 using LocalAI.Configuration;
 using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
-using LocalAI.Core.Memory;
 using LocalAI.Core.Speech;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,7 +15,6 @@ public sealed class AssistantManager(
     AssistantContext context,
     ILanguageModel llm,
     ITextToSpeech tts,
-    MemoryService memory,
     UserSettingsStore settings,
     IOptions<LocalAiOptions> options,
     ILogger<AssistantManager> logger)
@@ -86,7 +84,6 @@ public sealed class AssistantManager(
             await llm.UnloadAsync(ct).ConfigureAwait(false);
             await llm.LoadAsync(ct).ConfigureAwait(false);
         }
-        _ = Task.Run(() => memory.BackfillEmbeddingsAsync(CancellationToken.None), CancellationToken.None);
     }
 
     /// <summary>What deleting the assistant would remove.</summary>

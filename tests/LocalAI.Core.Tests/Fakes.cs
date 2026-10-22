@@ -6,6 +6,7 @@ using LocalAI.Core.Conversations;
 using LocalAI.Core.Desktop;
 using LocalAI.Core.Llm;
 using LocalAI.Core.Memory;
+using LocalAI.Core.Memory.Vault;
 using LocalAI.Core.Speech;
 using LocalAI.Core.Voice;
 using Microsoft.Extensions.Options;
@@ -99,31 +100,208 @@ internal sealed class InMemoryConversationStore : IConversationStore
         Task.FromResult<IReadOnlyList<ConversationSearchHit>>([]);
 }
 
-internal sealed class InMemoryMemoryStore : IMemoryStore
+/// <summary>Note files in memory, keyed by relative path.</summary>
+internal sealed class InMemoryVaultStorage : IVaultStorage
 {
-    public List<MemoryItem> Items { get; } = [];
-    private long _next = 1;
+    public Dictionary<string, string> Files { get; } = new(StringComparer.Ordinal);
+    public string Root => "vault";
+    public event EventHandler<string>? Changed;
 
-    public Task<MemoryItem> AddAsync(MemoryItem item, CancellationToken ct = default)
+    public string? Read(string path) => Files.GetValueOrDefault(path);
+    public void Write(string path, string text) => Files[path] = text;
+    public void Delete(string path) => Files.Remove(path);
+    public bool Exists(string path) => Files.ContainsKey(path);
+    public IReadOnlyList<string> ListNotes(string folder) =>
+        Files.Keys.Where(k => k.StartsWith(folder + "/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
+    public void DeleteFolder(string folder)
     {
-        var m = item with { Id = _next++ };
-        Items.Add(m);
-        return Task.FromResult(m);
+        foreach (var key in ListNotes(folder)) Files.Remove(key);
     }
 
-    public Task<IReadOnlyList<MemoryItem>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<MemoryItem>>(Items.ToList());
-    public Task DeleteAsync(long id, CancellationToken ct = default) { Items.RemoveAll(i => i.Id == id); return Task.CompletedTask; }
-    public Task UpdateEmbeddingAsync(long id, float[] embedding, string model, CancellationToken ct = default) => Task.CompletedTask;
+    /// <summary>Simulates the user editing a note in Obsidian.</summary>
+    public void Edit(string path, string text)
+    {
+        Files[path] = text;
+        Changed?.Invoke(this, path);
+    }
 }
 
-internal sealed class NoMemoryRetriever : IMemoryRetriever
+/// <summary>The vault index in memory: notes, passages (word search instead of FTS5), the job queue and state.</summary>
+internal sealed class InMemoryVaultIndex : IVaultIndex
 {
-    public List<ScoredMemory> Results { get; } = [];
-    public Task<IReadOnlyList<ScoredMemory>> RetrieveAsync(string query, int topK, float minScore, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<ScoredMemory>>(Results.ToList());
+    private readonly Lock _gate = new();
+    private long _next = 1;
+    public List<VaultNote> Notes { get; } = [];
+    public List<NoteChunk> Chunks { get; } = [];
+    public List<MemoryJob> Jobs { get; } = [];
+    public Dictionary<long, DateTimeOffset> JobTimes { get; } = [];
+    public Dictionary<string, string> State { get; } = [];
+    /// <summary>Old-memory facts per assistant (taken once by the migration).</summary>
+    public Dictionary<long, List<string>> LegacyFacts { get; } = [];
+    /// <summary>What <see cref="ConversationsNeedingNotesAsync"/> returns.</summary>
+    public List<(long ConversationId, long AssistantId)> NeedingNotes { get; } = [];
+
+    public Task<VaultNote?> FindNoteAsync(long assistantId, string path, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult(Notes.FirstOrDefault(n => n.AssistantId == assistantId && n.Path == path));
+    }
+
+    public Task<VaultNote?> FindConversationNoteAsync(long conversationId, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult(Notes.FirstOrDefault(n => n.ConversationId == conversationId));
+    }
+
+    public Task<IReadOnlyList<VaultNote>> ListNotesAsync(long assistantId, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult<IReadOnlyList<VaultNote>>(Notes.Where(n => n.AssistantId == assistantId).ToList());
+    }
+
+    public Task<VaultNote> SaveNoteAsync(VaultNote note, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var existing = Notes.FindIndex(n => (note.Id != 0 && n.Id == note.Id) || (n.AssistantId == note.AssistantId && n.Path == note.Path));
+            var saved = note with { Id = existing >= 0 ? Notes[existing].Id : _next++ };
+            if (existing >= 0) Notes[existing] = saved;
+            else Notes.Add(saved);
+            return Task.FromResult(saved);
+        }
+    }
+
+    public Task DeleteNoteAsync(long noteId, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            Notes.RemoveAll(n => n.Id == noteId);
+            Chunks.RemoveAll(c => c.NoteId == noteId);
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task ReplaceChunksAsync(long noteId, IReadOnlyList<NoteChunk> chunks, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            Chunks.RemoveAll(c => c.NoteId == noteId);
+            foreach (var c in chunks) Chunks.Add(c with { Id = _next++, NoteId = noteId });
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<NoteChunk>> ListChunksAsync(long assistantId, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var notes = Notes.Where(n => n.AssistantId == assistantId).Select(n => n.Id).ToHashSet();
+            return Task.FromResult<IReadOnlyList<NoteChunk>>(Chunks.Where(c => notes.Contains(c.NoteId)).ToList());
+        }
+    }
+
+    public async Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, CancellationToken ct = default)
+    {
+        var words = query.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length >= 3).ToList();
+        return (await ListChunksAsync(assistantId, ct))
+            .Select(c => (c.Id, Hits: words.Count(w => c.Text.Contains(w, StringComparison.OrdinalIgnoreCase))))
+            .Where(x => x.Hits > 0).OrderByDescending(x => x.Hits).Take(limit).Select(x => x.Id).ToList();
+    }
+
+    public Task<IReadOnlyList<(long ConversationId, long AssistantId)>> ConversationsNeedingNotesAsync(
+        DateTimeOffset since, DateTimeOffset idleBefore, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult<IReadOnlyList<(long, long)>>(NeedingNotes.ToList());
+    }
+
+    public Task<IReadOnlyList<string>> TakeLegacyFactsAsync(long assistantId, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var facts = LegacyFacts.GetValueOrDefault(assistantId) ?? [];
+            LegacyFacts.Remove(assistantId);
+            return Task.FromResult<IReadOnlyList<string>>(facts);
+        }
+    }
+
+    public Task EnqueueAsync(MemoryJobKind kind, long assistantId, long? conversationId, string? path, DateTimeOffset notBefore,
+        CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var same = Jobs.FirstOrDefault(j => j.Kind == kind && j.AssistantId == assistantId && j.ConversationId == conversationId && j.Path == path);
+            if (same != null)
+            {
+                if (notBefore < JobTimes[same.Id]) JobTimes[same.Id] = notBefore;
+                return Task.CompletedTask;
+            }
+            var job = new MemoryJob(_next++, kind, assistantId, conversationId, path, 0);
+            Jobs.Add(job);
+            JobTimes[job.Id] = notBefore;
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<MemoryJob?> NextJobAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        lock (_gate)
+            return Task.FromResult(Jobs.Where(j => JobTimes[j.Id] <= now).OrderBy(j => JobTimes[j.Id]).ThenBy(j => j.Id).FirstOrDefault());
+    }
+
+    public Task CompleteJobAsync(long jobId, CancellationToken ct = default)
+    {
+        lock (_gate) Jobs.RemoveAll(j => j.Id == jobId);
+        return Task.CompletedTask;
+    }
+
+    public Task PostponeJobAsync(long jobId, DateTimeOffset notBefore, bool failed, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var i = Jobs.FindIndex(j => j.Id == jobId);
+            if (i < 0) return Task.CompletedTask;
+            Jobs[i] = Jobs[i] with { Attempts = Jobs[i].Attempts + (failed ? 1 : 0) };
+            JobTimes[jobId] = notBefore;
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<string?> GetStateAsync(string key, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult(State.GetValueOrDefault(key));
+    }
+
+    public Task SetStateAsync(string key, string value, CancellationToken ct = default)
+    {
+        lock (_gate) State[key] = value;
+        return Task.CompletedTask;
+    }
 }
 
-/// <summary>Bag-of-words "embedding" over a tiny vocabulary: enough to test de-duplication deterministically.</summary>
+/// <summary>A <see cref="MemoryVault"/> over in-memory fakes.</summary>
+internal sealed class MemoryHarness
+{
+    public InMemoryVaultStorage Storage { get; } = new();
+    public InMemoryVaultIndex Index { get; } = new();
+    public InMemoryAssistantStore Assistants { get; }
+    public InMemoryConversationStore Conversations { get; }
+    public AssistantContext Context { get; }
+    public FakeLanguageModel Llm { get; }
+    public FakeEmbeddings Embeddings { get; } = new();
+    public Microsoft.Extensions.Options.IOptions<LocalAiOptions> Options { get; }
+    public MemoryVault Vault { get; }
+
+    public MemoryHarness(FakeLanguageModel? llm = null, InMemoryConversationStore? conversations = null, AssistantContext? context = null,
+        InMemoryAssistantStore? assistants = null, Microsoft.Extensions.Options.IOptions<LocalAiOptions>? options = null)
+    {
+        Llm = llm ?? new FakeLanguageModel();
+        Conversations = conversations ?? new InMemoryConversationStore();
+        Context = context ?? new AssistantContext();
+        Assistants = assistants ?? new InMemoryAssistantStore();
+        Options = options ?? TestOptions.Create();
+        Vault = new MemoryVault(Storage, Index, Assistants, Conversations, Llm, Embeddings, Context, LanguageData.LoadDefault(), Options,
+            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<MemoryVault>.Instance);
+    }
+}
+
+// <summary>Bag-of-words "embedding" over a tiny vocabulary: enough to test de-duplication deterministically.</summary>
 internal sealed class FakeEmbeddings : IEmbeddingService
 {
     private static readonly string[] Vocabulary = ["c#", "prefers", "python", "coffee", "rome", "user", "software", "likes"];
