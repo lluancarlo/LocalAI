@@ -104,7 +104,8 @@ public sealed class MemoryWorker : IAsyncDisposable
     private readonly SemaphoreSlim _running = new(1, 1);
     private readonly Lock _gate = new();
     private CancellationTokenSource? _jobCts;
-    private DateTimeOffset _lastBusy;
+    /// <summary>UTC ticks of the last busy change (read and written on several threads, so a long).</summary>
+    private long _lastBusyTicks;
     private (long ConversationId, long AssistantId)? _currentConversation;
     private Task? _loop;
     private volatile bool _paused;
@@ -126,7 +127,7 @@ public sealed class MemoryWorker : IAsyncDisposable
         _options = options.Value.Memory;
         _time = time;
         _logger = logger;
-        _lastBusy = time.GetUtcNow();
+        _lastBusyTicks = time.GetUtcNow().UtcTicks;
         _activity.BusyChanged += OnBusyChanged;
         _session.UserMessageAdded += OnUserMessage;
         _session.ConversationChanged += OnConversationChanged;
@@ -272,7 +273,7 @@ public sealed class MemoryWorker : IAsyncDisposable
 
     private void OnBusyChanged(object? sender, bool busy)
     {
-        _lastBusy = _time.GetUtcNow();
+        Interlocked.Exchange(ref _lastBusyTicks, _time.GetUtcNow().UtcTicks);
         if (busy) CancelJob(); // the user comes first
         else Wake();
     }
@@ -367,7 +368,7 @@ public sealed class MemoryWorker : IAsyncDisposable
         }
     }
 
-    private bool IsIdleLongEnough(DateTimeOffset now) => !_activity.IsBusy && now - _lastBusy >= IdleDelay;
+    private bool IsIdleLongEnough(DateTimeOffset now) => !_activity.IsBusy && now.UtcTicks - Interlocked.Read(ref _lastBusyTicks) >= IdleDelay.Ticks;
 
     private async Task WaitAsync(CancellationToken stop)
     {

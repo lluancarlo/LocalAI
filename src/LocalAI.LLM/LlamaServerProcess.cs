@@ -191,7 +191,8 @@ public sealed class LlamaServerProcess : IAsyncDisposable
             if (!_process.HasExited)
             {
                 _process.Kill(entireProcessTree: true);
-                await _process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(10)).Token).ConfigureAwait(false);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await _process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException or System.ComponentModel.Win32Exception)

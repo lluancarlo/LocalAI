@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using LocalAI.Configuration;
 using LocalAI.Core.Assistant;
 using LocalAI.Core.Assistants;
@@ -25,7 +26,7 @@ public sealed record MemoryContext(string? Profile, IReadOnlyList<NoteChunk> Pas
 /// overwritten, items the user wrote in the profile always survive, and text outside the markers is never touched.
 /// Note and conversation text is never logged.
 /// </summary>
-public sealed class MemoryVault(
+public sealed partial class MemoryVault(
     IVaultStorage storage,
     IVaultIndex index,
     IAssistantStore assistants,
@@ -53,8 +54,21 @@ public sealed class MemoryVault(
     internal const int MaxQueryChars = 2000;
     /// <summary>Longest identity sent to the model (the style the user writes is at most 2000 characters).</summary>
     private const int MaxIdentityChars = 6000;
+    /// <summary>Passages embedded in one request to the embedding server.</summary>
+    private const int EmbedBatchSize = 16;
     private readonly MemoryOptions _options = options.Value.Memory;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+
+    /// <summary>What recall searches for one assistant: kept until the index changes, so a reply does not read it all again.</summary>
+    /// <param name="Conversations">The conversations whose note is searched (newest <see cref="MemoryOptions.MaxConversationNotes"/>).</param>
+    private sealed record RecallSet(IReadOnlyList<NoteChunk> Chunks, IReadOnlySet<long> Conversations);
+
+    private readonly Lock _recallGate = new();
+    private readonly Dictionary<long, RecallSet> _recallSets = [];
+    private long _indexVersion;
+    private HashSet<string>? _stopWords;
+
+    [GeneratedRegex(@"[\p{L}\p{N}_]+")] private static partial Regex Word();
 
     /// <summary>Raised after a note was written, re-indexed or removed (the Memory page refreshes).</summary>
     public event EventHandler? NotesChanged;
@@ -94,6 +108,7 @@ public sealed class MemoryVault(
         {
             // The user changed the generated part: their version stays. Remember it is current so it is not retried.
             await index.SaveNoteAsync(existing with { SourceUpdatedAt = conversation.UpdatedAt }, ct).ConfigureAwait(false);
+            IndexChanged();
             return false;
         }
 
@@ -335,6 +350,7 @@ public sealed class MemoryVault(
         foreach (var note in known.Values.Where(n => !storage.Exists(n.Path)))
         {
             await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
+            IndexChanged();
             changed = true;
         }
         await StepAsync("Index: checking the notes for changes", ct).ConfigureAwait(false);
@@ -359,6 +375,7 @@ public sealed class MemoryVault(
         if (text == null)
         {
             if (note != null) await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
+            IndexChanged();
         }
         else
         {
@@ -404,22 +421,27 @@ public sealed class MemoryVault(
         var name = Path.GetFileNameWithoutExtension(note.Path);
         if (embeddings.IsAvailable)
         {
-            for (var i = 0; i < chunks.Count; i++)
+            for (var i = 0; i < chunks.Count; i += EmbedBatchSize)
             {
-                await StepAsync($"Index: embedding passage {i + 1} of {chunks.Count} ({name})", ct).ConfigureAwait(false);
+                var count = Math.Min(EmbedBatchSize, chunks.Count - i);
+                await StepAsync(count == 1
+                    ? $"Index: embedding passage {i + 1} of {chunks.Count} ({name})"
+                    : $"Index: embedding passages {i + 1}-{i + count} of {chunks.Count} ({name})", ct).ConfigureAwait(false);
                 try
                 {
-                    var vector = await embeddings.EmbedAsync($"{chunks[i].NoteTitle}: {chunks[i].Heading}\n{chunks[i].Text}",
-                        EmbeddingPurpose.Document, ct).ConfigureAwait(false);
-                    chunks[i] = chunks[i] with { Embedding = vector, EmbeddingModel = embeddings.ModelId };
+                    var texts = chunks.Skip(i).Take(count).Select(c => $"{c.NoteTitle}: {c.Heading}\n{c.Text}").ToList();
+                    var vectors = await embeddings.EmbedManyAsync(texts, EmbeddingPurpose.Document, ct).ConfigureAwait(false);
+                    for (var k = 0; k < count; k++)
+                        chunks[i + k] = chunks[i + k] with { Embedding = vectors[k], EmbeddingModel = embeddings.ModelId };
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { logger.LogWarning(ex, "Embedding a note passage failed; it is found by keywords only"); }
+                catch (Exception ex) { logger.LogWarning(ex, "Embedding note passages failed; they are found by keywords only"); }
             }
         }
         await StepAsync($"Index: saving {chunks.Count} passages to the search index ({name})", ct).ConfigureAwait(false);
         await index.ReplaceChunksAsync(note.Id, chunks, ct).ConfigureAwait(false);
         await index.SaveNoteAsync(note with { FileHash = NoteDocument.Hash(text) }, ct).ConfigureAwait(false);
+        IndexChanged();
     }
 
     /// <summary>The note's sections as passages (frontmatter and markers left out, long sections split at paragraphs).</summary>
@@ -463,11 +485,17 @@ public sealed class MemoryVault(
 
     /// <summary>
     /// The active assistant's profile and the passages of its other notes most relevant to <paramref name="query"/>:
-    /// meaning (embeddings) and words (full-text search) ranked together, within the memory token budget.
+    /// meaning (embeddings) and words (full-text search) ranked together, within the memory token budget. Only the
+    /// newest <see cref="MemoryOptions.MaxConversationNotes"/> conversation notes are searched.
     /// </summary>
     public async Task<MemoryContext> RecallAsync(string query, CancellationToken ct)
     {
         if (!_options.Enabled || context.Current is not { } assistant) return MemoryContext.Empty;
+        var searchText = string.IsNullOrWhiteSpace(query) ? null : SearchQuery(query);
+        // The query is embedded while the notes are read.
+        var queryVector = searchText != null && embeddings.IsAvailable
+            ? EmbedQueryAsync(searchText, ct)
+            : Task.FromResult<float[]?>(null);
         try
         {
             var budget = _options.MemoryTokenBudget;
@@ -484,16 +512,14 @@ public sealed class MemoryVault(
                 budget -= PromptBuilder.EstimateTokens(profile);
             }
 
-            // The profile and the identity are in the prompt already: passages come from the other notes.
-            var inPrompt = (await index.ListNotesAsync(assistant.Id, ct).ConfigureAwait(false))
-                .Where(n => n.Kind != NoteKind.Conversation).Select(n => n.Id).ToHashSet();
-            var chunks = (await index.ListChunksAsync(assistant.Id, ct).ConfigureAwait(false)).Where(c => !inPrompt.Contains(c.NoteId)).ToList();
+            var chunks = (await RecallSetAsync(assistant.Id, ct).ConfigureAwait(false)).Chunks;
             var passages = new List<NoteChunk>();
-            if (chunks.Count > 0 && !string.IsNullOrWhiteSpace(query))
+            if (chunks.Count > 0 && searchText != null)
             {
                 await _activity.StepAsync(WorkKind.Reply, $"Memory (RAG): searching {chunks.Count} passages by meaning and words", ct)
                     .ConfigureAwait(false);
-                foreach (var chunk in await RankAsync(assistant.Id, query, chunks, ct).ConfigureAwait(false))
+                var vector = await queryVector.ConfigureAwait(false);
+                foreach (var chunk in await RankAsync(assistant.Id, searchText, vector, chunks, ct).ConfigureAwait(false))
                 {
                     var cost = PromptBuilder.EstimateTokens(chunk.Text) + 8;
                     if (cost > budget) continue;
@@ -511,6 +537,83 @@ public sealed class MemoryVault(
         {
             logger.LogWarning(ex, "Memory recall failed; continuing without memory");
             return MemoryContext.Empty;
+        }
+    }
+
+    /// <summary>
+    /// The active assistant's conversations whose note recall searches (the conversation list marks them). Empty when
+    /// the memory is off.
+    /// </summary>
+    public async Task<IReadOnlySet<long>> ConversationsInMemoryAsync(CancellationToken ct = default)
+    {
+        if (!_options.Enabled || context.Current is not { } assistant) return new HashSet<long>();
+        try
+        {
+            return (await RecallSetAsync(assistant.Id, ct).ConfigureAwait(false)).Conversations;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read which conversations are in memory");
+            return new HashSet<long>();
+        }
+    }
+
+    /// <summary>
+    /// The passages recall searches: the user's own notes and the newest conversation notes (profile and identity are
+    /// in the prompt already). Read from the index once, then kept until the index changes.
+    /// </summary>
+    private async Task<RecallSet> RecallSetAsync(long assistantId, CancellationToken ct)
+    {
+        long version;
+        lock (_recallGate)
+        {
+            if (_recallSets.TryGetValue(assistantId, out var cached)) return cached;
+            version = _indexVersion;
+        }
+
+        var notes = await index.ListNotesAsync(assistantId, ct).ConfigureAwait(false);
+        var conversationNotes = notes
+            .Where(n => n is { Kind: NoteKind.Conversation, ConversationId: not null })
+            .OrderByDescending(n => n.SourceUpdatedAt ?? DateTimeOffset.MinValue)
+            .ThenByDescending(n => n.ConversationId)
+            .Take(Math.Max(0, _options.MaxConversationNotes))
+            .ToList();
+        var searched = notes.Where(n => n is { Kind: NoteKind.Conversation, ConversationId: null }).Select(n => n.Id)
+            .Concat(conversationNotes.Select(n => n.Id))
+            .ToHashSet();
+        var chunks = (await index.ListChunksAsync(assistantId, ct).ConfigureAwait(false)).Where(c => searched.Contains(c.NoteId)).ToList();
+        var withPassages = chunks.Select(c => c.NoteId).ToHashSet();
+        var set = new RecallSet(chunks, conversationNotes.Where(n => withPassages.Contains(n.Id)).Select(n => n.ConversationId!.Value).ToHashSet());
+
+        lock (_recallGate)
+        {
+            if (_indexVersion == version) _recallSets[assistantId] = set;
+        }
+        return set;
+    }
+
+    /// <summary>The index changed: recall reads it again.</summary>
+    private void IndexChanged()
+    {
+        lock (_recallGate)
+        {
+            _indexVersion++;
+            _recallSets.Clear();
+        }
+    }
+
+    private async Task<float[]?> EmbedQueryAsync(string query, CancellationToken ct)
+    {
+        try
+        {
+            return await embeddings.EmbedAsync(query, EmbeddingPurpose.Query, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Semantic note search failed; using words only");
+            return null;
         }
     }
 
@@ -535,31 +638,45 @@ public sealed class MemoryVault(
         return query[..half] + "\n...\n" + query[^half..];
     }
 
-    /// <summary>Reciprocal rank fusion of the semantic and the full-text ranking.</summary>
-    private async Task<IReadOnlyList<NoteChunk>> RankAsync(long assistantId, string query, List<NoteChunk> chunks, CancellationToken ct)
+    /// <summary>
+    /// The words of <paramref name="query"/> worth searching for: common words of every language ("the", "que",
+    /// "para"...) match almost every passage, so they are left out.
+    /// </summary>
+    internal string Keywords(string query)
     {
-        query = SearchQuery(query);
+        var stop = _stopWords ??= languages.Languages.Values
+            .SelectMany(l => l.CommonWords)
+            .Select(w => w.ToLowerInvariant())
+            .ToHashSet(StringComparer.Ordinal);
+        return string.Join(' ', Word().Matches(query)
+            .Select(m => m.Value)
+            .Where(w => w.Length >= 3 && !stop.Contains(w.ToLowerInvariant()))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Reciprocal rank fusion of the semantic and the full-text ranking.</summary>
+    private async Task<IReadOnlyList<NoteChunk>> RankAsync(long assistantId, string query, float[]? queryVector,
+        IReadOnlyList<NoteChunk> chunks, CancellationToken ct)
+    {
         const double k = 60;
         var scores = new Dictionary<long, double>();
-        if (embeddings.IsAvailable)
+        if (queryVector != null)
         {
-            try
-            {
-                var q = await embeddings.EmbedAsync(query, EmbeddingPurpose.Query, ct).ConfigureAwait(false);
-                var semantic = chunks
-                    .Where(c => c.Embedding != null && c.EmbeddingModel == embeddings.ModelId)
-                    .Select(c => (c.Id, Score: VectorMath.Cosine(q, c.Embedding)))
-                    .Where(s => s.Score >= _options.MinRelevance)
-                    .OrderByDescending(s => s.Score)
-                    .Take(50)
-                    .ToList();
-                for (var i = 0; i < semantic.Count; i++) scores[semantic[i].Id] = 1 / (k + i + 1);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { logger.LogWarning(ex, "Semantic note search failed; using words only"); }
+            var semantic = chunks
+                .Where(c => c.Embedding != null && c.EmbeddingModel == embeddings.ModelId)
+                .Select(c => (c.Id, Score: VectorMath.Cosine(queryVector, c.Embedding)))
+                .Where(s => s.Score >= _options.MinRelevance)
+                .OrderByDescending(s => s.Score)
+                .Take(50)
+                .ToList();
+            for (var i = 0; i < semantic.Count; i++) scores[semantic[i].Id] = 1 / (k + i + 1);
         }
-        var words = await index.SearchChunksAsync(assistantId, query, 50, ct).ConfigureAwait(false);
-        for (var i = 0; i < words.Count; i++) scores[words[i]] = scores.GetValueOrDefault(words[i]) + 1 / (k + i + 1);
+        var keywords = Keywords(query);
+        if (keywords.Length > 0)
+        {
+            var words = await index.SearchChunksAsync(assistantId, keywords, 100, ct).ConfigureAwait(false);
+            for (var i = 0; i < words.Count; i++) scores[words[i]] = scores.GetValueOrDefault(words[i]) + 1 / (k + i + 1);
+        }
 
         var byId = chunks.ToDictionary(c => c.Id);
         return scores.OrderByDescending(s => s.Value).Where(s => byId.ContainsKey(s.Key)).Select(s => byId[s.Key]).ToList();
@@ -573,6 +690,7 @@ public sealed class MemoryVault(
         if (await index.FindConversationNoteAsync(conversationId, ct).ConfigureAwait(false) is not { } note) return;
         storage.Delete(note.Path);
         await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
+        IndexChanged();
         NotesChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -582,6 +700,7 @@ public sealed class MemoryVault(
         storage.DeleteFolder(await AssistantFolderAsync(assistant, ct).ConfigureAwait(false));
         foreach (var note in await index.ListNotesAsync(assistant.Id, ct).ConfigureAwait(false))
             await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
+        IndexChanged();
         NotesChanged?.Invoke(this, EventArgs.Empty);
     }
 

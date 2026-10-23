@@ -93,11 +93,17 @@ public sealed class LlamaCppEmbeddingService : IEmbeddingService, IAsyncDisposab
         }
     }
 
-    public async Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default)
+    public async Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default) =>
+        (await EmbedManyAsync([text], purpose, ct).ConfigureAwait(false))[0];
+
+    public async Task<IReadOnlyList<float[]>> EmbedManyAsync(IReadOnlyList<string> texts, EmbeddingPurpose purpose, CancellationToken ct = default)
     {
+        if (texts.Count == 0) return [];
         var server = _server ?? throw new InvalidOperationException("Embedding service not started.");
         var prefix = purpose == EmbeddingPurpose.Query ? _options.QueryPrefix : _options.DocumentPrefix;
-        var body = new JsonObject { ["input"] = prefix + text }.ToJsonString();
+        var input = new JsonArray();
+        foreach (var text in texts) input.Add(prefix + text);
+        var body = new JsonObject { ["input"] = input }.ToJsonString();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(server.BaseUri, "v1/embeddings"))
         {
@@ -108,11 +114,20 @@ public sealed class LlamaCppEmbeddingService : IEmbeddingService, IAsyncDisposab
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
-        var arr = doc.RootElement.GetProperty("data")[0].GetProperty("embedding");
-        var vector = new float[arr.GetArrayLength()];
-        var i = 0;
-        foreach (var v in arr.EnumerateArray()) vector[i++] = v.GetSingle();
-        return vector;
+        var vectors = new float[texts.Count][];
+        var position = 0;
+        foreach (var item in doc.RootElement.GetProperty("data").EnumerateArray())
+        {
+            var index = item.TryGetProperty("index", out var i) && i.TryGetInt32(out var n) ? n : position;
+            var arr = item.GetProperty("embedding");
+            var vector = new float[arr.GetArrayLength()];
+            var k = 0;
+            foreach (var v in arr.EnumerateArray()) vector[k++] = v.GetSingle();
+            vectors[index] = vector;
+            position++;
+        }
+        if (vectors.Any(v => v == null)) throw new InvalidDataException("The embedding server returned fewer vectors than texts.");
+        return vectors;
     }
 
     public async ValueTask DisposeAsync()

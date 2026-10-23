@@ -164,7 +164,9 @@ local-ai/
 - **Conversation notes:** summary, decisions, open items and the facts learned, with links you can follow in
   Obsidian.
 - **Personal RAG:** before each reply the assistant reads its profile of you and the passages of its notes most
-  related to what you ask (by meaning and by words), and can name the note it used.
+  related to what you ask (by meaning and by words), and can name the note it used. It searches the notes of your
+  100 most recent conversations; a small database icon next to a conversation in the list lights up when its note is
+  in the search.
 - **Your edits win:** open the notes in [Obsidian](https://obsidian.md/) or any editor to correct, add or delete
   anything. A part you changed is never overwritten, lines you add to the profile are kept, and text you write
   outside the generated part is never touched. Notes you delete come back the next time the conversation is

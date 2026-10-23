@@ -151,6 +151,11 @@ public sealed class MemoryOptions
     public string NotesLanguage { get; set; } = "en";
     /// <summary>A conversation without new messages for this long gets its note written.</summary>
     public int ConversationIdleMinutes { get; set; } = 10;
+    /// <summary>
+    /// Conversation notes searched for a prompt: the newest ones (by the conversation's last message). Older notes stay
+    /// in the folder, and their facts in the profile, but are no longer recalled.
+    /// </summary>
+    public int MaxConversationNotes { get; set; } = 100;
     /// <summary>Note passages recalled for a prompt (besides the profile).</summary>
     public int RetrieveTopKChunks { get; set; } = 6;
     /// <summary>Approximate tokens of memory (profile and passages) added to a prompt.</summary>

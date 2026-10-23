@@ -33,6 +33,8 @@ public sealed class AssistantManager(
 
     private readonly Lock _switchGate = new();
     private readonly SemaphoreSlim _voiceGate = new(1, 1);
+    /// <summary>One model change at a time: the model to load is read from the options while it loads.</summary>
+    private readonly SemaphoreSlim _modelGate = new(1, 1);
     private int _switchGeneration;
 
     /// <summary>True while the active assistant's voice loads after a switch (its tab shows a yellow dot).</summary>
@@ -55,7 +57,11 @@ public sealed class AssistantManager(
     {
         var all = await store.ListAsync(ct).ConfigureAwait(false);
         var active = all.FirstOrDefault(a => a.Id == _options.Assistant.ActiveId) ?? all.FirstOrDefault();
-        if (active != null) ApplyToOptions(active);
+        if (active != null)
+        {
+            ApplyToOptions(active);
+            ApplyModel(active);
+        }
         context.Set(active);
     }
 
@@ -142,17 +148,33 @@ public sealed class AssistantManager(
     public async Task LoadModelAsync(AssistantProfile profile, CancellationToken ct = default)
     {
         ModelRequested?.Invoke(this, profile);
-        if (IsModelLoaded(profile)) return;
-        ApplyToOptions(profile);
-        await llm.UnloadAsync(ct).ConfigureAwait(false);
-        await llm.LoadAsync(ct).ConfigureAwait(false);
-        logger.LogInformation("AI of assistant {Id} turned on", profile.Id);
+        await _modelGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (IsModelLoaded(profile)) return;
+            ApplyModel(profile);
+            await llm.UnloadAsync(ct).ConfigureAwait(false);
+            await llm.LoadAsync(ct).ConfigureAwait(false);
+            logger.LogInformation("AI of assistant {Id} turned on", profile.Id);
+        }
+        finally
+        {
+            _modelGate.Release();
+        }
     }
 
     /// <summary>Turns the AI off: unloads the language model (frees the GPU memory).</summary>
     public async Task UnloadModelAsync(CancellationToken ct = default)
     {
-        await llm.UnloadAsync(ct).ConfigureAwait(false);
+        await _modelGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await llm.UnloadAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _modelGate.Release();
+        }
         logger.LogInformation("AI turned off");
     }
 
@@ -178,7 +200,7 @@ public sealed class AssistantManager(
                 _options.Assistant.ActiveId = 0;
                 settings.Set("Assistant", "ActiveId", 0L);
                 context.Set(null);
-                await llm.UnloadAsync(ct).ConfigureAwait(false);
+                await UnloadModelAsync(ct).ConfigureAwait(false);
             }
         }
         await store.DeleteAsync(profile.Id, ct).ConfigureAwait(false);
@@ -204,9 +226,12 @@ public sealed class AssistantManager(
         return updated;
     }
 
+    /// <summary>The model the next load picks. Only set while no other load runs (startup, or under the model gate).</summary>
+    private void ApplyModel(AssistantProfile profile) =>
+        _options.Llm.Model = string.IsNullOrEmpty(profile.ModelId) ? AutoModel : profile.ModelId;
+
     private void ApplyToOptions(AssistantProfile profile)
     {
-        _options.Llm.Model = string.IsNullOrEmpty(profile.ModelId) ? AutoModel : profile.ModelId;
         _options.TextToSpeech.Voice = profile.VoiceId;
         tts.Style = profile.VoiceStyle;
     }

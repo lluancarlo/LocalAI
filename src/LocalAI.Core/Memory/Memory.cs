@@ -7,6 +7,14 @@ public interface IEmbeddingService
     bool IsAvailable { get; }
     string ModelId { get; }
     Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default);
+
+    /// <summary>Several texts in one request, in order (the default asks for them one by one).</summary>
+    async Task<IReadOnlyList<float[]>> EmbedManyAsync(IReadOnlyList<string> texts, EmbeddingPurpose purpose, CancellationToken ct = default)
+    {
+        var vectors = new List<float[]>(texts.Count);
+        foreach (var text in texts) vectors.Add(await EmbedAsync(text, purpose, ct).ConfigureAwait(false));
+        return vectors;
+    }
 }
 
 public static class VectorMath

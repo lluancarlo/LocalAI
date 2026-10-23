@@ -116,7 +116,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _voice.Warning += (_, w) => Ui(() => BannerText = w);
         _voice.Transcribed += (_, _) => Ui(() => BannerText = null);
         _startup.StatusChanged += (_, s) => Ui(() => OnSubsystem(s));
-        _memory.NotesChanged += (_, _) => Ui(() => _ = LoadMemoriesAsync());
+        _memory.NotesChanged += (_, _) => Ui(() =>
+        {
+            _ = LoadMemoriesAsync();
+            _ = RefreshMemoryMarksAsync();
+        });
         memoryWorker.WorkingChanged += (_, working) => Ui(() => OnWorkingChanged(working));
         _work.Changed += (_, _) => Ui(ApplyStatus);
         _power.Changed += (_, _) => Ui(UpdateAssistantTabs);
@@ -273,6 +277,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var list = await _store.ListAsync();
             Conversations.Clear();
             foreach (var c in list) Conversations.Add(new ConversationItemViewModel(c));
+            await RefreshMemoryMarksAsync();
         }
         catch (Exception ex)
         {
@@ -563,9 +568,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     // ---------------- Conversations ----------------
 
+    /// <summary>The conversations the memory searches (the list marks them).</summary>
+    private IReadOnlySet<long> _inMemory = new HashSet<long>();
+
+    /// <summary>Marks the conversations the assistant recalls (their note is in the memory search).</summary>
+    private async Task RefreshMemoryMarksAsync()
+    {
+        try
+        {
+            _inMemory = await _memory.ConversationsInMemoryAsync();
+        }
+        catch (OperationCanceledException) { return; }
+        foreach (var item in Conversations) MarkMemory(item);
+    }
+
+    private void MarkMemory(ConversationItemViewModel item)
+    {
+        item.InMemory = _inMemory.Contains(item.Id);
+        item.MemoryTip = !_options.Memory.Enabled ? "The memory is turned off (Settings › Memory)."
+            : item.InMemory ? $"In memory: {AssistantName} recalls this conversation when it is relevant."
+            : $"Not in memory: {AssistantName} writes a conversation's note once it goes quiet, and recalls only the " +
+              $"{_options.Memory.MaxConversationNotes} newest conversations.";
+    }
+
     private void OnConversationCreated(Conversation c)
     {
         var item = new ConversationItemViewModel(c);
+        MarkMemory(item);
         Conversations.Insert(0, item);
         _suppressSelection = true;
         SelectedConversation = item;
@@ -674,6 +703,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (ct.IsCancellationRequested) return;
             Conversations.Clear();
             foreach (var h in hits) Conversations.Add(new ConversationItemViewModel(h.Conversation) { Snippet = h.Snippet });
+            await RefreshMemoryMarksAsync();
         }
         catch (OperationCanceledException) { }
     }

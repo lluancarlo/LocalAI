@@ -89,6 +89,9 @@ public sealed class AssistantSession : IDisposable
 
     public const string AiOffMessage = "The assistant is offline.";
 
+    /// <summary>Messages read for the prompt; the token budget decides how many go in.</summary>
+    private const int MaxHistoryMessages = 200;
+
     /// <summary>Switches to an existing conversation (null = start a new one on next message).</summary>
     public void SelectConversation(long? conversationId)
     {
@@ -154,7 +157,7 @@ public sealed class AssistantSession : IDisposable
 
         await _activity.StepAsync(WorkKind.Reply, "Saving your message", ct).ConfigureAwait(false);
         var conversationId = await EnsureConversationAsync(request.Text, ct).ConfigureAwait(false);
-        var history = await _store.GetRecentMessagesAsync(conversationId, 60, ct).ConfigureAwait(false);
+        var history = await _store.GetRecentMessagesAsync(conversationId, MaxHistoryMessages, ct).ConfigureAwait(false);
 
         var userMessage = await _store.AddMessageAsync(new StoredMessage
         {
@@ -175,7 +178,8 @@ public sealed class AssistantSession : IDisposable
         var memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
         var speak = request.Speak && _speech.IsAvailable;
         await _activity.StepAsync(WorkKind.Reply, "Building the prompt", ct).ConfigureAwait(false);
-        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, language);
+        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, language,
+            _llm.Info?.ContextSize ?? 0, _options.Llm.MaxTokens);
 
         var options = new GenerationOptions
         {

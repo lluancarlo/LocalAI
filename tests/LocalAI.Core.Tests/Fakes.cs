@@ -26,14 +26,22 @@ internal sealed class FakeLanguageModel : ILanguageModel
     public event EventHandler<LanguageModelState>? StateChanged;
 
     public int LoadCount { get; private set; }
+    /// <summary>Time a load takes; the model id is read at its end, like the real engine.</summary>
+    public TimeSpan LoadDelay { get; set; }
+    /// <summary>The model ids loaded, in order.</summary>
+    public List<string> Loaded { get; } = [];
 
-    public Task LoadAsync(CancellationToken cancellationToken = default)
+    public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         LoadCount++;
-        if (LoadsModel != null) Info = new ModelInfo { Id = LoadsModel(), DisplayName = "Fake", FilePath = "fake.gguf" };
+        if (LoadDelay > TimeSpan.Zero) await Task.Delay(LoadDelay, cancellationToken);
+        if (LoadsModel != null)
+        {
+            Info = new ModelInfo { Id = LoadsModel(), DisplayName = "Fake", FilePath = "fake.gguf" };
+            lock (Loaded) Loaded.Add(Info.Id);
+        }
         State = LanguageModelState.Ready;
         StateChanged?.Invoke(this, State);
-        return Task.CompletedTask;
     }
 
     public Task UnloadAsync(CancellationToken cancellationToken = default)

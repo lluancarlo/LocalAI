@@ -152,6 +152,8 @@ public sealed class TranscriptFilterTests
     [InlineData("Sottotitoli creati dalla comunità Amara.org", true)]
     [InlineData("Wait.", false)]
     [InlineData("Thanks!", false)]
+    [InlineData("Subtitles by the Amara.org community", true)]
+    [InlineData("Open www.github.com and look at the issues.", false)]
     public void Filters_noise_and_known_hallucinations(string text, bool noise) =>
         Assert.Equal(noise, TranscriptFilter.IsNoise(text, LocalAI.Configuration.LanguageData.LoadDefault().TranscriptNoise));
 }

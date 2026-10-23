@@ -60,7 +60,10 @@ Main runtime flows:
 - **Turn pipeline** (`AssistantSession.SubmitAsync`, the same for text and voice): save the user message, recall
   memory (`MemoryVault.RecallAsync`), build the prompt (`PromptBuilder`), stream the LLM reply (and, if needed, speak
   it through `SpeechOutput`: sentence chunks to TTS to queued playback), then save the reply. Only one turn runs at a
-  time, and a new turn cancels generation, synthesis and playback.
+  time, and a new turn cancels generation, synthesis and playback. The prompt is laid out for llama-server's prompt
+  cache: the system message holds only what rarely changes (prompt, identity, profile), the history keeps the same
+  first message from turn to turn (it is cut in jumps, to 3/4 of the budget) and fits the model's context, and what
+  changes every turn (date and time, recalled passages) goes in a context block in the last user message.
 - **Memory** (`src/LocalAI.Core/Memory/Vault`): each assistant's memory is Markdown notes, the source of truth, in
   `<root>/local-ai/<assistant>/` (root = `data\memory`, or the Obsidian vault in `Memory:VaultPath`): an identity note
   (who the assistant is: its style plus model and voice as properties; it replaces the style in the system prompt), a
@@ -69,7 +72,10 @@ Main runtime flows:
   (`NoteDocument`); the user's edits win: a block whose hash differs from what the app wrote is never overwritten,
   profile items the user wrote always survive, and text outside the markers is never touched. The SQLite index
   (`SqliteVaultIndex`: notes, passages with embeddings and FTS5, job queue) can be rebuilt from the files. Recall
-  ranks passages by meaning and words (reciprocal rank fusion) within `MemoryTokenBudget`.
+  ranks passages by meaning and words (reciprocal rank fusion; common words from `languages.json` are left out of
+  the word search) within `MemoryTokenBudget`. It searches the user's own notes and only the newest
+  `MaxConversationNotes` (100) conversation notes; the passages it searches are cached in memory until the index
+  changes. The conversation list marks the conversations whose note is searched.
 - **Background memory work** (`MemoryWorker`): writing conversation notes (after `ConversationIdleMinutes` or when
   the user leaves the conversation), merging the profile, writing the identity notes (at start and when an assistant
   is created or changed) and indexing notes run from a queue in the database, only

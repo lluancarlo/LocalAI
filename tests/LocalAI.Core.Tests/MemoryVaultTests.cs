@@ -312,6 +312,35 @@ public sealed class MemoryVaultTests
         Assert.True((await _m.Vault.RecallAsync("pagination", CancellationToken.None)).IsEmpty);
     }
 
+    [Fact]
+    public async Task Only_the_newest_conversation_notes_are_recalled_and_marked_in_memory()
+    {
+        _m.Options.Value.Memory.MaxConversationNotes = 2;
+        var ids = new List<long> { await ConversationAsync() };
+        for (var i = 2; i <= 3; i++)
+        {
+            var c = await _m.Conversations.CreateAsync($"Orders API pagination {i}");
+            await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.User, Content = "How do we paginate?" });
+            await _m.Conversations.AddMessageAsync(new StoredMessage { ConversationId = c.Id, Role = ChatRole.Assistant, Content = "Use a cursor." });
+            ids.Add(c.Id);
+        }
+        foreach (var id in ids) Assert.True(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
+
+        Assert.Equal([ids[1], ids[2]], (await _m.Vault.ConversationsInMemoryAsync()).Order());
+        var oldest = Path.GetFileNameWithoutExtension((await _m.Index.FindConversationNoteAsync(ids[0]))!.Path);
+        var memory = await _m.Vault.RecallAsync("which pagination did we pick for orders", CancellationToken.None);
+        Assert.NotEmpty(memory.Passages);
+        Assert.DoesNotContain(memory.Passages, p => p.NoteTitle == oldest);
+
+        // A newer note gone: the older one is searched again.
+        await _m.Vault.DeleteConversationNoteAsync(ids[2]);
+        Assert.Equal([ids[0], ids[1]], (await _m.Vault.ConversationsInMemoryAsync()).Order());
+    }
+
+    [Fact]
+    public void Keyword_search_leaves_out_the_common_words_of_every_language() =>
+        Assert.Equal("pagination pick orders", _m.Vault.Keywords("Which pagination did we pick for the orders, e para que?"));
+
     private const string IdentityFile = "lia/lia-identity.md";
 
     private async Task<AssistantProfile> LiaAsync(string style = "Warm and witty.\n\n### Tone\n- Casual")

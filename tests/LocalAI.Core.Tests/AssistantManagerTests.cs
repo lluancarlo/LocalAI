@@ -105,6 +105,25 @@ public sealed class AssistantManagerTests
     }
 
     [Fact]
+    public async Task Turning_ais_on_at_once_loads_each_ones_own_model()
+    {
+        _llm.LoadsModel = () => _options.Llm.Model;
+        var nova = await _manager.CreateAsync(Draft("Nova"));
+        var marco = await _manager.CreateAsync(Draft("Marco") with { ModelId = "model-b" });
+        _llm.Loaded.Clear();
+        _llm.LoadDelay = TimeSpan.FromMilliseconds(50);
+
+        // Nova's AI turns on (its button), and while it loads the user clicks Marco's tab and turns Marco's AI on.
+        var novaOn = _manager.LoadModelAsync(nova);
+        await _manager.SwitchAsync(marco, loadModel: false);
+        var marcoOn = _manager.LoadModelAsync(marco);
+        await Task.WhenAll(novaOn, marcoOn);
+
+        Assert.Equal(["model-a", "model-b"], _llm.Loaded);
+        Assert.True(_manager.IsModelLoaded(marco));
+    }
+
+    [Fact]
     public async Task Turning_an_ai_on_is_announced_even_when_its_model_is_loaded()
     {
         // Turning an AI on stops the memory work of an AI that is turning off (AssistantPower), whose model is still loaded.

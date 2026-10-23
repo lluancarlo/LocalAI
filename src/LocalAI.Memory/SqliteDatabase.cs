@@ -136,7 +136,7 @@ public sealed class SqliteDatabase
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
-            Mode = databasePath == ":memory:" ? SqliteOpenMode.Memory : SqliteOpenMode.ReadWriteCreate,
+            Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Private,
             Pooling = true,
         }.ToString();
@@ -169,7 +169,7 @@ public sealed class SqliteDatabase
     private async Task MigrateAsync()
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(DatabasePath));
-        if (DatabasePath != ":memory:" && dir != null) Directory.CreateDirectory(dir);
+        if (dir != null) Directory.CreateDirectory(dir);
 
         await using var connection = await OpenRawAsync(CancellationToken.None).ConfigureAwait(false);
         await using (var wal = connection.CreateCommand())

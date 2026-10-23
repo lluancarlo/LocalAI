@@ -57,6 +57,9 @@ public sealed partial class ConversationItemViewModel(Conversation conversation)
     [ObservableProperty] private bool _isRenaming;
     [ObservableProperty] private string _editTitle = conversation.Title;
     [ObservableProperty] private string? _snippet;
+    /// <summary>The assistant recalls this conversation: its note is among the ones the memory (RAG) searches.</summary>
+    [ObservableProperty] private bool _inMemory;
+    [ObservableProperty] private string _memoryTip = "";
 
     public string When => UpdatedAt.Date == DateTimeOffset.Now.Date ? UpdatedAt.ToString("HH:mm") : UpdatedAt.ToString("dd MMM yyyy");
 

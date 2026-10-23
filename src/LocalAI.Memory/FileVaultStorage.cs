@@ -176,13 +176,23 @@ public sealed class FileVaultStorage : IVaultStorage, IDisposable
         if (!fullPath.EndsWith(VaultLayout.NoteExtension, StringComparison.OrdinalIgnoreCase)) return; // .tmp of atomic writes
         var path = Path.GetRelativePath(_watchedRoot ?? Root, fullPath).Replace(Path.DirectorySeparatorChar, '/');
         var cts = new CancellationTokenSource();
-        if (_pending.TryRemove(path, out var previous)) previous.Cancel();
+        if (_pending.TryRemove(path, out var previous))
+        {
+            try { previous.Cancel(); } catch (ObjectDisposedException) { }
+        }
         _pending[path] = cts;
         _ = Task.Delay(Debounce, cts.Token).ContinueWith(t =>
         {
-            if (t.IsCanceled) return;
-            _pending.TryRemove(new KeyValuePair<string, CancellationTokenSource>(path, cts));
-            Changed?.Invoke(this, path);
+            try
+            {
+                if (t.IsCanceled) return;
+                _pending.TryRemove(new KeyValuePair<string, CancellationTokenSource>(path, cts));
+                Changed?.Invoke(this, path);
+            }
+            finally
+            {
+                cts.Dispose();
+            }
         }, TaskScheduler.Default);
     }
 
@@ -193,6 +203,9 @@ public sealed class FileVaultStorage : IVaultStorage, IDisposable
             _watcher?.Dispose();
             _watcher = null;
         }
-        foreach (var cts in _pending.Values) cts.Cancel();
+        foreach (var cts in _pending.Values)
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        }
     }
 }

@@ -94,35 +94,71 @@ public sealed class WhisperSpeechToText : ISpeechToText
             var processor = _processor ?? throw new InvalidOperationException(LastError ?? "Speech recognition not initialized.");
             var sw = Stopwatch.StartNew();
             var audio = samples.ToArray();
+            var duration = TimeSpan.FromSeconds((double)audio.Length / ISpeechToText.SampleRate);
 
-            string? language = null;
-            float probability = 0;
-            if (_options.AllowedLanguages.Count > 0)
+            if (_options.AllowedLanguages.Count == 0)
             {
-                (language, probability) = await Task.Run(
-                    () => processor.DetectLanguageWithProbability(audio, _options.AllowedLanguages.ToArray()),
-                    cancellationToken).ConfigureAwait(false);
-                processor.ChangeLanguage(language ?? "auto");
+                var (any, _, detected) = await ProcessAsync(processor, audio, cancellationToken).ConfigureAwait(false);
+                return new Transcription(any, detected, 0, duration, sw.Elapsed);
             }
 
-            var text = new System.Text.StringBuilder();
-            await foreach (var segment in processor.ProcessAsync(audio, cancellationToken).ConfigureAwait(false))
+            // Detecting the language reads the audio once more: while the user keeps speaking a language Whisper was
+            // sure about, it is used directly. A transcript Whisper is unsure of, and every few utterances, detect again.
+            if (_pinned is { } pinned && _pinnedUses < PinnedUtterances)
             {
-                text.Append(segment.Text);
-                language ??= segment.Language;
+                processor.ChangeLanguage(pinned.Language);
+                var (text, confidence, _) = await ProcessAsync(processor, audio, cancellationToken).ConfigureAwait(false);
+                if (text.Length == 0 || confidence >= MinPinnedConfidence)
+                {
+                    _pinnedUses++;
+                    return new Transcription(text, pinned.Language, pinned.Probability, duration, sw.Elapsed);
+                }
+                _logger.LogInformation("Unsure transcript in {Language} (p={P:F2}): detecting the language again", pinned.Language, confidence);
             }
 
-            return new Transcription(
-                text.ToString().Trim(),
-                language,
-                probability,
-                TimeSpan.FromSeconds((double)audio.Length / ISpeechToText.SampleRate),
-                sw.Elapsed);
+            var (language, probability) = await Task.Run(
+                () => processor.DetectLanguageWithProbability(audio, _options.AllowedLanguages.ToArray()),
+                cancellationToken).ConfigureAwait(false);
+            processor.ChangeLanguage(language ?? "auto");
+            var (result, _, segmentLanguage) = await ProcessAsync(processor, audio, cancellationToken).ConfigureAwait(false);
+            language ??= segmentLanguage;
+            _pinned = language != null && probability >= PinProbability ? (language, probability) : null;
+            _pinnedUses = 0;
+            return new Transcription(result, language, probability, duration, sw.Elapsed);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>A detection at least this sure keeps its language for the next utterances.</summary>
+    private const float PinProbability = 0.8f;
+    /// <summary>Below this mean token probability, a transcript in the kept language is redone with detection.</summary>
+    private const float MinPinnedConfidence = 0.5f;
+    /// <summary>Utterances transcribed in the kept language before it is detected again.</summary>
+    private const int PinnedUtterances = 5;
+
+    /// <summary>The language kept from the last sure detection (guarded by <see cref="_gate"/>).</summary>
+    private (string Language, float Probability)? _pinned;
+    private int _pinnedUses;
+
+    /// <returns>The text, the mean token probability of its segments, and the language Whisper reports.</returns>
+    private static async Task<(string Text, float Confidence, string? Language)> ProcessAsync(
+        WhisperProcessor processor, float[] audio, CancellationToken ct)
+    {
+        var text = new System.Text.StringBuilder();
+        string? language = null;
+        float confidence = 0;
+        var segments = 0;
+        await foreach (var segment in processor.ProcessAsync(audio, ct).ConfigureAwait(false))
+        {
+            text.Append(segment.Text);
+            language ??= segment.Language;
+            confidence += segment.Probability;
+            segments++;
+        }
+        return (text.ToString().Trim(), segments == 0 ? 0 : confidence / segments, language);
     }
 
     public void Unload()
@@ -134,6 +170,7 @@ public sealed class WhisperSpeechToText : ISpeechToText
             _factory?.Dispose();
             _processor = null;
             _factory = null;
+            _pinned = null;
             State = ComponentState.NotInitialized;
             LastError = "Speech recognition model not installed (Settings > Models).";
         }

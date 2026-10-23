@@ -69,7 +69,7 @@ public sealed class WorkActivityTests
         await memory.Vault.WriteConversationNoteAsync(nova.Id, c.Id, CancellationToken.None);
 
         AssertInOrder(steps, "Conversation note: reading the conversation", "Conversation note: the model summarizes",
-            "Conversation note: saving the note", "Index: embedding passage 1 of", "Index: saving");
+            "Conversation note: saving the note", "Index: embedding passage", "Index: saving");
         Assert.Equal(WorkKind.Memory, memory.Work.Current?.Kind);
     }
 

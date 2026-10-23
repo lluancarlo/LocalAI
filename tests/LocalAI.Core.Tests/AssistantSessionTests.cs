@@ -64,7 +64,7 @@ public sealed class AssistantSessionTests
         Assert.Equal(ChatRole.System, prompt[0].Role);
         Assert.Contains(prompt, m => m.Role == ChatRole.User && m.Content.Contains("My name is Ana.", StringComparison.Ordinal));
         Assert.Contains(prompt, m => m.Role == ChatRole.Assistant);
-        Assert.Equal("What is my name?\n\n(Reply in English.)", prompt[^1].Content);
+        Assert.EndsWith("\n\nWhat is my name?\n\n(Reply in English.)", prompt[^1].Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class AssistantSessionTests
 
         var prompt = _llm.Requests[^1];
         Assert.Contains(prompt, m => m.Role == ChatRole.User && m.Content.Contains("Buongiorno a tutti", StringComparison.Ordinal));
-        Assert.Equal("And more formally?\n\n(Reply in English.)", prompt[^1].Content);
+        Assert.EndsWith("\n\nAnd more formally?\n\n(Reply in English.)", prompt[^1].Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
-    public async Task The_profile_and_relevant_notes_are_injected_into_the_system_prompt()
+    public async Task The_profile_goes_in_the_system_prompt_and_relevant_notes_in_the_users_turn()
     {
         using var session = CreateSession();
         var nova = await _memory.Assistants.CreateAsync(new LocalAI.Core.Assistants.NewAssistant("Nova", "", "m", "v", "en"), VoiceStyle.Default);
@@ -173,9 +173,12 @@ public sealed class AssistantSessionTests
         await session.SubmitAsync(new TurnRequest("How did we paginate the orders API?", InputSource.Text));
 
         var system = _llm.Requests[^1][0].Content;
+        var turn = _llm.Requests[^1][^1].Content;
         Assert.Contains("User prefers C# for software development.", system, StringComparison.Ordinal);
-        Assert.Contains("[[2026-10-01-rest-api]]", system, StringComparison.Ordinal);
-        Assert.Contains("orders REST API with pagination", system, StringComparison.Ordinal);
+        // The passages change every turn: they go in the last message, so the start of the prompt stays cached.
+        Assert.DoesNotContain("orders REST API", system, StringComparison.Ordinal);
+        Assert.Contains("[[2026-10-01-rest-api]]", turn, StringComparison.Ordinal);
+        Assert.Contains("orders REST API with pagination", turn, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -245,7 +248,7 @@ public sealed class PromptBuilderTests
         Assert.Equal(ChatRole.System, prompt[0].Role);
         Assert.Equal(ChatRole.User, prompt[1].Role); // history always starts with a user turn
         Assert.Contains("message number 19", prompt[^2].Content, StringComparison.Ordinal);
-        Assert.Equal("latest", prompt[^1].Content);
+        Assert.EndsWith(PromptBuilder.ContextEnd + "\n\nlatest", prompt[^1].Content, StringComparison.Ordinal);
     }
 
     internal static LocalAI.Core.Assistants.AssistantProfile Profile(string language) =>
@@ -280,9 +283,10 @@ public sealed class PromptBuilderTests
         var context = new LocalAI.Core.Assistants.AssistantContext();
         context.Set(Profile("it"));
         var prompt = new PromptBuilder(TestOptions.Create(), context).Build([], "Olá", MemoryContext.Empty, false, DateTimeOffset.Now, userLanguage: "pt");
-        Assert.Equal("Olá\n\n(Reply in Brazilian Portuguese.)", prompt[^1].Content);
+        Assert.EndsWith("\n\nOlá\n\n(Reply in Brazilian Portuguese.)", prompt[^1].Content, StringComparison.Ordinal);
         // Unknown language: no reminder, the system prompt's rule applies.
-        Assert.Equal("Hello", new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[^1].Content);
+        Assert.EndsWith("\n\nHello", new PromptBuilder(TestOptions.Create(), context).Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[^1].Content,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -291,6 +295,60 @@ public sealed class PromptBuilderTests
         var system = new PromptBuilder(TestOptions.Create(), new LocalAI.Core.Assistants.AssistantContext())
             .Build([], "Hello", MemoryContext.Empty, false, DateTimeOffset.Now)[0].Content;
         Assert.Contains("same language as the user's last message", system, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_system_message_stays_the_same_while_time_and_passages_change()
+    {
+        var context = new LocalAI.Core.Assistants.AssistantContext();
+        context.Set(Profile("en"));
+        var builder = new PromptBuilder(TestOptions.Create(), context);
+        var monday = new DateTimeOffset(2026, 10, 19, 9, 0, 0, TimeSpan.Zero);
+        var passage = new NoteChunk { NoteTitle = "2026-10-01-api", Heading = "Summary", Text = "Cursor pagination." };
+
+        var first = builder.Build([], "Hi", new MemoryContext("- Likes tea.", []), false, monday);
+        var second = builder.Build([], "Hi again", new MemoryContext("- Likes tea.", [passage]), false, monday.AddMinutes(7));
+
+        Assert.Equal(first[0].Content, second[0].Content);
+        Assert.Contains("2026-10-19 09:07 (Monday)", second[^1].Content, StringComparison.Ordinal);
+        Assert.Contains("[[2026-10-01-api]] Summary: Cursor pagination.", second[^1].Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_history_keeps_its_first_message_from_turn_to_turn_until_it_no_longer_fits()
+    {
+        var builder = new PromptBuilder(TestOptions.Create(o => o.Assistant.HistoryTokenBudget = 400), new LocalAI.Core.Assistants.AssistantContext());
+        var history = new List<StoredMessage>();
+        var firsts = new List<string>();
+        for (var i = 0; i < 30; i++)
+        {
+            history.Add(new StoredMessage
+            {
+                Id = i + 1, ConversationId = 7, Role = i % 2 == 0 ? ChatRole.User : ChatRole.Assistant,
+                Content = $"message {i} " + new string('x', 80),
+            });
+            if (i % 2 == 1) firsts.Add(builder.Build(history, "next", MemoryContext.Empty, false, DateTimeOffset.Now)[1].Content);
+        }
+
+        // The start moves seldom (in jumps), not on every turn: the cached start of the prompt stays valid.
+        var moves = firsts.Zip(firsts.Skip(1)).Count(p => p.First != p.Second);
+        Assert.InRange(moves, 1, firsts.Count / 3);
+        Assert.Contains("message 29", builder.Build(history, "next", MemoryContext.Empty, false, DateTimeOffset.Now)[^2].Content,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_history_fits_the_models_context_with_room_for_the_reply()
+    {
+        var builder = new PromptBuilder(TestOptions.Create(o => o.Assistant.HistoryTokenBudget = 100_000), new LocalAI.Core.Assistants.AssistantContext());
+        var history = Enumerable.Range(0, 400)
+            .Select(i => new StoredMessage { Id = i + 1, Role = i % 2 == 0 ? ChatRole.User : ChatRole.Assistant, Content = new string('x', 350) })
+            .ToList();
+
+        var prompt = builder.Build(history, "latest", MemoryContext.Empty, false, DateTimeOffset.Now, contextTokens: 8192, replyTokens: 1024);
+
+        Assert.True(prompt.Sum(m => PromptBuilder.EstimateTokens(m.Content)) <= 8192 - 1024);
+        Assert.True(prompt.Count > 10);
     }
 
     [Fact]

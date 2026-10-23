@@ -84,7 +84,10 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         };
     }
 
-    public VoiceState State { get; private set; } = VoiceState.Off;
+    private readonly Lock _stateGate = new();
+    private volatile VoiceState _state = VoiceState.Off;
+
+    public VoiceState State => _state;
     public bool IsContinuous => _continuous;
     public bool IsTyping => _typing;
     public string? LastError { get; private set; }
@@ -565,11 +568,18 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     /// <summary>Read selection only applies to the live conversation, not to push-to-talk.</summary>
     private string? TakeSelection() => _continuous ? _selection.Take() : null;
 
+    /// <summary>
+    /// The capture loop, the turn tasks and the UI all change the state: one change at a time, and the events are
+    /// raised in the order of the changes.
+    /// </summary>
     private void SetState(VoiceState state)
     {
-        if (State == state) return;
-        State = state;
-        StateChanged?.Invoke(this, state);
+        lock (_stateGate)
+        {
+            if (_state == state) return;
+            _state = state;
+            StateChanged?.Invoke(this, state);
+        }
     }
 
     public void MarkReady()
@@ -593,11 +603,31 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 public static class TranscriptFilter
 {
     /// <param name="hallucinations">Lower-case phrases Whisper produces on silence (languages.json).</param>
+    /// <remarks>
+    /// A transcript is noise when known phrases make up most of its letters ("Legendas pela comunidade Amara.org"),
+    /// not merely when it contains one: "open www.github.com" is what the user said.
+    /// </remarks>
     public static bool IsNoise(string text, IReadOnlyList<string> hallucinations)
     {
         var t = text.Trim();
         if (!t.Any(char.IsLetter)) return true;
         var lower = t.ToLowerInvariant();
-        return hallucinations.Any(lower.Contains) || (lower.StartsWith('[') && lower.EndsWith(']'));
+        if (lower.StartsWith('[') && lower.EndsWith(']')) return true;
+
+        var covered = new bool[lower.Length];
+        foreach (var phrase in hallucinations.Where(p => p.Length > 0))
+        {
+            for (var i = lower.IndexOf(phrase, StringComparison.Ordinal); i >= 0; i = lower.IndexOf(phrase, i + 1, StringComparison.Ordinal))
+                Array.Fill(covered, true, i, phrase.Length);
+        }
+        var letters = 0;
+        var noise = 0;
+        for (var i = 0; i < lower.Length; i++)
+        {
+            if (!char.IsLetter(lower[i])) continue;
+            letters++;
+            if (covered[i]) noise++;
+        }
+        return noise * 2 >= letters && noise > 0;
     }
 }
