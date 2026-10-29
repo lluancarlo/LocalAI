@@ -20,49 +20,22 @@
   <img src="docs/screenshots/chat.png" alt="Chatting with Nova, one of two assistants in the tabs at the top" width="900">
 </p>
 
-- **Your own assistants:** each with a name, personality, language model, voice and voice settings (speed and
-  pitch), chosen when you create it, plus its own conversations and memories. The voice settings
-  start at the values the voice was made for, and their ranges follow the chosen voice. Each assistant gets a picture
-  that matches its voice (female or male), shown on its tab, next to its name in the chat and in Settings.
-- **One click away:** one tab per assistant at the top of the window, **＋** to add a new one. The dot on a tab shows
-  its AI: green on, yellow loading (its model or its voice) or saving its memory before turning off, red off. Switching tabs never loads a model:
-  the **Controls** above the conversations do. **Brain** turns the language model and memory search on or off (one
-  model runs at a time; assistants with the same model share it); while it is off, Send is disabled. **Hearing**
-  (speech recognition: Live, Hold to talk) and **Speaker** (the voice: Read aloud, Live) turn on and off on their own
-  while the Brain is on, and each assistant remembers them for next time. **Update memory** (click twice) writes the
-  notes of the conversations not in the memory yet, then the profile and the index, showing each step; the chat waits
-  meanwhile.
-- **Nothing runs until you ask:** the Brain starts off. Turning it on loads the language model, memory search and
-  (if on) hearing and speaker; turning it off unloads them all. To turn it on at startup, check
-  **Settings › Assistants › Startup**.
-- **Behavior you can change anytime:** creativity (precise, balanced, creative), reply length (short, normal,
-  detailed) and **Think before answering** for models that can reason (Qwen3, gpt-oss, DeepSeek...): better answers,
-  a little slower, with the thinking shown folded above the reply. **Context** sets how much the model keeps in view
-  (from 4K up to what the model was trained for, each size saying whether it fits your GPU), and **Compact context
-  memory** stores it in 8 bits: about 40% less GPU memory, so roughly twice the context fits. Changing either restarts
-  the model. Set when you create the assistant, changed in
-  Settings › Assistants.
-- **Learns your documents:** in **Settings › Assistants › What X has learned**, add Markdown or text files (manuals,
-  READMEs, PDFs you converted to text) to the assistant's `learn` folder and click **Learn**. It reads them all again
-  from scratch and replaces what it learned before; its replies then draw on them, apart from what it remembers of
-  your conversations. The chat waits while it learns, and Learn needs the AI on.
-- **One language per assistant:** every assistant always replies in its native language (chosen when you create it),
-  with its own voice, whatever language you write in or paste: a manual or log in English does not switch a
-  Portuguese assistant to English. Voices are listed with their language, e.g. `[pt-BR] Dora (female)`.
-- **Text or voice:** three reply modes, from silent chat to a hands-free spoken conversation (see below).
-- **Always at hand:** it runs in the notification area. Give each assistant a global shortcut to start and stop a
-  voice conversation from any application; the tray icon blinks while it listens.
-- **A memory you can read:** each assistant keeps what it learns as Markdown notes, ready to open in Obsidian (see below).
-- **Fully offline:** llama.cpp (Gemma 4, Qwen3.5 or gpt-oss), Whisper, Kokoro and SQLite on your GPU. The Internet is
-  used only to download models.
-- **Models for your GPU:** from Qwen3.5 4B for small cards to Qwen3.5 35B-A3B for 32 GB ones. When you create an
-  assistant, the models that fit your GPU come first, with one recommended; larger ones still run, split between GPU
-  and CPU, but slower.
-- **Any open model:** when you create an assistant, **Choose…** opens the model dialog: the models for your computer
-  (the recommended one first), or any open model on Hugging Face by company (Qwen, Google, DeepSeek, Meta, Mistral,
-  Microsoft, xAI, NVIDIA and more) or by name. Models the company publishes itself are marked `OFFICIAL`; each size
-  says whether it fits your GPU, runs split with the CPU, or does not run on your PC, and links to its repository.
-- **Portable:** everything stays in the app folder. Copy it to install, delete it to remove every trace.
+## Features
+
+- **Your own assistants:** each has a name, personality, language model, voice, native language, conversations and
+  memory. One tab per assistant; **＋** adds one.
+- **Controls:** **Brain** loads the language model and memory search, **Hearing** the speech recognition, **Speaker**
+  the voice. Nothing loads until you turn the Brain on.
+- **Any open model:** recommended models for your GPU, or any GGUF model on Hugging Face (`OFFICIAL` marks the
+  maker's own). Each size says whether it fits your GPU.
+- **Behavior:** creativity, reply length, thinking (for models that reason), context size and a compact 8-bit
+  context. You can change them anytime.
+- **One language:** an assistant always replies in its native language, whatever you write or paste.
+- **Learns your documents:** put `.md`/`.txt` files in its `learn` folder and click **Learn**.
+- **Memory you can read:** Markdown notes, ready for Obsidian. Click **Update memory**, or turn on auto update to
+  have it run when idle.
+- **Always at hand:** runs in the tray, with a global shortcut per assistant for voice.
+- **Offline and portable:** everything stays in the app folder. The Internet is used only to download models.
 
 <table>
   <tr>
@@ -83,143 +56,45 @@
   </tr>
 </table>
 
-## Three ways to talk
+## Ways to talk
 
-Pick a mode with the **Text · Read aloud · Live** switch under the message box. The app remembers your choice.
-In **Settings › Assistants › Ways to talk** you can turn Read aloud and Live off; Text is always available.
+| Mode | What it does |
+|---|---|
+| ⌨️ **Text** | You type, the reply appears as text. |
+| 🔊 **Read aloud** | You type, the assistant also speaks the reply. |
+| 🎙️ **Live** | Hands-free conversation: just talk, and interrupt it anytime by speaking. |
 
-<table>
-  <tr>
-    <th width="33%">⌨️ Text</th>
-    <th width="33%">🔊 Read aloud</th>
-    <th width="33%">🎙️ Live</th>
-  </tr>
-  <tr valign="top">
-    <td>
-      <b>Quiet chat.</b> You type and the reply appears as streaming text. Nothing is played and the microphone
-      stays closed.
-    </td>
-    <td>
-      <b>Chat with a voice.</b> You type and the reply appears as text while the assistant's voice reads it to you.
-      The microphone stays closed.
-    </td>
-    <td>
-      <b>A spoken conversation.</b> The microphone stays open: just talk. The assistant answers aloud and then
-      listens again. Speak over it to interrupt it at any time. You can still type, and typed messages are answered
-      aloud too.
-    </td>
-  </tr>
-  <tr valign="top">
-    <td><i>Best for:</i> work, shared rooms, long answers.</td>
-    <td><i>Best for:</i> listening while you do something else.</td>
-    <td><i>Best for:</i> hands-free, back-and-forth conversation.</td>
-  </tr>
-</table>
+- **Hold to talk** (or **Ctrl+Space**) in Text and Read aloud modes. **Esc** or **Stop** ends a reply.
+- **Natural turns in Live:** it waits when you sound unfinished, says *"mm-hmm"* in your pauses and fills slow replies
+  with *"let me see..."*. Set these up in Settings › Assistants.
+- **Read selection** (off by default): in Live mode, select text in any app while you talk. The text goes with your
+  question, e.g. *"why does this fail?"*.
 
-- **Push-to-talk** works in Text and Read aloud modes. Hold **● Hold to talk** (or **Ctrl+Space**) while you speak.
-  The assistant replies aloud.
-- **Live from anywhere:** an assistant's global shortcut switches Live mode on and off from any application, and so
-  does **Live mode** in the tray icon's menu. The tray icon blinks while the assistant listens. Shortcuts are
-  unavailable while Live is turned off.
-- **Esc** stops the current reply in every mode, and so does **Stop**, which takes the place of Send while a reply runs.
-  Switching from Live to another mode closes the microphone but lets the reply being spoken finish; turning Live off
-  with the shortcut stops it. Live mode and push-to-talk need the AI on, a microphone and the speech recognition model.
+## Memory
 
-### A natural conversation
-
-Live mode takes turns the way people do. You can change each of these in **Settings › Assistants › Live conversation**:
-
-- **Pausing mid-sentence:** if what you said sounds unfinished ("I went to the store and…"), the assistant waits a
-  little longer before answering. If you go on talking before the reply starts, what you said before and after the
-  pause becomes one message.
-- **Reactions while you talk:** in the pauses of a longer message, the assistant sometimes says *"mm-hmm"* or
-  *"I see"*, in your language and in the assistant's voice. Choose **Subtle** (the default), **Frequent** or **Off**.
-- **Filling a slow reply:** when the reply takes more than 1.5 seconds to start, the assistant says *"hmm, let me
-  see..."* first. Choose the delay or **Never**.
-- **Short replies:** a conversation needs one or two sentences, not a page. Live replies follow their own
-  instructions (**How to reply**, editable, the same for every assistant) and stop at about 200 tokens, at the last
-  full sentence. Ask for more and the assistant goes on.
-
-The phrases for each language are in `languages.json`, next to the executable.
-
-## Ask about what's on your screen
-
-**Read selection** lets you point the assistant at anything you are reading, in any application: an error in Visual
-Studio, a function in VS Code or Notepad++, a log line in Unity, a paragraph in your browser.
-
-1. Turn Live mode on (switch, tray menu or the assistant's shortcut).
-2. Start talking, and select the text with the mouse while you speak: drag over it, or double- or triple-click.
-3. When you stop talking, what you said and the selected text are sent together, so you can just ask
-   *"why does this fail?"*, *"what does this function do?"* or *"translate this"*.
-
-The chat shows the selected text as a quote above your message, and it stays in the conversation, so follow-up
-questions ("and how do I fix it?") still see it. Only the latest selection is sent, once, with your next message
-(spoken or typed); a hint under the message box shows when one is waiting. Very long selections are cut at 8,000
-characters.
-
-Turn it on in **Settings › Assistants › Ways to talk**, under Live. It is off by default.
-
-How the text is read:
-
-- First silently, through Windows UI Automation: browsers, Word, Notepad and most standard Windows apps.
-- Applications that do not share their text that way (Notepad++, Unity, VS Code, parts of Visual Studio) get a
-  **Ctrl+C**, and your clipboard is put back right after. Your copied text is restored exactly; if the clipboard holds
-  something else (files, an image), the copy is skipped so you never lose it. Formatting of copied text is not
-  restored, only the text.
-- To stay harmless, no Ctrl+C is sent in terminals (it would stop the running program), while a key or mouse button is
-  held, or when you dragged a scroll bar, title bar, tab, button or similar control.
-- Password fields and Local AI's own window are ignored. Applications running as administrator cannot be read unless
-  Local AI runs as administrator too.
-
-## A memory you can read and edit
-
-Each assistant learns from every conversation and keeps it as plain Markdown notes, one folder per assistant:
+Each assistant keeps Markdown notes in its own folder:
 
 ```
-local-ai/
-  nova/
-    nova-identity.md                                 who the assistant is
-    nova-profile.md                                  what it knows about you
-    conversations/2026-10-22-orders-api-pagination.md  one note per conversation
+local-ai/nova/
+  nova-identity.md     who the assistant is (edit it to change how it acts)
+  nova-profile.md      what it knows about you
+  conversations/...    one note per conversation
 ```
 
-- **Identity:** who the assistant is: what it does, the personality and style you gave it, and its model, voice,
-  voice settings and shortcut as note properties. Written when the assistant is created and kept up to date; it is
-  what the assistant reads to know who it is, so editing it changes how the assistant acts.
-- **Profile:** about you, preferences, skills, projects and routine, merged and kept up to date from your
-  conversations. Only what you say about yourself: asking for help with something does not make it your project.
-- **Conversation notes:** summary, decisions, open items and the facts learned, with links you can follow in
-  Obsidian.
-- **Personal RAG:** before each reply the assistant reads its profile of you and the passages of its notes most
-  related to what you ask (by meaning and by words), and can name the note it used. It searches the notes of your
-  100 most recent conversations; a small database icon next to a conversation in the list lights up when its note is
-  in the search.
-- **Your edits win:** open the notes in [Obsidian](https://obsidian.md/) or any editor to correct, add or delete
-  anything. A part you changed is never overwritten, lines you add to the profile are kept, and text you write
-  outside the generated part is never touched. Notes you delete come back the next time the conversation is
-  processed; delete the conversation in the app to remove its note for good.
-- **Only when you ask:** by default nothing is written on its own: click **Update memory** in the sidebar to turn the
-  conversations not in the memory yet into notes and update the profile. Turn on **Settings › Memory › Auto update
-  memory** to have the same done by itself once the assistant has been idle for a while (10 minutes by default),
-  never when you switch conversations, turn the Brain off or exit. The moment you type or speak, that work stops and
-  waits for the next quiet moment. While it runs, the status bar at the bottom of the window turns yellow and names each step (summarizing,
-  merging the profile, embedding, saving), and a dot on the tray icon turns yellow (in Live mode the tray icon blinks
-  red instead: the assistant is listening). The steps of a reply show there in blue (searching the notes, building
-  the prompt, generating, speaking, saving). To watch them, turn on **slow motion** in Diagnostics.
-- **Where:** in the app folder by default. In **Settings › Memory** choose your Obsidian vault and the notes move
-  into its `local-ai` folder, next to your own notes. There you can also pick the language of new notes (English by
-  default; the assistant reads them whatever language you talk in).
-
-In **Settings › Assistants**, pick an assistant to see its pre-prompt and what it remembers about you, open its
-folder (**Open directory**) or delete it.
+- **Recall (RAG):** before each reply it searches its notes and learned documents, by meaning and by words.
+- **Your edits win:** text you change in the notes is never overwritten.
+- **Only when you ask:** **Update memory** writes the notes. **Auto update memory** (off by default) does the same after
+  10 idle minutes, and stops as soon as you talk.
+- **Where:** in the app folder, or in your Obsidian vault (Settings › Memory).
 
 ## Getting started
 
-**Download:** get `LocalAI-win-x64.zip` from the [latest release](https://github.com/lluancarlo/LocalAI/releases/tag/latest)
-(built from `master` on every push), unzip it anywhere writable and run `LocalAI\LocalAI.exe`.
+Download `LocalAI-win-x64.zip` from the [latest release](https://github.com/lluancarlo/LocalAI/releases/tag/latest),
+unzip it and run `LocalAI\LocalAI.exe`. Create your first assistant; the app downloads the models it needs and resumes
+any download that stopped.
 
-**Build it yourself:** you need Windows 11, the [.NET 10 SDK](https://dotnet.microsoft.com/download), an NVIDIA GPU
-(recommended) and about 9 GB of disk space for models.
+Build it yourself (Windows 11, [.NET 10 SDK](https://dotnet.microsoft.com/download), NVIDIA GPU recommended, ~9 GB for
+models):
 
 ```powershell
 git clone https://github.com/lluancarlo/LocalAI.git
@@ -228,57 +103,31 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
 publish\LocalAI\LocalAI.exe
 ```
 
-`publish.ps1` also writes `publish\LocalAI.zip`, the same files without `data\`.
-
-On first launch you create your first assistant and the app downloads the models it needs. If you close the app
-before a download finishes, it continues where it stopped the next time you open the app.
-
-Closing the window keeps Local AI running in the notification area. The tray icon's menu opens the window, turns
-**Live mode** on and off, and **Exit** quits (first saving the memory of the assistants whose AI is on).
-Set an assistant's shortcut in **Settings › Assistants**.
-
-In **Settings › Audio**, *System default* follows whatever device Windows uses (it changes when you plug in a
-headset); a device you pick yourself is used from then on, and while it is unplugged the system default stands in.
+Closing the window keeps the app in the tray; **Exit** in the tray menu quits.
 
 ## Privacy
 
-- **Offline:** conversations, voice and memories never leave your PC. The Internet is used only to download models.
-- **One folder:** everything the app creates (database, settings, logs, temporary files, models, memory notes) is in
-  `data\` next to `LocalAI.exe`. Delete the folder to remove it all. The only exception is the Obsidian vault you
-  choose for the memory notes: the app then writes only inside its `local-ai` folder. If that vault is synced
-  (Obsidian Sync, OneDrive, Git), the notes are synced too.
-- **Per assistant:** each assistant has its own conversations and memory notes. Deleting an assistant deletes them
-  too.
-- **Logs** record what the app did, never what you said, typed or selected.
-- **Read selection** is off by default. When on, the app reads selected text only while Live mode is on, and ignores
-  password fields. In applications that need the Ctrl+C fallback, the selection briefly passes through the Windows
-  clipboard: your clipboard is restored, but Windows clipboard history (Win+V) or a clipboard manager may still record
-  the copied selection.
-- **Outside the folder, Windows keeps its own records** of any program you run. These contain only the path of
-  `LocalAI.exe` and timestamps:
-  - the tray icon setting (`HKCU\Control Panel\NotifyIconSettings`);
-  - microphone access history (*Settings › Privacy › Microphone*);
-  - program launch data (`C:\Windows\Prefetch`).
+- Conversations, voice and memories never leave your PC.
+- Everything the app creates is in `data\` next to the executable. Delete the folder to remove it all. The only
+  exception is an Obsidian vault you choose for the notes.
+- Logs never record what you say, type or select.
+- Windows itself keeps a few records of any program you run, such as tray settings, microphone history and Prefetch.
+  They contain only the path and timestamps.
 
 ## Built with
 
 | Area | Technologies |
 |---|---|
-| Platform | C# on [.NET 10](https://dotnet.microsoft.com/), Windows 11 x64, published self-contained (no .NET install needed) |
-| User interface | [Avalonia UI](https://avaloniaui.net/) (Fluent theme, Inter font), MVVM with [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) |
-| Language model | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` with CUDA, running Google [Gemma 4](https://huggingface.co/google), [Qwen3.5](https://huggingface.co/Qwen) and OpenAI [gpt-oss](https://huggingface.co/openai) models (GGUF) |
-| Memory | Markdown notes (Obsidian-compatible) indexed with [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) embeddings on llama.cpp and FTS5 full-text search in [SQLite](https://www.sqlite.org/) ([Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/)) |
-| Speech recognition | [Whisper.net](https://github.com/sandrohanea/whisper.net) ([whisper.cpp](https://github.com/ggml-org/whisper.cpp)) with Whisper large-v3-turbo on CUDA |
-| Speech synthesis and voice detection | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0; one 370 MB model with every voice: 3 Brazilian Portuguese, 2 Italian, 28 English) and [Silero VAD](https://github.com/snakers4/silero-vad), on the CPU |
-| Audio | [NAudio](https://github.com/naudio/NAudio) (WASAPI capture and playback, echo cancellation through Windows communications mode) |
-| Windows integration | Win32 global hotkeys, low-level mouse hook and UI Automation (Read selection), notification-area icon |
-| Infrastructure | Microsoft.Extensions (dependency injection, configuration, options, logging), [Serilog](https://serilog.net/) file logs |
-| Tests and delivery | [xUnit](https://xunit.net/), GitHub Actions (tests and a `latest` release on every push to `master`) |
+| App | C# / [.NET 10](https://dotnet.microsoft.com/), [Avalonia UI](https://avaloniaui.net/), [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) |
+| Language model | [llama.cpp](https://github.com/ggml-org/llama.cpp) (CUDA) with GGUF models from [Hugging Face](https://huggingface.co/) (Gemma 4, Qwen3.5, gpt-oss and more) |
+| Memory | Markdown notes, [EmbeddingGemma](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) embeddings, [SQLite](https://www.sqlite.org/) FTS5 |
+| Speech | [Whisper.net](https://github.com/sandrohanea/whisper.net) (recognition), [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (voices) and [Silero VAD](https://github.com/snakers4/silero-vad) |
+| Audio and Windows | [NAudio](https://github.com/naudio/NAudio) (WASAPI), Win32 hotkeys, UI Automation, tray icon |
+| Infrastructure | Microsoft.Extensions, [Serilog](https://serilog.net/), [xUnit](https://xunit.net/), GitHub Actions |
 
-Models are downloaded from inside the app, language models and the voices only from [Hugging Face](https://huggingface.co/).
-Licenses of bundled components are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Licenses of bundled components: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## License
 
 No license: all rights reserved. The source code is public to read, but you may not modify, copy or distribute it.
-Bundled third-party components keep their own licenses: see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Bundled third-party components keep their own licenses.
