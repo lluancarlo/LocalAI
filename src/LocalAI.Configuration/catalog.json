@@ -1,0 +1,204 @@
+{
+  "$comment": "Everything the app can download from Settings > Models. companies are the makers of open models listed in Settings > Models > Find more on Hugging Face: \"search\" finds their GGUF repositories by name, and the repositories of \"orgs\" (their own Hugging Face organizations) are marked official. Files are stored next to the application (models/ and runtime/). tts is the Kokoro speech model, downloaded file by file from a pinned Hugging Face revision (\"files\": files and folders of the repository). Each voice is one of its speakers: \"speaker\" is its id in voices.bin, \"lang\" the espeak-ng language it reads, and an optional \"settings\" changes the voice settings (VoiceTuning): min, max and default of speed and pitch, and \"unsupported\" hides settings.",
+  "llm": [
+    {
+      "id": "qwen3.5-35b-a3b-q4kxl",
+      "displayName": "Qwen3.5 35B-A3B",
+      "file": "llm/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 22241950336,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 35,
+      "minVramMb": 26000,
+      "defaultContext": 16384,
+      "trainedContext": 262144
+    },
+    {
+      "id": "gemma-4-26b-a4b-qat-q4kxl",
+      "displayName": "Gemma 4 26B-A4B",
+      "file": "llm/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "sizeBytes": 14249047104,
+      "quantization": "UD-Q4_K_XL (QAT)",
+      "parametersB": 26,
+      "minVramMb": 22000,
+      "defaultContext": 16384,
+      "trainedContext": 262144
+    },
+    {
+      "id": "qwen3.5-27b-q4kxl",
+      "displayName": "Qwen3.5 27B",
+      "file": "llm/Qwen3.5-27B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 17621125024,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 27,
+      "minVramMb": 21000,
+      "defaultContext": 16384,
+      "trainedContext": 262144
+    },
+    {
+      "id": "gpt-oss-20b-mxfp4",
+      "displayName": "gpt-oss 20B",
+      "file": "llm/gpt-oss-20b-MXFP4.gguf",
+      "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf",
+      "sizeBytes": 12109566624,
+      "quantization": "MXFP4",
+      "parametersB": 21,
+      "minVramMb": 14500,
+      "defaultContext": 16384,
+      "trainedContext": 131072
+    },
+    {
+      "id": "gemma-4-12b-qat-q4_0",
+      "displayName": "Gemma 4 12B",
+      "file": "llm/gemma-4-12b-it-qat-q4_0.gguf",
+      "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
+      "sizeBytes": 6975879296,
+      "quantization": "Q4_0 (QAT)",
+      "parametersB": 12,
+      "minVramMb": 11000,
+      "defaultContext": 16384,
+      "trainedContext": 262144
+    },
+    {
+      "id": "qwen3.5-9b-q4kxl",
+      "displayName": "Qwen3.5 9B",
+      "file": "llm/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 5966095584,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 9,
+      "minVramMb": 7500,
+      "defaultContext": 16384,
+      "trainedContext": 262144
+    },
+    {
+      "id": "gemma-4-e4b-qat-q4_0",
+      "displayName": "Gemma 4 E4B",
+      "file": "llm/gemma-4-E4B_q4_0-it.gguf",
+      "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf",
+      "sizeBytes": 5154941280,
+      "quantization": "Q4_0 (QAT)",
+      "parametersB": 4,
+      "minVramMb": 0,
+      "defaultContext": 8192,
+      "trainedContext": 131072
+    },
+    {
+      "id": "qwen3.5-4b-q4kxl",
+      "displayName": "Qwen3.5 4B",
+      "file": "llm/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "sizeBytes": 2912109728,
+      "quantization": "UD-Q4_K_XL",
+      "parametersB": 4,
+      "minVramMb": 0,
+      "defaultContext": 8192,
+      "trainedContext": 262144
+    }
+  ],
+  "embedding": [
+    {
+      "id": "embeddinggemma-300m-q8_0",
+      "displayName": "EmbeddingGemma 300M",
+      "file": "embedding/embeddinggemma-300M-Q8_0.gguf",
+      "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf",
+      "sizeBytes": 333590944
+    }
+  ],
+  "whisper": [
+    {
+      "id": "large-v3-turbo-q8_0",
+      "displayName": "Whisper large-v3-turbo (q8_0)",
+      "file": "whisper/ggml-large-v3-turbo-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+      "sizeBytes": 874188075
+    }
+  ],
+  "vad": [
+    {
+      "id": "silero-vad-v5",
+      "displayName": "Silero VAD v5",
+      "file": "vad/silero_vad_v5.onnx",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx",
+      "sizeBytes": 2313101
+    }
+  ],
+  "tts": {
+    "id": "kokoro-v1.0",
+    "displayName": "Kokoro 82M v1.0 (multilingual)",
+    "dir": "tts/kokoro-v1.0",
+    "repo": "csukuangfj/kokoro-multi-lang-v1_0",
+    "revision": "f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b",
+    "files": ["model.onnx", "voices.bin", "tokens.txt", "espeak-ng-data/"],
+    "sizeBytes": 371773854
+  },
+  "voices": [
+    { "id": "pf_dora", "speaker": 42, "language": "pt", "locale": "pt-BR", "lang": "pt-br", "displayName": "Dora", "gender": "female", "default": true },
+    { "id": "pm_alex", "speaker": 43, "language": "pt", "locale": "pt-BR", "lang": "pt-br", "displayName": "Alex", "gender": "male" },
+    { "id": "pm_santa", "speaker": 44, "language": "pt", "locale": "pt-BR", "lang": "pt-br", "displayName": "Santa", "gender": "male" },
+    { "id": "if_sara", "speaker": 35, "language": "it", "locale": "it-IT", "lang": "it", "displayName": "Sara", "gender": "female", "default": true },
+    { "id": "im_nicola", "speaker": 36, "language": "it", "locale": "it-IT", "lang": "it", "displayName": "Nicola", "gender": "male" },
+    { "id": "af_alloy", "speaker": 0, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Alloy", "gender": "female" },
+    { "id": "af_aoede", "speaker": 1, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Aoede", "gender": "female" },
+    { "id": "af_bella", "speaker": 2, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Bella", "gender": "female" },
+    { "id": "af_heart", "speaker": 3, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Heart", "gender": "female", "default": true },
+    { "id": "af_jessica", "speaker": 4, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Jessica", "gender": "female" },
+    { "id": "af_kore", "speaker": 5, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Kore", "gender": "female" },
+    { "id": "af_nicole", "speaker": 6, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Nicole", "gender": "female" },
+    { "id": "af_nova", "speaker": 7, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Nova", "gender": "female" },
+    { "id": "af_river", "speaker": 8, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "River", "gender": "female" },
+    { "id": "af_sarah", "speaker": 9, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Sarah", "gender": "female" },
+    { "id": "af_sky", "speaker": 10, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Sky", "gender": "female" },
+    { "id": "am_adam", "speaker": 11, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Adam", "gender": "male" },
+    { "id": "am_echo", "speaker": 12, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Echo", "gender": "male" },
+    { "id": "am_eric", "speaker": 13, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Eric", "gender": "male" },
+    { "id": "am_fenrir", "speaker": 14, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Fenrir", "gender": "male" },
+    { "id": "am_liam", "speaker": 15, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Liam", "gender": "male" },
+    { "id": "am_michael", "speaker": 16, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Michael", "gender": "male" },
+    { "id": "am_onyx", "speaker": 17, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Onyx", "gender": "male" },
+    { "id": "am_puck", "speaker": 18, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Puck", "gender": "male" },
+    { "id": "am_santa", "speaker": 19, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Santa", "gender": "male" },
+    { "id": "bf_alice", "speaker": 20, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Alice", "gender": "female" },
+    { "id": "bf_emma", "speaker": 21, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Emma", "gender": "female" },
+    { "id": "bf_isabella", "speaker": 22, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Isabella", "gender": "female" },
+    { "id": "bf_lily", "speaker": 23, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Lily", "gender": "female" },
+    { "id": "bm_daniel", "speaker": 24, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Daniel", "gender": "male" },
+    { "id": "bm_fable", "speaker": 25, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Fable", "gender": "male" },
+    { "id": "bm_george", "speaker": 26, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "George", "gender": "male" },
+    { "id": "bm_lewis", "speaker": 27, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Lewis", "gender": "male" }
+  ],
+  "companies": [
+    { "name": "Alibaba (Qwen)", "search": ["Qwen"], "orgs": ["Qwen"] },
+    { "name": "Google (Gemma)", "search": ["gemma"], "orgs": ["google"] },
+    { "name": "OpenAI (gpt-oss)", "search": ["gpt-oss"], "orgs": ["openai"] },
+    { "name": "DeepSeek", "search": ["DeepSeek"], "orgs": ["deepseek-ai"] },
+    { "name": "Meta (Llama)", "search": ["Llama"], "orgs": ["meta-llama"] },
+    { "name": "Mistral AI", "search": ["Mistral", "Ministral", "Magistral", "Devstral"], "orgs": ["mistralai"] },
+    { "name": "Microsoft (Phi)", "search": ["Phi-4", "Phi-3"], "orgs": ["microsoft"] },
+    { "name": "xAI (Grok)", "search": ["Grok-1", "grok-2"], "orgs": ["xai-org"] },
+    { "name": "Zhipu AI (GLM)", "search": ["GLM"], "orgs": ["zai-org", "THUDM"] },
+    { "name": "Moonshot AI (Kimi)", "search": ["Kimi"], "orgs": ["moonshotai"] },
+    { "name": "MiniMax", "search": ["MiniMax-M"], "orgs": ["MiniMaxAI"] },
+    { "name": "NVIDIA (Nemotron)", "search": ["Nemotron"], "orgs": ["nvidia"] },
+    { "name": "IBM (Granite)", "search": ["granite"], "orgs": ["ibm-granite"] },
+    { "name": "LG AI Research (EXAONE)", "search": ["EXAONE"], "orgs": ["LGAI-EXAONE"] },
+    { "name": "Baidu (ERNIE)", "search": ["ERNIE"], "orgs": ["baidu"] },
+    { "name": "ByteDance (Seed)", "search": ["Seed-OSS"], "orgs": ["ByteDance-Seed"] },
+    { "name": "Tencent (Hunyuan)", "search": ["Hunyuan"], "orgs": ["tencent"] },
+    { "name": "Liquid AI (LFM)", "search": ["LFM2"], "orgs": ["LiquidAI"] },
+    { "name": "Allen AI (OLMo)", "search": ["OLMo"], "orgs": ["allenai"] },
+    { "name": "Hugging Face (SmolLM)", "search": ["SmolLM"], "orgs": ["HuggingFaceTB"] }
+  ],
+  "runtime": {
+    "id": "llama-cpp-b11381",
+    "displayName": "llama.cpp b11381 (CUDA 13.4)",
+    "dir": "llama.cpp",
+    "urls": [
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cuda-13.4-x64.zip",
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11381/cudart-llama-bin-win-cuda-13.4-x64.zip"
+    ],
+    "sizeBytes": 576540693
+  }
+}

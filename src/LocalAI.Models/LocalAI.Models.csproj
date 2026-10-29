@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\LocalAI.Configuration\LocalAI.Configuration.csproj" />
+  </ItemGroup>
+</Project>

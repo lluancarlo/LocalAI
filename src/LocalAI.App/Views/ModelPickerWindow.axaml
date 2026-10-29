@@ -1,0 +1,133 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:LocalAI.App.ViewModels"
+        xmlns:cfg="using:LocalAI.Configuration"
+        x:Class="LocalAI.App.Views.ModelPickerWindow"
+        x:DataType="vm:ModelPickerViewModel"
+        Title="Choose a language model"
+        Icon="/Assets/app.ico"
+        Width="980" Height="640" MinWidth="720" MinHeight="460"
+        WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+    <!-- A small filled badge: OFFICIAL, RECOMMENDED -->
+    <Style Selector="Border.badge">
+      <Setter Property="Background" Value="{StaticResource AiBrush}" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="Padding" Value="5,1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.badge > TextBlock">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{StaticResource BgBrush}" />
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+    <!-- Where to look: the models for this computer, a company or a name on Hugging Face -->
+    <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+      <Button Classes="flat" Content="For this computer" Command="{Binding ShowModelsForThisComputerCommand}"
+              ToolTip.Tip="The models chosen for this app, the one that fits your hardware best first, and the ones you added" />
+      <ComboBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding Companies}" SelectedItem="{Binding SelectedCompany}"
+                PlaceholderText="Models of a company…" MinWidth="220">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="cfg:CompanyCatalogEntry"><TextBlock Text="{Binding Name}" /></DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <TextBox Grid.Column="2" Margin="8,0" Text="{Binding SearchText}" PlaceholderText="or search Hugging Face, e.g. Qwen3 8B">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+        </TextBox.KeyBindings>
+      </TextBox>
+      <Button Grid.Column="3" Classes="flat" Content="Search" Command="{Binding SearchCommand}" />
+    </Grid>
+    <StackPanel Grid.Row="1" Margin="0,8,0,8" Spacing="2">
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Status}"
+                 IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+                 IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    </StackPanel>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,12,*">
+      <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" Background="Transparent">
+        <ListBox.Styles>
+          <!-- Section titles are not choices -->
+          <Style Selector="ListBoxItem" x:DataType="vm:PickerItem">
+            <Setter Property="IsEnabled" Value="{Binding !IsHeader}" />
+          </Style>
+        </ListBox.Styles>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:PickerItem">
+            <Panel>
+              <TextBlock Classes="section" Text="{Binding Title}" IsVisible="{Binding IsHeader}" Margin="0,6,0,0" />
+              <StackPanel Spacing="2" IsVisible="{Binding !IsHeader}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <Border Classes="badge" IsVisible="{Binding IsOfficial}"><TextBlock Text="OFFICIAL" /></Border>
+                  <Border Classes="badge" IsVisible="{Binding IsRecommended}"><TextBlock Text="RECOMMENDED" /></Border>
+                </StackPanel>
+                <TextBlock Classes="muted" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </Panel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <!-- The selected model -->
+      <Border Grid.Column="2" Classes="panel">
+        <Panel>
+          <TextBlock Classes="muted" Text="Pick a model to see its details." IsVisible="{Binding !HasSelection}"
+                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <ScrollViewer IsVisible="{Binding HasSelection}">
+            <StackPanel Spacing="10">
+              <WrapPanel>
+                <TextBlock Text="{Binding DetailTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,8,0" />
+                <Border Classes="badge" IsVisible="{Binding SelectedItem.IsOfficial, FallbackValue=False}"><TextBlock Text="OFFICIAL" /></Border>
+              </WrapPanel>
+              <SelectableTextBlock Text="{Binding DetailAuthor}" Foreground="{StaticResource MutedBrush}" />
+              <TextBlock Text="{Binding DetailFacts}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding DetailFit}" TextWrapping="Wrap" Foreground="{StaticResource AiBrush}"
+                         IsVisible="{Binding DetailFit, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Text="{Binding DetailWarning}" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}"
+                         IsVisible="{Binding DetailWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <StackPanel Spacing="4" IsVisible="{Binding IsRepository}">
+                <TextBlock Classes="section" Text="SIZE" />
+                <ComboBox ItemsSource="{Binding Quantizations}" SelectedItem="{Binding SelectedQuantization}" HorizontalAlignment="Stretch"
+                          PlaceholderText="Reading the files…">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:QuantizationChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Classes="muted" TextWrapping="Wrap"
+                           Text="Smaller sizes are faster and use less memory; larger ones answer better. The suggested one is the largest that fits your GPU." />
+              </StackPanel>
+              <Button Classes="flat" Content="Open on Hugging Face" Click="OpenRepository_Click"
+                      IsVisible="{Binding RepositoryUrl, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      ToolTip.Tip="{Binding RepositoryUrl}" />
+            </StackPanel>
+          </ScrollViewer>
+        </Panel>
+      </Border>
+    </Grid>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Classes="flat" Content="Cancel" Command="{Binding CancelCommand}" />
+      <Button Content="Select this model" Command="{Binding SelectCommand}" IsEnabled="{Binding CanSelect}" />
+    </StackPanel>
+  </Grid>
+</Window>

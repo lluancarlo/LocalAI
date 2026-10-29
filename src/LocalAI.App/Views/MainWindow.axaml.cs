@@ -1,0 +1,216 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using LocalAI.App.ViewModels;
+
+namespace LocalAI.App.Views;
+
+public sealed partial class MainWindow : Window
+{
+    private bool _pttKeyDown;
+    private bool _stickToBottom = true;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        // Tunnel so Enter is handled before the multi-line TextBox inserts a newline.
+        InputBox.AddHandler(KeyDownEvent, InputBox_KeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, Window_KeyUp, RoutingStrategies.Tunnel);
+
+        // Button marks pointer events handled; listen to handled events too for press-and-hold.
+        PushToTalkButton.AddHandler(PointerPressedEvent, PushToTalk_Pressed, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        PushToTalkButton.AddHandler(PointerReleasedEvent, PushToTalk_Released, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        PushToTalkButton.AddHandler(PointerCaptureLostEvent, (_, _) => _ = Vm?.EndPushToTalkAsync(), handledEventsToo: true);
+
+        MessagesScroll.ScrollChanged += (_, _) =>
+        {
+            // Auto-scroll only while the user is at (or near) the bottom.
+            var distance = MessagesScroll.Extent.Height - MessagesScroll.Viewport.Height - MessagesScroll.Offset.Y;
+            _stickToBottom = distance < 60;
+        };
+
+        DataContextChanged += (_, _) =>
+        {
+            if (Vm == null) return;
+            Vm.ScrollToEndRequested += (_, _) => ScrollToEnd();
+            // Focus Cancel when the delete confirmation opens, so Enter never deletes by accident.
+            Vm.Settings.Assistants.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(AssistantsViewModel.PendingDelete) && Vm.Settings.Assistants.PendingDelete != null)
+                    Dispatcher.UIThread.Post(() => CancelDeleteButton.Focus(), DispatcherPriority.Loaded);
+            };
+        };
+        Opened += (_, _) => InputBox.Focus();
+        Deactivated += (_, _) => Vm?.Settings.Assistants.CancelHotkeyRecording();
+    }
+
+    /// <summary>The app keeps running in the tray: closing the window (X, Alt+F4) only hides it. Exit is in the tray menu.</summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (e.CloseReason == WindowCloseReason.WindowClosing)
+        {
+            e.Cancel = true;
+            Vm?.Settings.Assistants.CancelHotkeyRecording();
+            Hide();
+        }
+        base.OnClosing(e);
+    }
+
+    private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    private void ScrollToEnd()
+    {
+        if (!_stickToBottom) return;
+        Dispatcher.UIThread.Post(() => MessagesScroll.ScrollToEnd(), DispatcherPriority.Background);
+    }
+
+    private void InputBox_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            _stickToBottom = true;
+            if (Vm?.SendCommand.CanExecute(null) == true && Vm.IsBusy == false) Vm.SendCommand.Execute(null);
+        }
+    }
+
+    private void Window_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (Vm == null || Vm.ShowWelcome) return;
+        if (Vm.Settings.Assistants.IsRecordingHotkey)
+        {
+            // Recording a global shortcut: every key goes to the recorder, none triggers a window shortcut.
+            e.Handled = true;
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None) Vm.Settings.Assistants.CancelHotkeyRecording();
+            else if (HotkeyInput.TryRead(e, out var modifiers, out var key)) _ = Vm.Settings.Assistants.CompleteHotkeyRecordingAsync(modifiers, key);
+            return;
+        }
+        if (Vm.Settings.Assistants.IsAddingAssistant)
+        {
+            // The "Add new assistant" popup is modal: Escape closes it; typing goes to its fields only.
+            if (e.Key == Key.Escape)
+            {
+                Vm.Settings.Assistants.CancelAddAssistantCommand.Execute(null);
+                e.Handled = true;
+            }
+            return;
+        }
+        if (Vm.Settings.Assistants.PendingDelete is { } pendingDelete)
+        {
+            // The confirmation popup is modal: Escape cancels it and no other shortcut runs behind it.
+            if (e.Key == Key.Escape) pendingDelete.CancelCommand.Execute(null);
+            if (e.Key is not (Key.Tab or Key.Enter or Key.Space)) e.Handled = true;
+            return;
+        }
+        switch (e.Key)
+        {
+            case Key.Escape:
+                Vm.StopCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Key.N when e.KeyModifiers == KeyModifiers.Control:
+                Vm.NewConversationCommand.Execute(null);
+                InputBox.Focus();
+                e.Handled = true;
+                break;
+            case Key.F2:
+                Vm.BeginRenameCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Key.Space when e.KeyModifiers == KeyModifiers.Control:
+                e.Handled = true;
+                if (!_pttKeyDown) // ignore key repeat
+                {
+                    _pttKeyDown = true;
+                    _ = Vm.BeginPushToTalkAsync();
+                }
+                break;
+        }
+    }
+
+    private void Window_KeyUp(object? sender, KeyEventArgs e)
+    {
+        if (_pttKeyDown && (e.Key == Key.Space || e.Key is Key.LeftCtrl or Key.RightCtrl))
+        {
+            _pttKeyDown = false;
+            e.Handled = true;
+            _ = Vm?.EndPushToTalkAsync();
+        }
+    }
+
+    private void PushToTalk_Pressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(PushToTalkButton).Properties.IsLeftButtonPressed) _ = Vm?.BeginPushToTalkAsync();
+    }
+
+    private void PushToTalk_Released(object? sender, PointerReleasedEventArgs e) => _ = Vm?.EndPushToTalkAsync();
+
+    private void RenameBox_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not Control { DataContext: ConversationItemViewModel item } || Vm == null) return;
+        if (e.Key == Key.Enter)
+        {
+            Vm.CommitRenameCommand.Execute(item);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            Vm.CancelRenameCommand.Execute(item);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Settings › Assistants: dragging a grip resizes the text box in its Tag (pre-prompt, profile).</summary>
+    /// <summary>The conversation's menu (right click): the conversation is the menu item's data.</summary>
+    private void DeleteConversation_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConversationItemViewModel item }) Vm?.DeleteConversationCommand.Execute(item);
+    }
+
+    private void RenameConversation_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConversationItemViewModel item }) Vm?.BeginRenameCommand.Execute(item);
+    }
+
+    private void ResizeGrip_DragDelta(object? sender, VectorEventArgs e)
+    {
+        if (sender is Control { Tag: TextBox box })
+            box.Height = Math.Clamp(box.Height + e.Vector.Y, box.MinHeight, 1000);
+    }
+
+    /// <summary>Settings › Memory: pick the Obsidian vault the notes move to.</summary>
+    /// <summary>Settings › Assistants › Add files…: the files picked go into the selected assistant's learn folder.</summary>
+    private async void AddLearnFiles_Click(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Files to learn",
+            AllowMultiple = true,
+            FileTypeFilter = [new FilePickerFileType("Markdown and text") { Patterns = ["*.md", "*.txt"] }],
+        });
+        var paths = files.Select(f => f.TryGetLocalPath()).OfType<string>().ToList();
+        if (paths.Count > 0) await vm.Settings.Assistants.AddLearnFilesAsync(paths);
+    }
+
+    private async void ChooseVault_Click(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is not { } vm) return;
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose your Obsidian vault",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 1 && folders[0].TryGetLocalPath() is { } path) await vm.Settings.Memory.UseVaultAsync(path);
+    }
+
+    private void RenameBox_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConversationItemViewModel item }) Vm?.CommitRenameCommand.Execute(item);
+    }
+}

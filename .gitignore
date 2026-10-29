@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+bin/
+obj/
+artifacts/
+publish/
+TestResults/
+*.binlog
+*.nupkg
+*.snupkg
+
+# llama.cpp runtime (downloaded by scripts/publish.ps1)
+runtime/
+
+# ---------------------------------------------------------------------------
+# Editors and tools
+# ---------------------------------------------------------------------------
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.DotSettings.user
+.claude/settings.local.json
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# App data: everything the app creates lives in data\ next to the executable
+# (database, settings, logs, temp files, models and partial downloads)
+# ---------------------------------------------------------------------------
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+logs/
+*.log
+*.partial
+usersettings.json
+appsettings.Local.json
+.env
+
+# Model files and recordings, in case one ends up outside data\
+*.gguf
+*.onnx
+models/
+*.wav

@@ -1,0 +1,135 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:LocalAI.App.ViewModels"
+             x:Class="LocalAI.App.Views.NewAssistantForm"
+             x:DataType="vm:AssistantsViewModel">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.header">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+    <Style Selector="Border.group">
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="12,10" />
+    </Style>
+  </UserControl.Styles>
+  <StackPanel Spacing="6">
+    <!-- Two columns: who the assistant is and how it replies on the left, its language and voice on the right -->
+    <Grid ColumnDefinitions="*,24,*">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Name" />
+        <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Nova" />
+        <TextBlock Text="AI style pre-prompt (optional)" Margin="0,8,0,0" />
+        <TextBox Text="{Binding NewStyle}" MaxLength="{Binding MaxStyleLength}" AcceptsReturn="True" TextWrapping="Wrap"
+                 MinHeight="90" MaxHeight="240"
+                 PlaceholderText="Personality, tone and characteristics. e.g. Warm and witty, explains things with analogies, a bit of humor, never verbose." />
+        <!-- Its size: it goes into every request, and a long one leaves less room for the conversation -->
+        <TextBlock Classes="muted" HorizontalAlignment="Right" Text="{Binding StyleCountText}"
+                   ToolTip.Tip="Sent to the model with every message. Long styles leave less room for the conversation, and small models follow them less well." />
+        <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}" Text="{Binding StyleWarning}"
+                   IsVisible="{Binding StyleWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <TextBlock Text="Language model" Margin="0,8,0,0" />
+        <!-- The model is chosen in a dialog: the models for this computer, or any found on Hugging Face -->
+        <Grid ColumnDefinitions="*,Auto">
+          <Border BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,6">
+            <TextBlock Text="{Binding SelectedModel.Text, FallbackValue='No model chosen'}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+          </Border>
+          <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="Choose…" Click="ChooseModel_Click"
+                  ToolTip.Tip="The models for this computer, or any open model on Hugging Face" />
+        </Grid>
+        <!-- How it replies: can be changed later in Settings › Assistants -->
+        <Border Classes="group" Margin="0,8,0,0">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Behavior" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+              <TextBlock Text="Creativity" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding CreativityChoices}" SelectedItem="{Binding NewCreativity}" HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:CreativityOption"><TextBlock Text="{Binding Text}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Grid.Row="1" Text="Reply length" VerticalAlignment="Center" Margin="0,6,0,0" />
+              <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding ReplyLengthChoices}" SelectedItem="{Binding NewReplyLength}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ReplyLengthOption"><TextBlock Text="{Binding Text}" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <CheckBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Content="Think before answering" IsChecked="{Binding NewThinking}"
+                        ToolTip.Tip="{Binding ThinkingTip}" />
+              <TextBlock Grid.Row="3" Text="Context" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip.Tip="{Binding ContextTip}" />
+              <ComboBox Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding ContextChoices}" SelectedItem="{Binding NewContext}"
+                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding ContextTip}">
+                <ComboBox.Styles>
+                  <!-- A size that does not run on this PC cannot be chosen -->
+                  <Style Selector="ComboBoxItem" x:DataType="vm:ContextChoice">
+                    <Setter Property="IsEnabled" Value="{Binding CanChoose}" />
+                  </Style>
+                </ComboBox.Styles>
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ContextChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <CheckBox Grid.Row="4" Grid.Column="1" Margin="0,6,0,0" Content="Compact context memory (8-bit)" IsChecked="{Binding NewCompactCache}"
+                        ToolTip.Tip="{Binding CompactCacheTip}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Can be changed later in Settings › Assistants." />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+      <StackPanel Grid.Column="2" Spacing="6">
+        <TextBlock Text="Native language" />
+        <ComboBox ItemsSource="{Binding LanguageChoices}" SelectedItem="{Binding SelectedLanguage}" HorizontalAlignment="Stretch"
+                  ToolTip.Tip="The assistant always replies in this language, and its voice speaks it: the voices below are the ones that do">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:LanguageChoice"><TextBlock Text="{Binding Name}" /></DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <!-- Voice settings: the voice, a sample and how it sounds. Fixed once the assistant is created; ▶ plays the voice
+             with these settings. Each slider's range comes from the chosen voice, and settings it does not have are hidden. -->
+        <Border Classes="group" Margin="0,8,0,0">
+          <StackPanel Spacing="6">
+            <TextBlock Text="Voice settings" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto">
+              <ComboBox ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:VoiceChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
+                      ToolTip.Tip="Play a sample (downloads the voice if needed)" />
+            </Grid>
+            <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <Grid ColumnDefinitions="110,*,Auto" Margin="0,6,0,0" ToolTip.Tip="How fast the assistant speaks"
+                  IsVisible="{Binding VoiceTuning.Speed, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <TextBlock Text="Speed" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Speed.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Speed.Max, FallbackValue=1}"
+                      SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Semitones lower or higher than the original voice"
+                  IsVisible="{Binding VoiceTuning.Pitch, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <TextBlock Text="Pitch" VerticalAlignment="Center" />
+              <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Pitch.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Pitch.Max, FallbackValue=1}"
+                      SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
+            </Grid>
+            <Button Classes="flat" HorizontalAlignment="Left" Padding="8,2" Content="Reset voice settings" Command="{Binding ResetVoiceStyleCommand}"
+                    ToolTip.Tip="Back to the voice's original settings" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Grid>
+    <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
+               Text="The assistant always replies in its native language, with this voice, whatever language you write or paste. Name, style, model, voice and voice settings cannot be changed later (the behavior can); anything not downloaded yet is downloaded after creating." />
+    <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
+               IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,6,0,0">
+      <Button Classes="flat" Content="Cancel" Command="{Binding CancelAddAssistantCommand}" IsVisible="{Binding IsAddingAssistant}" />
+      <Button Command="{Binding CreateCommand}" Content="Create assistant" />
+    </StackPanel>
+  </StackPanel>
+</UserControl>

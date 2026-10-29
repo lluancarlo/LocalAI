@@ -1,0 +1,42 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="LocalAI.App.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="BgBrush" Color="#0E1015" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#14171E" />
+    <SolidColorBrush x:Key="PanelBorderBrush" Color="#232733" />
+    <SolidColorBrush x:Key="TextBrush" Color="#E3E5EA" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#8A90A0" />
+    <SolidColorBrush x:Key="UserBrush" Color="#7AA2F7" />
+    <SolidColorBrush x:Key="AiBrush" Color="#9ECE6A" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#F7768E" />
+    <SolidColorBrush x:Key="WarnBrush" Color="#E0AF68" />
+    <SolidColorBrush x:Key="RecordBrush" Color="#F7768E" />
+    <FontFamily x:Key="MonoFont">Cascadia Mono, Cascadia Code, Consolas, monospace</FontFamily>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window">
+      <Setter Property="Background" Value="{StaticResource BgBrush}" />
+    </Style>
+    <Style Selector="Button.flat">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="ToggleButton.flat">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+  </Application.Styles>
+</Application>
