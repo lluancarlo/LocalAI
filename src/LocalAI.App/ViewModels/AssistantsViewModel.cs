@@ -19,8 +19,40 @@ using Microsoft.Extensions.Options;
 
 namespace LocalAI.App.ViewModels;
 
-/// <summary>An item of the voice list: a speaker of the speech model.</summary>
-public sealed record VoiceChoice(VoiceCatalogEntry Voice, string Text);
+/// <summary>An item of the voice list: a speaker of the speech model, or the title of a group (no voice).</summary>
+public sealed record VoiceChoice(VoiceCatalogEntry? Entry, string Text)
+{
+    public bool IsHeader => Entry == null;
+    public VoiceCatalogEntry Voice => Entry ?? throw new InvalidOperationException("A group title is not a voice.");
+
+    /// <summary>
+    /// The order of every voice list: female voices, then male, then any other, each group under its title, and within
+    /// a group by accent (locale), then name.
+    /// </summary>
+    public static IReadOnlyList<VoiceChoice> Grouped(IEnumerable<VoiceCatalogEntry> voices, Func<VoiceCatalogEntry, string> text)
+    {
+        var list = new List<VoiceChoice>();
+        foreach (var group in voices.GroupBy(v => GenderGroup(v.Gender)).OrderBy(g => g.Key))
+        {
+            list.Add(new VoiceChoice(null, GroupTitles[group.Key]));
+            foreach (var v in group.OrderBy(v => v.Locale, StringComparer.Ordinal).ThenBy(v => v.DisplayName, StringComparer.OrdinalIgnoreCase))
+                list.Add(new VoiceChoice(v, text(v)));
+        }
+        return list;
+    }
+
+    private static readonly string[] GroupTitles = ["Female", "Male", "Other"];
+
+    private static int GenderGroup(string? gender) => gender?.ToLowerInvariant() switch
+    {
+        "female" => 0,
+        "male" => 1,
+        _ => 2,
+    };
+
+    /// <summary>"[en-GB] Alice": the group title already says the gender.</summary>
+    public static string Name(VoiceCatalogEntry voice) => $"[{voice.Locale}] {voice.DisplayName}";
+}
 
 /// <summary>A file of an assistant's learn folder, as the list shows it.</summary>
 public sealed record LearnFileItem(string Name, string Detail);
@@ -89,10 +121,10 @@ public static class BehaviorOptions
 }
 
 /// <summary>
-/// Settings › Assistants and the first-launch dialog: the ways to talk offered in the chat (Text is always offered;
-/// Read aloud and Live can be turned off, Live with its Read selection option), and create (name, style, language model
-/// and voice), switch and delete assistants, and record each assistant's global shortcut. Whatever the new assistant
-/// needs is downloaded right after it is created.
+/// Settings › General (startup, the ways to talk offered in the chat, Live conversation), Settings › Assistants and the
+/// first-launch dialog: create (name, personality, language model and voice), switch and delete assistants, change each
+/// one's personality, language model (Brain), voice and behavior, and record its global shortcut. Whatever the new assistant needs is
+/// downloaded right after it is created.
 /// </summary>
 public sealed partial class AssistantsViewModel : ObservableObject
 {
@@ -226,9 +258,12 @@ public sealed partial class AssistantsViewModel : ObservableObject
     }
 
     /// <summary>The context sizes of an existing assistant's model (Settings › Assistants).</summary>
-    internal IReadOnlyList<ContextChoice> ContextChoicesFor(AssistantProfile profile, bool compact)
+    internal IReadOnlyList<ContextChoice> ContextChoicesFor(AssistantProfile profile, bool compact) =>
+        ContextChoicesFor(profile.ModelId, compact);
+
+    private IReadOnlyList<ContextChoice> ContextChoicesFor(string modelId, bool compact)
     {
-        var model = _models.LanguageModel(profile.ModelId);
+        var model = _models.LanguageModel(modelId);
         var options = model == null ? [] : _models.ContextOptions(model, compact, _startup.Gpu?.TotalMemoryMb);
         return ContextChoice.For(model, options);
     }
@@ -263,7 +298,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
             if (context is not { } size) return null;
             var tokens = LocalAI.Core.Assistant.PromptBuilder.EstimateTokens(NewStyle);
             return tokens * 10 > size
-                ? $"This model has {size / 1024}K tokens of context: a style this long leaves less room for the conversation. " +
+                ? $"This model has {size / 1024}K tokens of context: a personality this long leaves less room for the conversation. " +
                   "For reference material, use the learn folder instead."
                 : null;
         }
@@ -288,7 +323,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
         {
             var model = _models.Find(profile.ModelId)?.DisplayName ?? "Best installed model";
             var voice = _models.FindVoice(profile.VoiceId)?.Label ?? profile.VoiceId;
-            Items.Add(new AssistantItemViewModel(this, profile, profile.Id == _context.Current?.Id, $"{model} · {voice}")
+            Items.Add(new AssistantItemViewModel(this, profile, profile.Id == _context.Current?.Id, $"{model} · {voice}", ModelText(profile))
             {
                 LiveEnabled = LiveEnabled,
             });
@@ -299,7 +334,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
 
     // ---------------- Selected assistant ----------------
 
-    /// <summary>The assistant shown under the combo box (its folder, shortcut, pre-prompt and what it remembers).</summary>
+    /// <summary>The assistant shown under the combo box (its folder, shortcut, personality and what it remembers).</summary>
     [ObservableProperty] private AssistantItemViewModel? _selectedAssistant;
 
     /// <summary>The selected assistant's profile note: what it knows about the user, or null before the first one.</summary>
@@ -342,12 +377,11 @@ public sealed partial class AssistantsViewModel : ObservableObject
         }
         try
         {
-            var status = await Task.Run(() => _vault.LearnStatusAsync(item.Profile));
+            var (status, folder) = await Task.Run(async () =>
+                (await _vault.LearnStatusAsync(item.Profile), await _vault.LearnFolderAsync(item.Profile)));
             if (SelectedAssistant != item) return; // the user picked another one meanwhile
             LearnFiles.Clear();
-            foreach (var f in status.Files)
-                LearnFiles.Add(new LearnFileItem(Path.GetFileName(f.Path),
-                    $"{FormatBytes(f.Size)} · {f.Modified.ToLocalTime():dd MMM yyyy HH:mm}"));
+            foreach (var row in LearnRows(status.Files, folder)) LearnFiles.Add(row);
             LearnStatus = status.LearnedAt is { } at
                 ? $"Learned on {at.ToLocalTime():dd MMM yyyy HH:mm}: {status.LearnedFiles} {(status.LearnedFiles == 1 ? "file" : "files")}, {status.Passages} passages."
                 : status.Files.Count == 0 ? "Nothing to learn yet: add .md or .txt files." : "Not learned yet: click Learn.";
@@ -360,8 +394,27 @@ public sealed partial class AssistantsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The learn folder as the list shows it: each file at its top, then one line per subfolder with how many files
+    /// it holds (a folder of converted documentation can hold thousands).
+    /// </summary>
+    internal static IEnumerable<LearnFileItem> LearnRows(IReadOnlyList<VaultFile> files, string learnFolder)
+    {
+        var inLearn = files.Select(f => (File: f, Path: f.Path.StartsWith(learnFolder + "/", StringComparison.Ordinal)
+            ? f.Path[(learnFolder.Length + 1)..] : Path.GetFileName(f.Path))).ToList();
+        foreach (var (file, path) in inLearn.Where(f => !f.Path.Contains('/')))
+            yield return new LearnFileItem(path, $"{FormatBytes(file.Size)} · {file.Modified.ToLocalTime():dd MMM yyyy HH:mm}");
+        foreach (var folder in inLearn.Where(f => f.Path.Contains('/')).GroupBy(f => f.Path[..f.Path.IndexOf('/')], StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var count = folder.Count();
+            yield return new LearnFileItem($"{folder.Key}/",
+                $"{count:N0} {(count == 1 ? "file" : "files")} · {FormatBytes(folder.Sum(f => f.File.Size))}");
+        }
+    }
+
     private static string FormatBytes(long bytes) =>
-        bytes >= 1_000_000 ? $"{bytes / 1e6:0.0} MB" : bytes >= 1_000 ? $"{bytes / 1e3:0} KB" : $"{bytes} bytes";
+        bytes >= 1_000_000_000 ? $"{bytes / 1e9:0.0} GB" : bytes >= 1_000_000 ? $"{bytes / 1e6:0.0} MB" : bytes >= 1_000 ? $"{bytes / 1e3:0} KB" : $"{bytes} bytes";
 
     /// <summary>
     /// Copies the files the user picked into the selected assistant's learn folder. A file with the name of one already
@@ -479,7 +532,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
 
     // ---------------- Live replies ----------------
 
-    /// <summary>How to reply in Live mode (the same for every assistant; each one's personality comes from its own pre-prompt).</summary>
+    /// <summary>How to reply in Live mode (the same for every assistant; each one also has its own personality).</summary>
     [ObservableProperty] private string _livePrompt = "";
 
     public int LiveMaxTokens => _assistantOptions.LiveMaxTokens;
@@ -654,17 +707,29 @@ public sealed partial class AssistantsViewModel : ObservableObject
         // Read the selection first: clearing the list makes the combo box set it to null.
         var voiceId = SelectedVoice?.Voice.Id;
         VoiceChoices.Clear();
-        if (_models.VoicePackage is { } voices && SelectedLanguage is { } language)
+        if (SelectedLanguage is { } language)
         {
-            foreach (var v in _models.Voices.Where(v => v.Language == language.Code).OrderBy(v => v.Locale, StringComparer.Ordinal))
-                VoiceChoices.Add(new VoiceChoice(v, Describe(voices, null, v.Label)));
+            foreach (var choice in VoiceChoicesFor(language.Code)) VoiceChoices.Add(choice);
         }
-        SelectedVoice = VoiceChoices.FirstOrDefault(c => c.Voice.Id == voiceId) ?? DefaultVoice();
+        SelectedVoice = VoiceChoices.FirstOrDefault(c => !c.IsHeader && c.Voice.Id == voiceId) ?? DefaultVoice();
     }
 
     /// <summary>The model dialog, on the new assistant's current model.</summary>
-    public ModelPickerViewModel CreateModelPicker() =>
-        new(_models, _browser, _startup.Gpu?.TotalMemoryMb, SelectedModel?.Package?.Id, Logger);
+    public ModelPickerViewModel CreateModelPicker() => CreateModelPicker(SelectedModel?.Package?.Id);
+
+    /// <summary>The model dialog, on <paramref name="modelId"/>.</summary>
+    internal ModelPickerViewModel CreateModelPicker(string? modelId) =>
+        new(_models, _browser, _startup.Gpu?.TotalMemoryMb, modelId, Logger);
+
+    /// <summary>The voices of a language (an existing assistant's voice can change only to another of its language).</summary>
+    internal IReadOnlyList<VoiceChoice> VoiceChoicesFor(string language) =>
+        _models.VoicePackage is { } voices
+            ? VoiceChoice.Grouped(_models.Voices.Where(v => v.Language == language), v => Describe(voices, null, VoiceChoice.Name(v)))
+            : [];
+
+    /// <summary>"Gemma 4 12B · installed": an assistant's language model, as Settings › Assistants shows it.</summary>
+    internal string ModelText(AssistantProfile profile) =>
+        _models.Find(profile.ModelId) is { } package ? Describe(package, null) : "Best installed model";
 
     /// <summary>The model the user chose in the dialog.</summary>
     public void UseModel(ChosenModel model)
@@ -682,9 +747,9 @@ public sealed partial class AssistantsViewModel : ObservableObject
 
     /// <summary>The catalog's default voice of the language shown, else its first one.</summary>
     private VoiceChoice? DefaultVoice() =>
-        VoiceChoices.FirstOrDefault(c => c.Voice.Default) ?? VoiceChoices.FirstOrDefault();
+        VoiceChoices.FirstOrDefault(c => !c.IsHeader && c.Voice.Default) ?? VoiceChoices.FirstOrDefault(c => !c.IsHeader);
 
-    // ---------------- Voice style of the new assistant (fixed once created) ----------------
+    // ---------------- Voice style of the new assistant ----------------
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(SpeedText))] private double _speed = VoiceStyle.Default.Speed;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(PitchText))] private double _pitch = VoiceStyle.Default.Pitch;
@@ -698,6 +763,12 @@ public sealed partial class AssistantsViewModel : ObservableObject
     // A setting the user left at the old voice's value follows the new voice; a changed one is kept, within range.
     partial void OnSelectedVoiceChanged(VoiceChoice? value)
     {
+        // A group title cannot be chosen: back to the voice before it.
+        if (value is { IsHeader: true })
+        {
+            SelectedVoice = DefaultVoice();
+            return;
+        }
         if (value?.Voice.Tuning is not { } tuning || tuning == VoiceTuning) return;
         var old = VoiceTuning;
         VoiceTuning = tuning;
@@ -710,11 +781,13 @@ public sealed partial class AssistantsViewModel : ObservableObject
         : old == null || Math.Abs(value - old.Default) < 0.001 ? range.Default
         : range.Clamp(value);
 
-    // Settings the voice does not have keep the engine-neutral value.
-    private VoiceStyle NewVoiceStyle => new()
+    private VoiceStyle NewVoiceStyle => StyleOf(VoiceTuning, Speed, Pitch);
+
+    /// <summary>The style the sliders show. Settings the voice does not have keep the engine-neutral value.</summary>
+    internal static VoiceStyle StyleOf(VoiceTuning tuning, double speed, double pitch) => new()
     {
-        Speed = VoiceTuning.Speed == null ? VoiceStyle.Default.Speed : Math.Round(Speed, 2),
-        Pitch = VoiceTuning.Pitch == null ? VoiceStyle.Default.Pitch : Math.Round(Pitch, 2),
+        Speed = tuning.Speed == null ? VoiceStyle.Default.Speed : Math.Round(speed, 2),
+        Pitch = tuning.Pitch == null ? VoiceStyle.Default.Pitch : Math.Round(pitch, 2),
     };
 
     /// <summary>Back to the values the chosen voice was made for.</summary>
@@ -727,24 +800,30 @@ public sealed partial class AssistantsViewModel : ObservableObject
 
     /// <summary>Plays the chosen voice with the chosen style (downloads the voice first if needed).</summary>
     [RelayCommand]
-    private async Task PreviewVoiceAsync()
+    private Task PreviewVoiceAsync()
     {
-        if (SelectedVoice is not { } choice || _models.VoicePackage is not { } voices) return;
+        if (SelectedVoice is not { } choice) return Task.CompletedTask;
         Error = null;
+        return PlaySampleAsync(choice, NewVoiceStyle, status => PreviewStatus = status, error => Error = error);
+    }
+
+    /// <summary>Plays a sample of a voice with a style (downloads the voices first if needed).</summary>
+    internal async Task PlaySampleAsync(VoiceChoice choice, VoiceStyle style, Action<string?> showStatus, Action<string> showError)
+    {
+        if (_models.VoicePackage is not { } voices) return;
         try
         {
             if (!_models.IsInstalled(voices))
             {
-                PreviewStatus = "Downloading the voice…";
+                showStatus("Downloading the voice…");
                 if (!await _modelsView.EnsureInstalledAsync(voices))
                 {
-                    Error = "The voice could not be downloaded (see Settings › Models).";
+                    showError("The voice could not be downloaded (see Settings › Models).");
                     return;
                 }
             }
-            PreviewStatus = null;
+            showStatus(null);
             var sample = _languages.Languages.TryGetValue(choice.Voice.Language, out var info) ? info.VoiceSample : choice.Voice.DisplayName;
-            var style = NewVoiceStyle;
             AudioClip clip;
             try
             {
@@ -762,11 +841,11 @@ public sealed partial class AssistantsViewModel : ObservableObject
         catch (Exception ex)
         {
             Logger.LogError(ex, "Voice preview failed");
-            Error = $"Could not play the voice: {ex.Message}";
+            showError($"Could not play the voice: {ex.Message}");
         }
         finally
         {
-            PreviewStatus = null;
+            showStatus(null);
         }
     }
 
@@ -838,7 +917,102 @@ public sealed partial class AssistantsViewModel : ObservableObject
         _modelPickedByUser = false;
     }
 
-    /// <summary>Opens the confirmation popup with what deleting the assistant would remove.</summary>
+    /// <summary>
+    /// Gives an assistant another language model: downloaded first if needed (the current one keeps working meanwhile),
+    /// then started at once if its Brain is on. Its context size is kept when the new model can use it, else the
+    /// model's default.
+    /// </summary>
+    internal async Task ChangeModelAsync(AssistantItemViewModel item, ChosenModel model)
+    {
+        item.Error = null;
+        if (model.Package?.Id == item.Profile.ModelId) return;
+        try
+        {
+            var package = model.Package ?? _models.AddLanguageModel(model.Entry!);
+            if (!_models.IsInstalled(package))
+            {
+                item.ModelStatus = $"Downloading {package.DisplayName}… (progress in Settings › Models)";
+                _models.AddPending([package]);
+                DownloadsStarted?.Invoke(this, EventArgs.Empty);
+                if (!await _modelsView.EnsureInstalledAsync(package))
+                {
+                    item.Error = "The model could not be downloaded (see Settings › Models).";
+                    return;
+                }
+            }
+            var size = item.Context?.Size ?? item.Profile.Behavior.ContextSize;
+            var context = ContextChoicesFor(package.Id, item.CompactCache).Any(c => c.Size == size && c.CanChoose) ? size : 0;
+            item.ModelStatus = item.IsActive && _manager.IsModelLoaded(item.Profile) ? "Starting the new model…" : null;
+            await Task.Run(() => _manager.SetModelAsync(item.Profile, package.Id, context));
+            await RefreshAsync();
+        }
+        catch (AssistantValidationException ex)
+        {
+            item.Error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not change the assistant's model");
+            item.Error = $"Could not change the model: {ex.Message}";
+        }
+        finally
+        {
+            item.ModelStatus = null;
+        }
+    }
+
+    /// <summary>
+    /// Saves an assistant's new personality. Its identity note is written again at once, so the next reply follows
+    /// it; a note whose generated part the user edited keeps defining who the assistant is, and the user is told.
+    /// </summary>
+    internal async Task<bool> ChangePersonalityAsync(AssistantItemViewModel item, string text)
+    {
+        item.Error = null;
+        try
+        {
+            var edited = await Task.Run(async () =>
+            {
+                await _manager.SetStyleAsync(item.Profile, text);
+                await _vault.WriteIdentityNoteAsync(item.Profile.Id, CancellationToken.None);
+                return await _vault.IsIdentityEditedAsync(item.Profile);
+            });
+            await RefreshAsync();
+            if (edited && SelectedAssistant is { } selected && selected.Profile.Id == item.Profile.Id)
+                selected.PersonalityNote = "Saved. Your edited identity note still defines who the assistant is: open the directory and edit it too.";
+            return true;
+        }
+        catch (AssistantValidationException ex)
+        {
+            item.Error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not change the assistant's personality");
+            item.Error = $"Could not save the personality: {ex.Message}";
+        }
+        return false;
+    }
+
+    /// <summary>Gives an assistant another voice of its language, with its style; its picture follows the voice.</summary>
+    internal async Task ChangeVoiceAsync(AssistantItemViewModel item, VoiceChoice voice, VoiceStyle style)
+    {
+        item.Error = null;
+        try
+        {
+            await Task.Run(() => _manager.SetVoiceAsync(item.Profile, voice.Voice.Id, style, AssistantAvatars.ForGender(voice.Voice.Gender)));
+            await RefreshAsync();
+        }
+        catch (AssistantValidationException ex)
+        {
+            item.Error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Could not change the assistant's voice");
+            item.Error = $"Could not change the voice: {ex.Message}";
+        }
+    }
+
     /// <summary>Saves a change to an assistant's behavior; its next reply follows it.</summary>
     internal async Task SaveBehaviorAsync(AssistantItemViewModel item, AssistantBehavior behavior)
     {
@@ -918,13 +1092,167 @@ public sealed partial class AssistantsViewModel : ObservableObject
     }
 }
 
-public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, AssistantProfile profile, bool isActive, string details)
+public sealed partial class AssistantItemViewModel(AssistantsViewModel owner, AssistantProfile profile, bool isActive, string details, string modelText)
     : ObservableObject
 {
     public AssistantProfile Profile { get; } = profile;
     public string Name => Profile.Name;
     public string Details { get; } = details;
-    public string PrePrompt => Profile.StylePrompt;
+
+    // ---------------- Personality: locked until Edit, written with Save ----------------
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PersonalityText), nameof(PersonalityButtonText), nameof(PersonalityButtonTip), nameof(PersonalityCountText))]
+    private bool _isEditingPersonality;
+
+    [ObservableProperty] private bool _isSavingPersonality;
+    /// <summary>Said after saving, e.g. that the user's own identity note still decides.</summary>
+    [ObservableProperty] private string? _personalityNote;
+    private string _personalityDraft = "";
+
+    public int MaxPersonalityLength => AssistantManager.MaxStyleLength;
+
+    /// <summary>What the box shows: the saved personality, or the text being edited.</summary>
+    public string PersonalityText
+    {
+        get => IsEditingPersonality ? _personalityDraft : Profile.StylePrompt;
+        set
+        {
+            if (!IsEditingPersonality) return;
+            _personalityDraft = value ?? "";
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PersonalityCountText));
+        }
+    }
+
+    /// <summary>"1,240 / 6,000 · ~360 tokens": it goes into every request, so its size matters.</summary>
+    public string PersonalityCountText
+    {
+        get
+        {
+            var text = PersonalityText;
+            var tokens = text.Length == 0 ? 0 : LocalAI.Core.Assistant.PromptBuilder.EstimateTokens(text);
+            return $"{text.Length:N0} / {MaxPersonalityLength:N0} · ~{tokens:N0} tokens";
+        }
+    }
+
+    public string PersonalityButtonText => IsEditingPersonality ? "Save" : "Edit";
+    public string PersonalityButtonTip => IsEditingPersonality
+        ? "Saves the personality: the next reply follows it"
+        : "Unlocks the personality to change it";
+
+    [RelayCommand]
+    private async Task EditOrSavePersonalityAsync()
+    {
+        if (IsSavingPersonality) return;
+        PersonalityNote = null;
+        if (!IsEditingPersonality)
+        {
+            _personalityDraft = Profile.StylePrompt;
+            IsEditingPersonality = true;
+            return;
+        }
+        IsSavingPersonality = true;
+        try
+        {
+            // Saved: the list is read again, with this assistant's new personality locked.
+            if (await owner.ChangePersonalityAsync(this, _personalityDraft)) IsEditingPersonality = false;
+        }
+        finally
+        {
+            IsSavingPersonality = false;
+        }
+    }
+
+    // ---------------- Brain: the language model ----------------
+
+    /// <summary>"Gemma 4 12B · installed".</summary>
+    public string ModelText { get; } = modelText;
+
+    /// <summary>"Downloading…" or "Starting the new model…" while a new model is on its way.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsChangingModel))] private string? _modelStatus;
+    public bool IsChangingModel => ModelStatus != null;
+
+    internal ModelPickerViewModel CreateModelPicker() => owner.CreateModelPicker(Profile.ModelId);
+    internal Task UseModelAsync(ChosenModel model) => owner.ChangeModelAsync(this, model);
+
+    // ---------------- Voice: another voice of its language, its style ----------------
+
+    private IReadOnlyList<VoiceChoice>? _voiceChoices;
+    public IReadOnlyList<VoiceChoice> VoiceChoices => _voiceChoices ??= owner.VoiceChoicesFor(Profile.Language);
+
+    private VoiceChoice? _voice;
+    public VoiceChoice? Voice
+    {
+        get => _voice ??= VoiceChoices.FirstOrDefault(c => !c.IsHeader && c.Voice.Id == Profile.VoiceId);
+        set
+        {
+            // A combo box clears its selection while its list is rebuilt; a group title cannot be chosen.
+            if (value == null || value.IsHeader || value == _voice)
+            {
+                if (value is { IsHeader: true }) OnPropertyChanged();
+                return;
+            }
+            _voice = value;
+            OnPropertyChanged();
+            if (value.Voice.Tuning is { } tuning && tuning != VoiceTuning)
+            {
+                var old = VoiceTuning;
+                VoiceTuning = tuning;
+                Speed = AssistantsViewModel.Follow(Speed, old.Speed, tuning.Speed);
+                Pitch = AssistantsViewModel.Follow(Pitch, old.Pitch, tuning.Pitch);
+            }
+            OnPropertyChanged(nameof(HasVoiceChanges));
+        }
+    }
+
+    [ObservableProperty] private VoiceTuning _voiceTuning = VoiceTuningOf(owner, profile);
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(SpeedText), nameof(HasVoiceChanges))] private double _speed = profile.VoiceStyle.Speed;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(PitchText), nameof(HasVoiceChanges))] private double _pitch = profile.VoiceStyle.Pitch;
+    [ObservableProperty] private string? _previewStatus;
+
+    public string SpeedText => $"{Speed:0.00}×";
+    public string PitchText => Math.Abs(Pitch) < 0.001 ? "0" : $"{Pitch:+0.00;-0.00}";
+
+    private static VoiceTuning VoiceTuningOf(AssistantsViewModel owner, AssistantProfile profile) =>
+        owner.VoiceChoicesFor(profile.Language).FirstOrDefault(c => !c.IsHeader && c.Voice.Id == profile.VoiceId)?.Voice.Tuning ?? VoiceTuning.Default;
+
+    private VoiceStyle ChosenStyle => AssistantsViewModel.StyleOf(VoiceTuning, Speed, Pitch);
+
+    /// <summary>The voice or its style differ from the saved ones: Save applies them.</summary>
+    public bool HasVoiceChanges => Voice is { } voice && (voice.Voice.Id != Profile.VoiceId || ChosenStyle != Profile.VoiceStyle);
+
+    [RelayCommand]
+    private Task PreviewVoiceAsync()
+    {
+        if (Voice is not { } voice) return Task.CompletedTask;
+        Error = null;
+        return owner.PlaySampleAsync(voice, ChosenStyle, status => PreviewStatus = status, error => Error = error);
+    }
+
+    /// <summary>Back to the values the chosen voice was made for.</summary>
+    [RelayCommand]
+    private void ResetVoiceStyle()
+    {
+        Speed = VoiceTuning.Speed?.Default ?? VoiceStyle.Default.Speed;
+        Pitch = VoiceTuning.Pitch?.Default ?? VoiceStyle.Default.Pitch;
+    }
+
+    [RelayCommand]
+    private Task SaveVoiceAsync() =>
+        Voice is { } voice && HasVoiceChanges ? owner.ChangeVoiceAsync(this, voice, ChosenStyle) : Task.CompletedTask;
+
+    /// <summary>Back to the saved voice and style.</summary>
+    [RelayCommand]
+    private void RevertVoice()
+    {
+        _voice = VoiceChoices.FirstOrDefault(c => !c.IsHeader && c.Voice.Id == Profile.VoiceId);
+        OnPropertyChanged(nameof(Voice));
+        VoiceTuning = VoiceTuningOf(owner, Profile);
+        Speed = Profile.VoiceStyle.Speed;
+        Pitch = Profile.VoiceStyle.Pitch;
+        OnPropertyChanged(nameof(HasVoiceChanges));
+    }
 
     public IReadOnlyList<CreativityOption> CreativityChoices => BehaviorOptions.Creativity;
     public IReadOnlyList<ReplyLengthOption> ReplyLengthChoices => BehaviorOptions.ReplyLength;

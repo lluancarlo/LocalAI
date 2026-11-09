@@ -108,6 +108,39 @@ public sealed class SqliteAssistantStore(SqliteDatabase db) : IAssistantStore
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task SetStyleAsync(long id, string stylePrompt, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE assistants SET style_prompt = $style WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$style", stylePrompt);
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task SetModelAsync(long id, string modelId, AssistantBehavior behavior, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE assistants SET model_id = $model, behavior = $behavior WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$model", modelId);
+        cmd.Parameters.AddWithValue("$behavior", JsonSerializer.Serialize(behavior, BehaviorJson));
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task SetVoiceAsync(long id, string voiceId, VoiceStyle voiceStyle, string avatar, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE assistants SET voice_id = $voice, voice_style = $style, avatar = $avatar WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$voice", voiceId);
+        cmd.Parameters.AddWithValue("$style", JsonSerializer.Serialize(voiceStyle));
+        cmd.Parameters.AddWithValue("$avatar", avatar);
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
     public async Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);

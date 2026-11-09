@@ -236,7 +236,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsContinuous => ReplyMode == ReplyMode.Live;
 
-    // Ways to talk offered in the mode selector (Settings > Assistants). Text is always offered.
+    // Ways to talk offered in the mode selector (Settings > General). Text is always offered.
     public bool ReadAloudOffered => _options.Voice.ReadAloudEnabled;
     public bool LiveOffered => _options.Voice.LiveEnabled;
 

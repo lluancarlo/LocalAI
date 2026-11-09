@@ -38,16 +38,17 @@ public sealed class LlmOptions
 
 public sealed class AssistantOptions
 {
-    /// <summary>Id of the active assistant (set by the app). Name, style and voices are stored per assistant in the database.</summary>
+    /// <summary>Id of the active assistant (set by the app). Name, personality and voices are stored per assistant in the database.</summary>
     public long ActiveId { get; set; }
     /// <summary>Turn the active assistant's AI on (load its language model) when the app starts. Off: it waits for the user.</summary>
     public bool LoadModelAtStartup { get; set; }
     public string SystemPrompt { get; set; } =
         "You are {name}, a helpful, precise assistant running fully offline on the user's computer. " +
-        "Be concise and direct. The user is an experienced software engineer.";
+        "The user is an experienced software engineer.";
     /// <summary>Extra instruction appended when the answer will be read aloud (Read aloud mode, push-to-talk).</summary>
     public string VoiceStyleHint { get; set; } =
-        "Your reply will be spoken aloud: answer conversationally in short sentences; avoid markdown, lists, tables and code blocks unless explicitly asked.";
+        "Your reply will be spoken aloud: write it as natural, flowing speech. Its length should still fit the question. " +
+        "Avoid markdown, lists, tables and code blocks unless explicitly asked.";
 
     public const string DefaultLivePrompt =
         "This is a live spoken conversation, like talking face to face. Answer in one or two short sentences, with the " +
@@ -55,7 +56,7 @@ public sealed class AssistantOptions
         "the key point and ask whether the user wants more detail. Give a longer answer only when the user asks for one.";
 
     /// <summary>
-    /// How to reply in Live mode (Settings › Assistants › Live conversation), instead of <see cref="VoiceStyleHint"/>:
+    /// How to reply in Live mode (Settings › General › Live conversation), instead of <see cref="VoiceStyleHint"/>:
     /// a conversation needs short replies. Empty = <see cref="DefaultLivePrompt"/>.
     /// </summary>
     public string LivePrompt { get; set; } = DefaultLivePrompt;

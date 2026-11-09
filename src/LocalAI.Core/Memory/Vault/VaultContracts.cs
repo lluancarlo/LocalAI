@@ -58,7 +58,7 @@ public interface IVaultStorage
     bool Exists(string path);
     /// <summary>Every note (.md) under <paramref name="folder"/>, as relative paths.</summary>
     IReadOnlyList<string> ListNotes(string folder);
-    /// <summary>The files directly in <paramref name="folder"/> with one of <paramref name="extensions"/> (".md").</summary>
+    /// <summary>The files in <paramref name="folder"/> and its subfolders with one of <paramref name="extensions"/> (".md").</summary>
     IReadOnlyList<VaultFile> ListFiles(string folder, IReadOnlyCollection<string> extensions);
     /// <summary>The absolute path of a relative one (to open a folder in the Explorer).</summary>
     string FullPath(string path);
@@ -89,6 +89,8 @@ public interface IVaultIndex
     /// </summary>
     Task ReplaceDocumentsAsync(long assistantId, IReadOnlyList<LearnedDocument> documents, CancellationToken ct = default);
     Task<IReadOnlyList<NoteChunk>> ListChunksAsync(long assistantId, CancellationToken ct = default);
+    /// <summary>How many passages the assistant's learned documents have (without reading them).</summary>
+    Task<int> CountDocumentChunksAsync(long assistantId, CancellationToken ct = default);
     /// <summary>Full-text matches among the assistant's sections, best first (chunk ids).</summary>
     Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, CancellationToken ct = default);
 

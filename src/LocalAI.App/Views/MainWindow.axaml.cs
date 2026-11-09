@@ -165,7 +165,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Settings › Assistants: dragging a grip resizes the text box in its Tag (pre-prompt, profile).</summary>
+    /// <summary>Settings › Assistants: dragging a grip resizes the text box in its Tag (personality, profile).</summary>
     /// <summary>The conversation's menu (right click): the conversation is the menu item's data.</summary>
     private void DeleteConversation_Click(object? sender, RoutedEventArgs e)
     {
@@ -183,7 +183,14 @@ public sealed partial class MainWindow : Window
             box.Height = Math.Clamp(box.Height + e.Vector.Y, box.MinHeight, 1000);
     }
 
-    /// <summary>Settings › Memory: pick the Obsidian vault the notes move to.</summary>
+    /// <summary>Settings › Assistants › Brain › Choose…: the model chosen in the dialog becomes the selected assistant's.</summary>
+    private async void ChooseAssistantModel_Click(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm || vm.Settings.Assistants.SelectedAssistant is not { } item) return;
+        var chosen = await new ModelPickerWindow(item.CreateModelPicker()).ShowDialog<ChosenModel?>(this);
+        if (chosen != null) await item.UseModelAsync(chosen);
+    }
+
     /// <summary>Settings › Assistants › Add files…: the files picked go into the selected assistant's learn folder.</summary>
     private async void AddLearnFiles_Click(object? sender, RoutedEventArgs e)
     {
@@ -198,6 +205,7 @@ public sealed partial class MainWindow : Window
         if (paths.Count > 0) await vm.Settings.Assistants.AddLearnFilesAsync(paths);
     }
 
+    /// <summary>Settings › Memory: pick the Obsidian vault the notes move to.</summary>
     private async void ChooseVault_Click(object? sender, RoutedEventArgs e)
     {
         if (Vm is not { } vm) return;

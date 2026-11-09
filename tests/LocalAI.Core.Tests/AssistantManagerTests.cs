@@ -103,6 +103,68 @@ public sealed class AssistantManagerTests
     }
 
     [Fact]
+    public async Task A_new_model_starts_at_once_only_when_the_brain_is_on()
+    {
+        _llm.LoadsModel = () => _options.Llm.Model;
+        _llm.LoadsContext = () => (_options.Llm.ContextSize, _options.Llm.CompactCache);
+        var nova = await _manager.CreateAsync(Draft("Nova"));
+        var changes = 0;
+        _manager.AssistantsChanged += (_, _) => changes++;
+        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.SetModelAsync(nova, "", 0));
+
+        // Brain on: the new model starts with its context, and the AI stays on.
+        var loads = _llm.LoadCount;
+        nova = await _manager.SetModelAsync(nova, "model-b", 16384);
+        Assert.Equal(loads + 1, _llm.LoadCount);
+        Assert.Equal("model-b", _llm.Info!.Id);
+        Assert.Equal(16384, _llm.Info.RequestedContextSize);
+        Assert.Equal("model-b", _context.Current!.ModelId);
+        Assert.True(_manager.IsActiveModelLoaded);
+        Assert.Equal(1, changes); // the identity note is written again
+
+        // Brain off: saved, nothing starts.
+        await _manager.UnloadModelAsync();
+        loads = _llm.LoadCount;
+        await _manager.SetModelAsync(nova, "model-c", 0);
+        Assert.Equal(loads, _llm.LoadCount);
+        Assert.Equal("model-c", (await _store.ListAsync()).Single().ModelId);
+        await _manager.LoadModelAsync(_context.Current!);
+        Assert.Equal("model-c", _llm.Info!.Id);
+    }
+
+    [Fact]
+    public async Task The_personality_can_change_within_its_limit()
+    {
+        var nova = await _manager.CreateAsync(Draft("Nova", "Warm."));
+        var changes = 0;
+        _manager.AssistantsChanged += (_, _) => changes++;
+        await Assert.ThrowsAsync<AssistantValidationException>(() => _manager.SetStyleAsync(nova, new string('x', AssistantManager.MaxStyleLength + 1)));
+
+        await _manager.SetStyleAsync(nova, "  Calm and precise.\r\nShort answers.  ");
+
+        Assert.Equal("Calm and precise.\nShort answers.", (await _store.ListAsync()).Single().StylePrompt);
+        Assert.Equal("Calm and precise.\nShort answers.", _context.Current!.StylePrompt);
+        Assert.Equal(1, changes); // the identity note is written again
+    }
+
+    [Fact]
+    public async Task A_new_voice_speaks_at_once_with_its_style_and_picture()
+    {
+        _llm.LoadsModel = () => _options.Llm.Model;
+        var nova = await _manager.CreateAsync(Draft("Nova") with { VoiceId = "voice-n" });
+        var style = new VoiceStyle { Speed = 1.2, Pitch = -0.5 };
+
+        await _manager.SetVoiceAsync(nova, "voice-m", style, AssistantAvatars.Male);
+
+        Assert.Equal("voice-m", _tts.Voice?.Id);
+        Assert.Equal(style, _tts.Style);
+        Assert.Equal("voice-m", _options.TextToSpeech.Voice);
+        var saved = (await _store.ListAsync()).Single();
+        Assert.Equal(("voice-m", style, AssistantAvatars.Male), (saved.VoiceId, saved.VoiceStyle, saved.Avatar));
+        Assert.Equal("voice-m", _context.Current!.VoiceId);
+    }
+
+    [Fact]
     public async Task Hearing_and_speaker_load_with_the_brain_as_the_user_left_them()
     {
         _llm.LoadsModel = () => _options.Llm.Model;

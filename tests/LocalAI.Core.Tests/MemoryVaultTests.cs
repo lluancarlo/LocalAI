@@ -411,6 +411,24 @@ public sealed class MemoryVaultTests
     }
 
     [Fact]
+    public async Task A_new_personality_reaches_the_identity_note_unless_the_user_edited_it()
+    {
+        var lia = await LiaAsync();
+        await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None);
+        Assert.False(await _m.Vault.IsIdentityEditedAsync(lia));
+
+        await _m.Assistants.SetStyleAsync(lia.Id, "Calm and precise.");
+        lia = (await _m.Assistants.ListAsync()).Single(a => a.Id == lia.Id);
+        Assert.True(await _m.Vault.WriteIdentityNoteAsync(lia.Id, CancellationToken.None));
+        Assert.Contains("Calm and precise.", _m.Storage.Files[IdentityFile], StringComparison.Ordinal);
+        Assert.DoesNotContain("Warm and witty.", _m.Storage.Files[IdentityFile], StringComparison.Ordinal);
+
+        // The user rewrote the note's generated part: it keeps defining who the assistant is.
+        _m.Storage.Files[IdentityFile] = _m.Storage.Files[IdentityFile].Replace("Calm and precise.", "Formal.", StringComparison.Ordinal);
+        Assert.True(await _m.Vault.IsIdentityEditedAsync(lia));
+    }
+
+    [Fact]
     public void A_long_pasted_text_is_searched_by_its_start_and_its_end()
     {
         var pasted = "Start of the log. " + new string('x', 20_000) + " What failed here?";
@@ -633,6 +651,24 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
         steps.Clear();
         await _worker.UpdateMemoryAsync(nova.Id, new SyncProgress<string>(s => { lock (steps) steps.Add(s); }));
         Assert.DoesNotContain(steps, s => s.StartsWith("Summarizing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Update_memory_writes_again_a_conversation_note_whose_file_was_deleted()
+    {
+        var (nova, _) = await ConversationAsync();
+        _m.Index.NeedingNotesWithoutNote = true;
+        await _worker.UpdateMemoryAsync(nova.Id, null);
+        var path = Assert.Single(_m.Storage.Files.Keys, k => k.StartsWith("nova/conversations/", StringComparison.Ordinal));
+
+        // The user deletes the note's file (e.g. in Obsidian): the index still lists it as up to date.
+        _m.Storage.Files.Remove(path);
+        var steps = new List<string>();
+        await _worker.UpdateMemoryAsync(nova.Id, new SyncProgress<string>(s => { lock (steps) steps.Add(s); }));
+
+        Assert.Contains("Summarizing conversation 1 of 1", steps);
+        Assert.True(_m.Storage.Files.ContainsKey(path));
+        Assert.Contains(_m.Index.Notes, n => n.Path == path && n.Kind == NoteKind.Conversation);
     }
 
     [Fact]

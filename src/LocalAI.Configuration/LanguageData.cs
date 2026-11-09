@@ -46,7 +46,7 @@ public sealed record MemoryHeadings
         "{name} is a personal AI that runs fully offline on this computer, in Local AI. {name} talks with the user by " +
         "text and by voice, always replies in its native language, the one of its voice, even when the user writes or " +
         "pastes text in another language, and remembers the user through the notes in this folder.";
-    public string NoPersonality { get; init; } = "No personality was defined at creation: {name} answers in a helpful, precise and concise way.";
+    public string NoPersonality { get; init; } = "No personality was defined: {name} answers in a helpful, precise and concise way.";
     public string IdentityMemory { get; init; } =
         "What {name} knows about the user is in [[{profile}]]. Each conversation has its own note in the conversations folder.";
 }

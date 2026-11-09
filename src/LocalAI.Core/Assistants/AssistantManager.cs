@@ -23,7 +23,7 @@ public sealed class AssistantManager(
     ILogger<AssistantManager> logger)
 {
     public const int MaxNameLength = 40;
-    /// <summary>Longest style (pre-prompt): about 1,500 tokens, sent in every request's system message.</summary>
+    /// <summary>Longest personality (style prompt): about 1,500 tokens, sent in every request's system message.</summary>
     public const int MaxStyleLength = 6000;
     private const string AutoModel = "auto";
 
@@ -67,7 +67,7 @@ public sealed class AssistantManager(
         var style = assistant.StylePrompt.Trim();
         if (name.Length == 0) throw new AssistantValidationException("Choose a name for the assistant.");
         if (name.Length > MaxNameLength) throw new AssistantValidationException($"The name can have at most {MaxNameLength} characters.");
-        if (style.Length > MaxStyleLength) throw new AssistantValidationException($"The style can have at most {MaxStyleLength} characters.");
+        if (style.Length > MaxStyleLength) throw new AssistantValidationException($"The personality can have at most {MaxStyleLength} characters.");
         if (string.IsNullOrEmpty(assistant.ModelId)) throw new AssistantValidationException("Choose a language model.");
         if (string.IsNullOrEmpty(assistant.VoiceId)) throw new AssistantValidationException("Choose a voice.");
 
@@ -306,6 +306,75 @@ public sealed class AssistantManager(
             profile.Id, behavior.Creativity, behavior.ReplyLength, behavior.Thinking, behavior.ContextSize, behavior.CompactCache);
         AssistantsChanged?.Invoke(this, EventArgs.Empty);
         if (restart) await LoadModelAsync(context.Current ?? updated, ct).ConfigureAwait(false);
+        return updated;
+    }
+
+    /// <summary>
+    /// Changes the assistant's personality (empty = the default one). The next reply follows it; its identity note is
+    /// written again with it (<see cref="AssistantsChanged"/>).
+    /// </summary>
+    public async Task<AssistantProfile> SetStyleAsync(AssistantProfile profile, string stylePrompt, CancellationToken ct = default)
+    {
+        var style = stylePrompt.ReplaceLineEndings("\n").Trim();
+        if (style.Length > MaxStyleLength) throw new AssistantValidationException($"The personality can have at most {MaxStyleLength} characters.");
+        var current = (await store.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault(a => a.Id == profile.Id)
+                      ?? throw new AssistantValidationException($"{profile.Name} no longer exists.");
+        if (current.StylePrompt == style) return current;
+
+        await store.SetStyleAsync(profile.Id, style, ct).ConfigureAwait(false);
+        var updated = current with { StylePrompt = style };
+        if (context.Current?.Id == profile.Id) context.Update(context.Current with { StylePrompt = style });
+        logger.LogInformation("Assistant {Id} personality changed", profile.Id);
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
+        return updated;
+    }
+
+    /// <summary>
+    /// Changes the assistant's language model, started with <paramref name="contextSize"/> tokens of context (one the
+    /// new model can use; 0 = its default). When its Brain is on, the new model starts at once; otherwise it starts the
+    /// next time the Brain turns on.
+    /// </summary>
+    public async Task<AssistantProfile> SetModelAsync(AssistantProfile profile, string modelId, int contextSize, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(modelId)) throw new AssistantValidationException("Choose a language model.");
+        var current = (await store.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault(a => a.Id == profile.Id)
+                      ?? throw new AssistantValidationException($"{profile.Name} no longer exists.");
+        var behavior = current.Behavior with { ContextSize = contextSize };
+        if (current.ModelId == modelId && current.Behavior == behavior) return current;
+
+        var restart = context.Current?.Id == profile.Id && IsModelLoaded(current);
+        await store.SetModelAsync(profile.Id, modelId, behavior, ct).ConfigureAwait(false);
+        var updated = current with { ModelId = modelId, Behavior = behavior };
+        if (context.Current?.Id == profile.Id) context.Update(context.Current with { ModelId = modelId, Behavior = behavior });
+        logger.LogInformation("Assistant {Id} model set to {Model}, context {Context}", profile.Id, modelId, behavior.ContextSize);
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
+        if (restart) await LoadModelAsync(context.Current ?? updated, ct).ConfigureAwait(false);
+        return updated;
+    }
+
+    /// <summary>
+    /// Changes the assistant's voice (one of its native language), its style and its picture. The active assistant
+    /// speaks with it from the next sentence on; its voice loads at once when its Brain and Speaker are on.
+    /// </summary>
+    public async Task<AssistantProfile> SetVoiceAsync(AssistantProfile profile, string voiceId, VoiceStyle voiceStyle, string avatar,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(voiceId)) throw new AssistantValidationException("Choose a voice.");
+        var current = (await store.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault(a => a.Id == profile.Id)
+                      ?? throw new AssistantValidationException($"{profile.Name} no longer exists.");
+        if (current.VoiceId == voiceId && current.VoiceStyle == voiceStyle && current.Avatar == avatar) return current;
+
+        await store.SetVoiceAsync(profile.Id, voiceId, voiceStyle, avatar, ct).ConfigureAwait(false);
+        var updated = current with { VoiceId = voiceId, VoiceStyle = voiceStyle, Avatar = avatar };
+        logger.LogInformation("Assistant {Id} voice set to {Voice}", profile.Id, voiceId);
+        if (context.Current?.Id == profile.Id)
+        {
+            var active = context.Current with { VoiceId = voiceId, VoiceStyle = voiceStyle, Avatar = avatar };
+            lock (_switchGate) ApplyToOptions(active);
+            context.Update(active);
+            if (active.Speaker && IsModelLoaded(active)) await LoadVoiceAsync(active, ct).ConfigureAwait(false);
+        }
+        AssistantsChanged?.Invoke(this, EventArgs.Empty);
         return updated;
     }
 

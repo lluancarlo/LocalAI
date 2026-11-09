@@ -36,7 +36,7 @@ public sealed record QuantizationChoice(Quantization Quantization, ModelFit Fit,
 /// <summary>
 /// The dialog that picks an assistant's language model. It opens on the models for this computer (the catalog's, the
 /// recommended one first, then the ones added from Hugging Face); a company or a name searches Hugging Face (GGUF for
-/// llama.cpp only). The chosen model shows its details, a link to its repository and, for a repository, its sizes with
+/// llama.cpp only). The chosen model shows its details, a link to its repository and, for a repository, its quantizations with
 /// where each runs here.
 /// </summary>
 public sealed partial class ModelPickerViewModel : ObservableObject

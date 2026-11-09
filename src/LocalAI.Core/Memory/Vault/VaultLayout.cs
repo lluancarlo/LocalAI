@@ -55,11 +55,24 @@ public static class VaultLayout
     /// <summary>The assistant's learn folder: documents it learns only when the user clicks Learn.</summary>
     public static string LearnFolder(string assistantFolder) => $"{assistantFolder}/{LearnFolderName}";
 
-    /// <summary>A path in an assistant's learn folder ("nova/learn/manual.md"): never indexed as a note.</summary>
+    /// <summary>A path in an assistant's learn folder or its subfolders ("nova/learn/manual.md"): never indexed as a note.</summary>
     public static bool IsLearnPath(string path)
     {
         var parts = path.Split('/');
         return parts.Length >= 3 && parts[1] == LearnFolderName;
+    }
+
+    /// <summary>
+    /// The title of a note's passages: a note's file name (what [[links]] point to), and for a learned document its
+    /// path in the learn folder without the extension ("unity-md/Manual/class-Rigidbody"), since documents in
+    /// different subfolders often share a name (index.md).
+    /// </summary>
+    public static string PassageTitle(string path)
+    {
+        if (!IsLearnPath(path)) return Path.GetFileNameWithoutExtension(path);
+        var inLearn = string.Join('/', path.Split('/').Skip(2));
+        var extension = Path.GetExtension(inLearn);
+        return extension.Length > 0 ? inLearn[..^extension.Length] : inLearn;
     }
 
     public static string ProfilePath(string assistantFolder) =>

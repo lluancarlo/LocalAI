@@ -23,12 +23,12 @@ public sealed class ModelBrowserTests
     ];
 
     [Fact]
-    public void Quantizations_are_whole_models_smallest_first()
+    public void Quantizations_are_whole_models_in_alphabetical_order()
     {
         var quantizations = ModelBrowser.GroupQuantizations(UnslothRepository);
 
-        Assert.Equal(["UD-IQ2_XXS", "Q4_0", "UD-Q4_K_XL", "BF16"], quantizations.Select(q => q.Label));
-        var bf16 = quantizations[^1];
+        Assert.Equal(["BF16", "Q4_0", "UD-IQ2_XXS", "UD-Q4_K_XL"], quantizations.Select(q => q.Label));
+        var bf16 = quantizations.Single(q => q.Label == "BF16");
         Assert.Equal(["BF16/Qwen3-27B-BF16-00001-of-00002.gguf", "BF16/Qwen3-27B-BF16-00002-of-00002.gguf"], bf16.Files);
         Assert.Equal(54_600_000_000, bf16.SizeBytes);
     }

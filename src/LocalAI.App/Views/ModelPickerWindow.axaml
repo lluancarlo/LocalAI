@@ -106,7 +106,7 @@
               <TextBlock Text="{Binding DetailWarning}" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}"
                          IsVisible="{Binding DetailWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               <StackPanel Spacing="4" IsVisible="{Binding IsRepository}">
-                <TextBlock Classes="section" Text="SIZE" />
+                <TextBlock Classes="section" Text="QUANTIZATION" />
                 <ComboBox ItemsSource="{Binding Quantizations}" SelectedItem="{Binding SelectedQuantization}" HorizontalAlignment="Stretch"
                           PlaceholderText="Reading the files…">
                   <ComboBox.ItemTemplate>
@@ -114,7 +114,7 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
                 <TextBlock Classes="muted" TextWrapping="Wrap"
-                           Text="Smaller sizes are faster and use less memory; larger ones answer better. The suggested one is the largest that fits your GPU." />
+                           Text="Smaller quantizations are faster and use less memory; larger ones answer better. The suggested one is the largest that fits your GPU." />
               </StackPanel>
               <Button Classes="flat" Content="Open on Hugging Face" Click="OpenRepository_Click"
                       IsVisible="{Binding RepositoryUrl, Converter={x:Static ObjectConverters.IsNotNull}}"

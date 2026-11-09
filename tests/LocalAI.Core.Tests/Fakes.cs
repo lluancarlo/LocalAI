@@ -147,10 +147,11 @@ internal sealed class InMemoryVaultStorage : IVaultStorage
     public IReadOnlyList<string> ListNotes(string folder) =>
         Files.Keys.Where(k => k.StartsWith(folder + "/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).ToList();
     public IReadOnlyList<VaultFile> ListFiles(string folder, IReadOnlyCollection<string> extensions) =>
-        Files.Where(f => f.Key.StartsWith(folder + "/", StringComparison.Ordinal) && !f.Key[(folder.Length + 1)..].Contains('/') &&
+        Files.Where(f => f.Key.StartsWith(folder + "/", StringComparison.Ordinal) &&
                          extensions.Contains(Path.GetExtension(f.Key), StringComparer.OrdinalIgnoreCase))
             .OrderBy(f => f.Key, StringComparer.Ordinal)
-            .Select(f => new VaultFile(f.Key, f.Value.Length, DateTimeOffset.UnixEpoch))
+            // No write times here: every file counts as modified just now (the learn status then reads it).
+            .Select(f => new VaultFile(f.Key, f.Value.Length, DateTimeOffset.MaxValue))
             .ToList();
 
     public string FullPath(string path) => Root + "/" + path;
@@ -183,6 +184,11 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
     public Dictionary<long, List<string>> LegacyFacts { get; } = [];
     /// <summary>What <see cref="ConversationsNeedingNotesAsync"/> returns.</summary>
     public List<(long ConversationId, long AssistantId)> NeedingNotes { get; } = [];
+    /// <summary>
+    /// When set, <see cref="ConversationsNeedingNotesAsync"/> returns the conversations of <see cref="NeedingNotes"/>
+    /// that have no note in the index yet, as the SQLite index does.
+    /// </summary>
+    public bool NeedingNotesWithoutNote { get; set; }
 
     public Task<VaultNote?> FindNoteAsync(long assistantId, string path, CancellationToken ct = default)
     {
@@ -252,6 +258,15 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
         return Task.CompletedTask;
     }
 
+    public Task<int> CountDocumentChunksAsync(long assistantId, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var documents = Notes.Where(n => n.AssistantId == assistantId && n.Kind == NoteKind.Document).Select(n => n.Id).ToHashSet();
+            return Task.FromResult(Chunks.Count(c => documents.Contains(c.NoteId)));
+        }
+    }
+
     public Task<IReadOnlyList<NoteChunk>> ListChunksAsync(long assistantId, CancellationToken ct = default)
     {
         lock (_gate)
@@ -272,7 +287,9 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
     public Task<IReadOnlyList<(long ConversationId, long AssistantId)>> ConversationsNeedingNotesAsync(
         DateTimeOffset since, DateTimeOffset idleBefore, CancellationToken ct = default)
     {
-        lock (_gate) return Task.FromResult<IReadOnlyList<(long, long)>>(NeedingNotes.ToList());
+        lock (_gate)
+            return Task.FromResult<IReadOnlyList<(long, long)>>(NeedingNotes
+                .Where(c => !NeedingNotesWithoutNote || !Notes.Any(n => n.ConversationId == c.ConversationId)).ToList());
     }
 
     public Task<IReadOnlyList<string>> TakeLegacyFactsAsync(long assistantId, CancellationToken ct = default)
@@ -512,6 +529,27 @@ internal sealed class InMemoryAssistantStore : IAssistantStore
     {
         var i = _items.FindIndex(a => a.Id == id);
         _items[i] = _items[i] with { Behavior = behavior };
+        return Task.CompletedTask;
+    }
+
+    public Task SetStyleAsync(long id, string stylePrompt, CancellationToken ct = default)
+    {
+        var i = _items.FindIndex(a => a.Id == id);
+        _items[i] = _items[i] with { StylePrompt = stylePrompt };
+        return Task.CompletedTask;
+    }
+
+    public Task SetModelAsync(long id, string modelId, AssistantBehavior behavior, CancellationToken ct = default)
+    {
+        var i = _items.FindIndex(a => a.Id == id);
+        _items[i] = _items[i] with { ModelId = modelId, Behavior = behavior };
+        return Task.CompletedTask;
+    }
+
+    public Task SetVoiceAsync(long id, string voiceId, VoiceStyle voiceStyle, string avatar, CancellationToken ct = default)
+    {
+        var i = _items.FindIndex(a => a.Id == id);
+        _items[i] = _items[i] with { VoiceId = voiceId, VoiceStyle = voiceStyle, Avatar = avatar };
         return Task.CompletedTask;
     }
 

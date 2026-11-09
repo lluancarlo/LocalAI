@@ -203,7 +203,8 @@ public sealed class ConfigurationTests
         // Only the languages the app knows, each with exactly one default voice.
         Assert.All(voices, v => Assert.Contains(v.Language, languages));
         Assert.All(languages, l => Assert.Single(voices, v => v.Language == l && v.Default));
-        Assert.All(voices, v => Assert.Contains(v.Lang, new[] { "pt-br", "it", "en-us", "en-gb" }));
+        // espeak-ng language names sherpa-onnx accepts: British English is "en" ("en-gb" gives no audio at all).
+        Assert.All(voices, v => Assert.Contains(v.Lang, new[] { "pt-br", "it", "en-us", "en" }));
         Assert.All(voices, v => Assert.StartsWith(v.Language + "-", v.Locale, StringComparison.Ordinal));
         // The gender picks the picture of an assistant created with the voice.
         Assert.All(voices, v => Assert.Contains(v.Gender, new[] { "female", "male" }));

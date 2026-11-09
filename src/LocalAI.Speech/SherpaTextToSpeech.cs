@@ -153,7 +153,17 @@ public sealed class SherpaTextToSpeech : ITextToSpeech
             return await Task.Run(() =>
             {
                 var audio = engine.Tts.Generate(text, (float)style.Speed, voice.Speaker);
-                try { return new AudioClip(PitchShifter.Shift(audio.Samples, audio.SampleRate, style.Pitch), audio.SampleRate); }
+                try
+                {
+                    float[] samples;
+                    // sherpa-onnx returns no audio (its Samples then throw) when espeak-ng does not know the language.
+                    try { samples = audio.Samples; }
+                    catch (NullReferenceException)
+                    {
+                        throw new InvalidOperationException($"The voice {voice.Id} produced no audio (espeak-ng language '{voice.Lang}').");
+                    }
+                    return new AudioClip(PitchShifter.Shift(samples, audio.SampleRate, style.Pitch), audio.SampleRate);
+                }
                 finally { audio.Dispose(); }
             }, cancellationToken).ConfigureAwait(false);
         }

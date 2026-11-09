@@ -160,14 +160,14 @@
     { "id": "am_onyx", "speaker": 17, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Onyx", "gender": "male" },
     { "id": "am_puck", "speaker": 18, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Puck", "gender": "male" },
     { "id": "am_santa", "speaker": 19, "language": "en", "locale": "en-US", "lang": "en-us", "displayName": "Santa", "gender": "male" },
-    { "id": "bf_alice", "speaker": 20, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Alice", "gender": "female" },
-    { "id": "bf_emma", "speaker": 21, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Emma", "gender": "female" },
-    { "id": "bf_isabella", "speaker": 22, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Isabella", "gender": "female" },
-    { "id": "bf_lily", "speaker": 23, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Lily", "gender": "female" },
-    { "id": "bm_daniel", "speaker": 24, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Daniel", "gender": "male" },
-    { "id": "bm_fable", "speaker": 25, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Fable", "gender": "male" },
-    { "id": "bm_george", "speaker": 26, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "George", "gender": "male" },
-    { "id": "bm_lewis", "speaker": 27, "language": "en", "locale": "en-GB", "lang": "en-gb", "displayName": "Lewis", "gender": "male" }
+    { "id": "bf_alice", "speaker": 20, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Alice", "gender": "female" },
+    { "id": "bf_emma", "speaker": 21, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Emma", "gender": "female" },
+    { "id": "bf_isabella", "speaker": 22, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Isabella", "gender": "female" },
+    { "id": "bf_lily", "speaker": 23, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Lily", "gender": "female" },
+    { "id": "bm_daniel", "speaker": 24, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Daniel", "gender": "male" },
+    { "id": "bm_fable", "speaker": 25, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Fable", "gender": "male" },
+    { "id": "bm_george", "speaker": 26, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "George", "gender": "male" },
+    { "id": "bm_lewis", "speaker": 27, "language": "en", "locale": "en-GB", "lang": "en", "displayName": "Lewis", "gender": "male" }
   ],
   "companies": [
     { "name": "Alibaba (Qwen)", "search": ["Qwen"], "orgs": ["Qwen"] },

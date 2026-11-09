@@ -253,15 +253,15 @@ public sealed partial class MemoryVault(
         try
         {
             var path = VaultLayout.ProfilePath(folder);
-            var title = $"{assistant.Name} - {Headings.Profile}";
-            var updated = (document ?? NoteDocument.Create(
-            [
-                ("type", "profile"),
-                ("assistant", NoteDocument.Quote(assistant.Name)),
-                ("updated", Now()),
-                ("aliases", $"[{NoteDocument.Quote(title)}]"),
-                ("tags", $"[local-ai, local-ai/{folder}]"),
-            ], title, block)) with { Generated = block };
+            // The user edited the profile while the model was merging (Settings or Obsidian): their text wins, and
+            // the facts are merged again next time (the profile's date did not move).
+            var now = storage.Read(path) is { } latest ? NoteDocument.Parse(latest) : null;
+            if (now?.Generated != document?.Generated || now?.HasGeneratedBlock != document?.HasGeneratedBlock)
+            {
+                logger.LogInformation("The profile of assistant {Id} changed during the merge: kept as it is", assistant.Id);
+                return;
+            }
+            var updated = (document ?? NewProfile(assistant, folder, block)) with { Generated = block };
             updated = updated.WithFrontmatter("updated", Now());
             var text = updated.Render();
             storage.Write(path, text);
@@ -283,7 +283,33 @@ public sealed partial class MemoryVault(
         NotesChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private NoteDocument NewProfile(AssistantProfile assistant, string folder, string block)
+    {
+        var title = $"{assistant.Name} - {Headings.Profile}";
+        return NoteDocument.Create(
+        [
+            ("type", "profile"),
+            ("assistant", NoteDocument.Quote(assistant.Name)),
+            ("updated", Now()),
+            ("aliases", $"[{NoteDocument.Quote(title)}]"),
+            ("tags", $"[local-ai, local-ai/{folder}]"),
+        ], title, block);
+    }
+
     // ---------------- Identity ----------------
+
+    /// <summary>
+    /// True when the user edited the identity note's generated block (or removed its markers): it then defines who the
+    /// assistant is, and a new personality does not reach the replies until the note is edited too.
+    /// </summary>
+    public async Task<bool> IsIdentityEditedAsync(AssistantProfile assistant, CancellationToken ct = default)
+    {
+        var folder = await AssistantFolderAsync(assistant, ct).ConfigureAwait(false);
+        var path = VaultLayout.IdentityPath(folder);
+        if (storage.Read(path) is not { } text) return false;
+        var note = await index.FindNoteAsync(assistant.Id, path, ct).ConfigureAwait(false);
+        return note != null && IsUserOwned(NoteDocument.Parse(text), note);
+    }
 
     /// <summary>
     /// Writes the identity note (who the assistant is) when it is missing or out of date, e.g. after the shortcut
@@ -358,15 +384,7 @@ public sealed partial class MemoryVault(
             ? (await index.ListChunksAsync(assistantId, ct).ConfigureAwait(false))
                 .Where(c => c.EmbeddingModel != embeddings.ModelId).Select(c => c.NoteId).ToHashSet()
             : [];
-        var changed = false;
-
-        // The learned documents change only with Learn, all at once, even when their files are edited or deleted.
-        foreach (var note in known.Values.Where(n => n.Kind != NoteKind.Document && !storage.Exists(n.Path)))
-        {
-            await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
-            IndexChanged();
-            changed = true;
-        }
+        var changed = await ForgetMissingNotesAsync(known.Values, ct).ConfigureAwait(false) > 0;
         await StepAsync("Index: checking the notes for changes", ct).ConfigureAwait(false);
         foreach (var path in storage.ListNotes(folder).Where(p => !VaultLayout.IsLearnPath(p)))
         {
@@ -378,6 +396,31 @@ public sealed partial class MemoryVault(
             changed = true;
         }
         if (changed) NotesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Removes from the index the assistant's notes whose file is gone (deleted in Obsidian, or while the app was
+    /// closed), without the AI. Update memory does this first, so a conversation whose note was deleted counts as
+    /// needing one and gets it again in the same update. Returns the number of notes removed.
+    /// </summary>
+    public async Task<int> ForgetMissingNotesAsync(long assistantId, CancellationToken ct) =>
+        await ForgetMissingNotesAsync(await index.ListNotesAsync(assistantId, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
+
+    private async Task<int> ForgetMissingNotesAsync(IEnumerable<VaultNote> notes, CancellationToken ct)
+    {
+        var removed = 0;
+        // The learned documents change only with Learn, all at once, even when their files are edited or deleted.
+        foreach (var note in notes.Where(n => n.Kind != NoteKind.Document && !storage.Exists(n.Path)).ToList())
+        {
+            await index.DeleteNoteAsync(note.Id, ct).ConfigureAwait(false);
+            removed++;
+        }
+        if (removed > 0)
+        {
+            IndexChanged();
+            NotesChanged?.Invoke(this, EventArgs.Empty);
+        }
+        return removed;
     }
 
     /// <summary>Re-indexes one note after the user changed it (or removes it from the index if it was deleted).</summary>
@@ -760,19 +803,19 @@ public sealed partial class MemoryVault(
         return folder;
     }
 
-    /// <summary>The learn folder's files and what the last Learn indexed of them.</summary>
+    /// <summary>The learn folder's files (subfolders included) and what the last Learn indexed of them.</summary>
     public async Task<LearnStatus> LearnStatusAsync(AssistantProfile assistant, CancellationToken ct = default)
     {
         var folder = await LearnFolderAsync(assistant, ct).ConfigureAwait(false);
         var files = storage.ListFiles(folder, VaultLayout.LearnExtensions);
         var learned = (await index.ListNotesAsync(assistant.Id, ct).ConfigureAwait(false)).Where(n => n.Kind == NoteKind.Document).ToList();
-        var learnedIds = learned.Select(n => n.Id).ToHashSet();
-        var passages = learned.Count == 0 ? 0
-            : (await index.ListChunksAsync(assistant.Id, ct).ConfigureAwait(false)).Count(c => learnedIds.Contains(c.NoteId));
-        // Changed: a file was added, removed or edited since the last Learn.
-        var hashes = learned.ToDictionary(n => n.Path, n => n.FileHash, StringComparer.Ordinal);
+        var passages = learned.Count == 0 ? 0 : await index.CountDocumentChunksAsync(assistant.Id, ct).ConfigureAwait(false);
+        // Changed: a file was added, removed or edited since the last Learn. Only a file modified after it is read
+        // (a learn folder can hold thousands of files).
+        var learnedNotes = learned.ToDictionary(n => n.Path, StringComparer.Ordinal);
         var changed = files.Count != learned.Count
-                      || files.Any(f => !hashes.TryGetValue(f.Path, out var hash) || storage.Read(f.Path) is not { } text || NoteDocument.Hash(text) != hash);
+                      || files.Any(f => !learnedNotes.TryGetValue(f.Path, out var note)
+                                        || (f.Modified > note.UpdatedAt && (storage.Read(f.Path) is not { } text || NoteDocument.Hash(text) != note.FileHash)));
         return new LearnStatus(files, learned.Count == 0 ? null : learned.Max(n => n.UpdatedAt), learned.Count, passages,
             changed && (files.Count > 0 || learned.Count > 0));
     }
@@ -842,7 +885,7 @@ public sealed partial class MemoryVault(
     /// </summary>
     internal static List<NoteChunk> ChunkDocument(VaultNote note, string text)
     {
-        var title = Path.GetFileNameWithoutExtension(note.Path);
+        var title = VaultLayout.PassageTitle(note.Path);
         var sections = Path.GetExtension(note.Path).Equals(".md", StringComparison.OrdinalIgnoreCase)
             ? Chunk(note, text).Select(c => (c.Heading, c.Text))
             : [("", text.ReplaceLineEndings("\n").Trim())];

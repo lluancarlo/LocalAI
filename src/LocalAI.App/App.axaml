@@ -38,5 +38,11 @@
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
       <Setter Property="FontSize" Value="12" />
     </Style>
+    <!-- The title of a group in a list (e.g. Female, Male in the voice lists) -->
+    <Style Selector="TextBlock.groupTitle">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
   </Application.Styles>
 </Application>

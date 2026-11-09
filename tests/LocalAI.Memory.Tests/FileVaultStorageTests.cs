@@ -46,6 +46,18 @@ public sealed class FileVaultStorageTests : IDisposable
         Assert.Throws<ArgumentException>(() => _storage.Write(path, "x"));
 
     [Fact]
+    public void The_files_of_a_folder_include_its_subfolders()
+    {
+        _storage.Write("nova/learn/coffee.md", "a");
+        _storage.Write("nova/learn/unity-md/Manual/index.md", "b");
+        _storage.Write("nova/learn/unity-md/Manual/logo.png", "c");
+
+        var files = _storage.ListFiles("nova/learn", [".md", ".txt"]);
+
+        Assert.Equal(["nova/learn/coffee.md", "nova/learn/unity-md/Manual/index.md"], files.Select(f => f.Path));
+    }
+
+    [Fact]
     public void Notes_are_copied_into_the_local_ai_folder_of_a_vault()
     {
         _storage.Write("nova/nova-profile.md", "# Profile\n");

@@ -61,8 +61,9 @@ public sealed partial class ModelBrowser(ModelCatalog catalog, HuggingFaceApi hu
     private static partial Regex QuantName();
 
     /// <summary>
-    /// The GGUF files that are a whole model, one per quantization (the parts of a split model together). Vision
-    /// projectors, importance matrices and draft models (MTP, EAGLE) are not chat models and are left out.
+    /// The GGUF files that are a whole model, one per quantization (the parts of a split model together), in
+    /// alphabetical order. Vision projectors, importance matrices and draft models (MTP, EAGLE) are not chat models and
+    /// are left out.
     /// </summary>
     public static IReadOnlyList<Quantization> GroupQuantizations(IEnumerable<HuggingFaceFile> files) =>
         files.Where(f => f.Path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase) && !IsAuxiliary(f.Path))
@@ -75,7 +76,7 @@ public sealed partial class ModelBrowser(ModelCatalog catalog, HuggingFaceApi hu
                 return new Quantization(Label(g.Key), parts.Select(f => f.Path).ToList(), parts.Sum(f => f.Size));
             })
             .OfType<Quantization>()
-            .OrderBy(q => q.SizeBytes)
+            .OrderBy(q => q.Label, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static bool IsAuxiliary(string path)
@@ -105,8 +106,8 @@ public sealed partial class ModelBrowser(ModelCatalog catalog, HuggingFaceApi hu
 
     /// <summary>The quantization offered first: the largest that fits the GPU, else the smallest that runs at all.</summary>
     public static Quantization? Suggest(IReadOnlyList<Quantization> quantizations, int context, int? gpuVramMb, long systemMemoryMb) =>
-        quantizations.LastOrDefault(q => Fit(q.SizeBytes, context, gpuVramMb, systemMemoryMb) is ModelFit.Gpu)
-        ?? quantizations.FirstOrDefault(q => Fit(q.SizeBytes, context, gpuVramMb, systemMemoryMb) is not ModelFit.TooLarge);
+        quantizations.Where(q => Fit(q.SizeBytes, context, gpuVramMb, systemMemoryMb) is ModelFit.Gpu).MaxBy(q => q.SizeBytes)
+        ?? quantizations.Where(q => Fit(q.SizeBytes, context, gpuVramMb, systemMemoryMb) is not ModelFit.TooLarge).MinBy(q => q.SizeBytes);
 
     [GeneratedRegex("[^a-z0-9._-]+")]
     private static partial Regex Unsafe();

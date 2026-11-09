@@ -87,8 +87,9 @@ Main runtime flows:
   the word search) within `MemoryTokenBudget`. It searches the user's own notes and only the newest
   `MaxConversationNotes` (100) conversation notes; the passages it searches are cached in memory until the index
   changes. The conversation list marks the conversations whose note is searched.
-- **Learned documents** (`MemoryVault.LearnAsync`): each assistant's `learn` folder holds `.md`/`.txt` files the user
-  adds (Settings › Assistants). They are never indexed on their own (scans and the watcher skip `VaultLayout.IsLearnPath`);
+- **Learned documents** (`MemoryVault.LearnAsync`): each assistant's `learn` folder and its subfolders hold `.md`/`.txt`
+  files the user adds (Settings › Assistants lists the files at its top and one line per subfolder). A passage's title
+  is its path in the folder (`VaultLayout.PassageTitle`). They are never indexed on their own (scans and the watcher skip `VaultLayout.IsLearnPath`);
   Learn reads them all, embeds every passage, then replaces all the assistant's `NoteKind.Document` notes in one
   transaction (`IVaultIndex.ReplaceDocumentsAsync`), so a failure keeps what was learned before. It needs the embedding
   model (an AI on); replies, Live mode and the memory work wait while it runs. Recall ranks the documents apart from
@@ -111,7 +112,11 @@ Main runtime flows:
   pauses, and a phrase fills a reply that is slow to start. The phrases are pre-synthesized with the active voice
   (from `languages.json`) and are skipped when not ready.
 - **Assistants** (`AssistantManager`, `AssistantContext`): each assistant has its own model, voice, conversations and
-  memory notes. The stores read and write only the active assistant's data. Every voice is a speaker of one Kokoro
+  memory notes. Name and native language are fixed at creation; the personality (`SetStyleAsync`: the identity
+  note is written again at once), the model (with its context) and the voice
+  (another of the same language, with its speed and pitch; the picture follows its gender) change in Settings ›
+  Assistants (`SetModelAsync`, `SetVoiceAsync`): a new model starts at once when the Brain is on, and the identity
+  note is written again. The stores read and write only the active assistant's data. Every voice is a speaker of one Kokoro
   model (`catalog.json`: `tts` is the model, downloaded file by file from a pinned Hugging Face revision; `voices` lists
   its speakers with their `speaker` id and espeak-ng `lang`). `SherpaTextToSpeech` keeps one engine per language,
   shared by that language's voices. A voice has speed and pitch (`VoiceTuning`), changed by its `settings` in

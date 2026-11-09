@@ -186,6 +186,25 @@ public sealed class AssistantStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task The_personality_the_model_and_the_voice_can_be_changed()
+    {
+        var store = new SqliteAssistantStore(_fx.Database);
+        var ava = await store.CreateAsync(SqliteFixture.Draft("Ava"), VoiceStyle.Default);
+        var behavior = ava.Behavior with { ContextSize = 16384 };
+        var style = new VoiceStyle { Speed = 1.15, Pitch = -1 };
+
+        await store.SetStyleAsync(ava.Id, "Calm and precise.");
+        await store.SetModelAsync(ava.Id, "model-b", behavior);
+        await store.SetVoiceAsync(ava.Id, "voice-b", style, AssistantAvatars.Male);
+
+        var saved = (await new SqliteAssistantStore(_fx.Reopen()).ListAsync()).Single(a => a.Id == ava.Id);
+        Assert.Equal(("model-b", behavior), (saved.ModelId, saved.Behavior));
+        Assert.Equal(("voice-b", style, AssistantAvatars.Male), (saved.VoiceId, saved.VoiceStyle, saved.Avatar));
+        Assert.Equal(ava.Language, saved.Language);
+        Assert.Equal("Calm and precise.", saved.StylePrompt);
+    }
+
+    [Fact]
     public async Task Hearing_and_speaker_are_on_until_turned_off_and_remembered()
     {
         var store = new SqliteAssistantStore(_fx.Database);

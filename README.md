@@ -22,16 +22,16 @@
 
 ## Features
 
-- **Your own assistants:** each has a name, personality, language model, voice, native language, conversations and
+- **Your own assistants:** each has a name, personality, native language, language model, voice, conversations and
   memory. One tab per assistant; **＋** adds one.
+- **Change them anytime** (Settings › Assistants): the personality, the language model and its context, the voice
+  with its speed and pitch, and the behavior (creativity, reply length, thinking).
 - **Controls:** **Brain** loads the language model and memory search, **Hearing** the speech recognition, **Speaker**
   the voice. Nothing loads until you turn the Brain on.
 - **Any open model:** recommended models for your GPU, or any GGUF model on Hugging Face (`OFFICIAL` marks the
-  maker's own). Each size says whether it fits your GPU.
-- **Behavior:** creativity, reply length, thinking (for models that reason), context size and a compact 8-bit
-  context. You can change them anytime.
+  maker's own). Each quantization says whether it fits your GPU.
 - **One language:** an assistant always replies in its native language, whatever you write or paste.
-- **Learns your documents:** put `.md`/`.txt` files in its `learn` folder and click **Learn**.
+- **Learns your documents:** put `.md`/`.txt` files in its `learn` folder (subfolders too) and click **Learn**.
 - **Memory you can read:** Markdown notes, ready for Obsidian. Click **Update memory**, or turn on auto update to
   have it run when idle.
 - **Always at hand:** runs in the tray, with a global shortcut per assistant for voice.
@@ -43,7 +43,7 @@
     <td width="50%"><img src="docs/screenshots/memory.png" alt="What the assistant remembers about you"></td>
   </tr>
   <tr>
-    <td align="center">Add an assistant: personality, model, voice and voice settings</td>
+    <td align="center">Add an assistant: personality, language, model and voice</td>
     <td align="center">What it remembers about you, as Markdown notes</td>
   </tr>
   <tr>
@@ -66,7 +66,7 @@
 
 - **Hold to talk** (or **Ctrl+Space**) in Text and Read aloud modes. **Esc** or **Stop** ends a reply.
 - **Natural turns in Live:** it waits when you sound unfinished, says *"mm-hmm"* in your pauses and fills slow replies
-  with *"let me see..."*. Set these up in Settings › Assistants.
+  with *"let me see..."*. Set these up in Settings › General.
 - **Read selection** (off by default): in Live mode, select text in any app while you talk. The text goes with your
   question, e.g. *"why does this fail?"*.
 

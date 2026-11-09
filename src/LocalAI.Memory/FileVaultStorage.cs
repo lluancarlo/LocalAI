@@ -95,7 +95,7 @@ public sealed class FileVaultStorage : IVaultStorage, IDisposable
     {
         var full = Full(folder);
         if (!Directory.Exists(full)) return [];
-        return new DirectoryInfo(full).EnumerateFiles()
+        return new DirectoryInfo(full).EnumerateFiles("*", SearchOption.AllDirectories)
             .Where(f => extensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase))
             .Select(f => new VaultFile(Path.GetRelativePath(Root, f.FullName).Replace(Path.DirectorySeparatorChar, '/'), f.Length,
                 new DateTimeOffset(f.LastWriteTimeUtc, TimeSpan.Zero)))

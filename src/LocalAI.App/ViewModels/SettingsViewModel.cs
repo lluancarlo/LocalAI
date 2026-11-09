@@ -9,9 +9,9 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.App.ViewModels;
 
 /// <summary>
-/// Settings menu: audio devices, echo cancellation, microphone test, assistants, models and where the memory notes
-/// live. Changes apply immediately and are saved to usersettings.json. An assistant's voice style is chosen when it is
-/// created (the new assistant dialog) and does not change afterwards.
+/// Settings menu: general settings (startup, ways to talk, Live conversation), assistants (each one's model, voice and
+/// behavior), audio devices, echo cancellation, microphone test, models and where the memory notes live. Changes apply
+/// immediately and are saved to usersettings.json.
 /// </summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
@@ -22,7 +22,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly LocalAiOptions _options;
     private bool _loading;
 
-    public const int ModelsTab = 2;
+    // General, Assistants, Audio, Models, Memory
+    public const int ModelsTab = 3;
 
     public SettingsViewModel(VoiceConversationController voice, IAudioDeviceProvider devices, IAudioPlayer player,
         UserSettingsStore settings, ModelsViewModel models, AssistantsViewModel assistantsViewModel, MemorySettingsViewModel memory,

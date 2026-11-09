@@ -85,6 +85,33 @@ public sealed class KokoroBenchmarks(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Every voice of the catalog speaks its language's sample (what ▶ plays). A "lang" espeak-ng does not know (e.g.
+    /// "en-gb": British English is "en") gives no audio at all.
+    /// </summary>
+    [Fact]
+    public async Task Every_voice_of_the_catalog_speaks()
+    {
+        var paths = new LocalAiPaths(TestPaths.PublishedApp, TestPaths.New("kokoro-voices")) { ModelsDirectory = ModelsDirectory };
+        var catalog = ModelCatalog.LoadDefault();
+        var languages = LanguageData.LoadDefault();
+        using var tts = new SherpaTextToSpeech(Options.Create(new LocalAiOptions()), paths, catalog, NullLogger<SherpaTextToSpeech>.Instance);
+        var silent = new List<string>();
+        foreach (var voice in catalog.Voices)
+        {
+            try
+            {
+                var clip = await tts.SynthesizeAsync(languages.Languages[voice.Language].VoiceSample, voice.Id, VoiceStyle.Default);
+                if (clip.Duration < TimeSpan.FromSeconds(1)) silent.Add($"{voice.Id}: {clip.Duration.TotalSeconds:F1}s");
+            }
+            catch (InvalidOperationException ex)
+            {
+                silent.Add($"{voice.Id}: {ex.Message}");
+            }
+        }
+        Assert.Empty(silent);
+    }
+
     [Fact]
     public async Task A_preview_with_the_ai_off_leaves_no_voice_loaded()
     {

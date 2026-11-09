@@ -201,6 +201,19 @@ public sealed class SqliteVaultIndexTests : IDisposable
         Assert.Equal(["Talked about Rome.", "descaling with vinegar"], chunks.Select(c => c.Text).Order(StringComparer.Ordinal));
         Assert.Single(await _index.SearchChunksAsync(Nova, "vinegar", 10)); // the full-text search follows
         Assert.Empty(await _index.SearchChunksAsync(Nova, "citric", 10));
+        Assert.Equal(1, await _index.CountDocumentChunksAsync(Nova)); // the conversation's passage is not a document's
+    }
+
+    [Fact]
+    public async Task A_learned_passage_is_titled_by_its_path_in_the_learn_folder()
+    {
+        await _index.ReplaceDocumentsAsync(Nova,
+        [
+            new LearnedDocument(
+                new VaultNote { AssistantId = Nova, Path = "nova/learn/unity-md/Manual/index.md", Kind = NoteKind.Document, FileHash = "h", UpdatedAt = DateTimeOffset.Now },
+                [new NoteChunk { Heading = "", Text = "The Unity manual." }]),
+        ]);
+        Assert.Equal("unity-md/Manual/index", Assert.Single(await _index.ListChunksAsync(Nova)).NoteTitle);
     }
 
     [Fact]

@@ -254,6 +254,8 @@ public sealed class MemoryWorker : IAsyncDisposable
             try
             {
                 var now = _time.GetUtcNow();
+                // Notes whose file was deleted leave the index first: their conversations then need a note again.
+                await _vault.ForgetMissingNotesAsync(assistantId, ct).ConfigureAwait(false);
                 // Like the idle loop, only conversations since notes exist (the first run), but quiet or not.
                 var since = await _index.GetStateAsync(NotesSinceKey, ct).ConfigureAwait(false) is { } stored &&
                             DateTimeOffset.TryParse(stored, System.Globalization.CultureInfo.InvariantCulture,

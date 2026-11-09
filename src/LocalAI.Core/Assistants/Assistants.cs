@@ -4,8 +4,9 @@ using LocalAI.Core.Speech;
 namespace LocalAI.Core.Assistants;
 
 /// <summary>
-/// One assistant. Name, style, language model, voice and voice style (speed, pitch, ...) are chosen at creation and
-/// never change. The assistant replies in the language the user writes or speaks, always with its own voice.
+/// One assistant. Name and native language (<see cref="Language"/>) are chosen at creation and never change; its
+/// personality (<see cref="StylePrompt"/>), language model and voice (another voice of the same language) with the voice
+/// style (speed, pitch, ...) can change later (Settings › Assistants). The assistant always replies in its native language, with its own voice.
 /// Conversations and memories belong to exactly one assistant. <see cref="Hotkey"/> is the optional global shortcut
 /// that turns a live voice conversation with the assistant on and off. <see cref="Avatar"/> names its picture
 /// (<see cref="AssistantAvatars"/>; empty until one is chosen). <see cref="Behavior"/> (how it replies) can change.
@@ -108,6 +109,12 @@ public interface IAssistantStore
     Task SetHotkeyAsync(long id, HotkeyGesture? hotkey, CancellationToken ct = default);
     Task SetAvatarAsync(long id, string avatar, CancellationToken ct = default);
     Task SetBehaviorAsync(long id, AssistantBehavior behavior, CancellationToken ct = default);
+    /// <summary>Changes the personality (the style prompt).</summary>
+    Task SetStyleAsync(long id, string stylePrompt, CancellationToken ct = default);
+    /// <summary>Changes the language model, with the behavior that goes with it (its context size).</summary>
+    Task SetModelAsync(long id, string modelId, AssistantBehavior behavior, CancellationToken ct = default);
+    /// <summary>Changes the voice, its style and the picture that goes with it.</summary>
+    Task SetVoiceAsync(long id, string voiceId, VoiceStyle voiceStyle, string avatar, CancellationToken ct = default);
     /// <summary>Remembers whether the assistant's hearing and speaker are on (they load with its Brain).</summary>
     Task SetSensesAsync(long id, bool hearing, bool speaker, CancellationToken ct = default);
     /// <summary>Counts the conversations, messages and memories that belong to the assistant.</summary>

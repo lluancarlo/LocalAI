@@ -424,7 +424,7 @@
       <Panel Grid.Row="1" IsVisible="{Binding IsSettingsPage}">
         <TabControl Margin="24,8,24,0" MaxWidth="760"
                     DataContext="{Binding Settings}" x:DataType="vm:SettingsViewModel" SelectedIndex="{Binding SelectedTab}" Padding="0,4,0,0">
-          <TabItem Header="Assistants" FontSize="14">
+          <TabItem Header="General" FontSize="14">
             <ScrollViewer>
               <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,12,16,12">
                 <!-- What happens when the app starts -->
@@ -479,14 +479,20 @@
                   <TextBlock Text="How to reply" FontWeight="SemiBold" VerticalAlignment="Center" />
                 </DockPanel>
                 <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,6"
-                           Text="{Binding LiveMaxTokens, StringFormat='Instructions for every assistant in Live mode, added to its own pre-prompt. A conversation needs short replies: a reply also stops at about {0} tokens, at its last full sentence.'}" />
+                           Text="{Binding LiveMaxTokens, StringFormat='Instructions for every assistant in Live mode, added to its own personality. A conversation needs short replies: a reply also stops at about {0} tokens, at its last full sentence.'}" />
                 <!-- The grip under the box resizes it (drag up or down) -->
                 <TextBox x:Name="LivePromptBox" Text="{Binding LivePrompt, UpdateSourceTrigger=LostFocus}" TextWrapping="Wrap" AcceptsReturn="True"
                          Height="110" MinHeight="60" VerticalContentAlignment="Top" />
                 <Thumb Classes="grip" Tag="{Binding #LivePromptBox}" DragDelta="ResizeGrip_DragDelta" />
                 </StackPanel>
                 </Border>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
 
+          <TabItem Header="Assistants" FontSize="14">
+            <ScrollViewer>
+              <StackPanel DataContext="{Binding Assistants}" x:DataType="vm:AssistantsViewModel" Margin="0,12,16,12">
                 <Border Classes="card">
                 <StackPanel>
                 <DockPanel>
@@ -537,7 +543,7 @@
                     <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
                                IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     <TextBlock Text="Behavior" FontWeight="SemiBold" Margin="0,10,0,4" />
-                    <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                    <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto">
                       <TextBlock Text="Creativity" VerticalAlignment="Center" />
                       <ComboBox Grid.Column="1" ItemsSource="{Binding CreativityChoices}" SelectedItem="{Binding Creativity}" HorizontalAlignment="Stretch">
                         <ComboBox.ItemTemplate>
@@ -553,8 +559,48 @@
                       </ComboBox>
                       <CheckBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" Content="Think before answering" IsChecked="{Binding Thinking}"
                                 ToolTip.Tip="{Binding ThinkingTip}" />
-                      <TextBlock Grid.Row="3" Text="Context" VerticalAlignment="Center" Margin="0,6,0,0" ToolTip.Tip="{Binding ContextTip}" />
-                      <ComboBox Grid.Row="3" Grid.Column="1" Margin="0,6,0,0" ItemsSource="{Binding ContextChoices}" SelectedItem="{Binding Context}"
+                    </Grid>
+                    <!-- Locked until Edit; Save writes the new personality -->
+                    <DockPanel Margin="0,10,0,4">
+                      <Button DockPanel.Dock="Right" Classes="flat" Padding="8,2" Content="{Binding PersonalityButtonText}"
+                              Command="{Binding EditOrSavePersonalityCommand}" IsEnabled="{Binding !IsSavingPersonality}"
+                              ToolTip.Tip="{Binding PersonalityButtonTip}" />
+                      <TextBlock Text="Personality" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <!-- The grip under the box resizes it (drag up or down) -->
+                    <TextBox x:Name="PersonalityBox" Text="{Binding PersonalityText}" IsReadOnly="{Binding !IsEditingPersonality}"
+                             MaxLength="{Binding MaxPersonalityLength}" TextWrapping="Wrap" AcceptsReturn="True"
+                             Height="160" MinHeight="60" VerticalContentAlignment="Top"
+                             PlaceholderText="None: the default personality. Personality, tone and characteristics, e.g. Warm and witty, explains things with analogies." />
+                    <Thumb Classes="grip" Tag="{Binding #PersonalityBox}" DragDelta="ResizeGrip_DragDelta" />
+                    <TextBlock Classes="muted" HorizontalAlignment="Right" Text="{Binding PersonalityCountText}" IsVisible="{Binding IsEditingPersonality}"
+                               ToolTip.Tip="Sent to the model with every message. Long personalities leave less room for the conversation, and small models follow them less well." />
+                    <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}" Text="{Binding PersonalityNote}"
+                               IsVisible="{Binding PersonalityNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  </StackPanel>
+                </Panel>
+                </StackPanel>
+                </Border>
+
+                <!-- Brain: the selected assistant's language model and its context -->
+                <Border Classes="card" IsVisible="{Binding SelectedAssistant, Converter={x:Static ObjectConverters.IsNotNull}}">
+                  <StackPanel DataContext="{Binding SelectedAssistant}" x:DataType="vm:AssistantItemViewModel" Spacing="6">
+                    <TextBlock Classes="section" Text="Brain" />
+                    <TextBlock Classes="muted" TextWrapping="Wrap"
+                               Text="The language model that thinks and writes the replies. A model not downloaded yet is downloaded first; if the Brain is on, the new model starts right away. Conversations and memories stay." />
+                    <Grid ColumnDefinitions="110,*,Auto">
+                      <TextBlock Text="Model" VerticalAlignment="Center" />
+                      <Border Grid.Column="1" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,6">
+                        <TextBlock Text="{Binding ModelText}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                      </Border>
+                      <Button Grid.Column="2" Classes="flat" Margin="8,0,0,0" Content="Change…" Click="ChooseAssistantModel_Click"
+                              IsEnabled="{Binding !IsChangingModel}"
+                              ToolTip.Tip="The models for this computer, or any open model on Hugging Face" />
+                    </Grid>
+                    <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding ModelStatus}" IsVisible="{Binding IsChangingModel}" />
+                    <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto">
+                      <TextBlock Text="Context" VerticalAlignment="Center" ToolTip.Tip="{Binding ContextTip}" />
+                      <ComboBox Grid.Column="1" ItemsSource="{Binding ContextChoices}" SelectedItem="{Binding Context}"
                                 HorizontalAlignment="Stretch" ToolTip.Tip="{Binding ContextTip}">
                         <ComboBox.Styles>
                           <!-- A size that does not run on this PC cannot be chosen -->
@@ -566,17 +612,62 @@
                           <DataTemplate x:DataType="vm:ContextChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
                         </ComboBox.ItemTemplate>
                       </ComboBox>
-                      <CheckBox Grid.Row="4" Grid.Column="1" Margin="0,6,0,0" Content="Compact context memory (8-bit)" IsChecked="{Binding CompactCache}"
+                      <CheckBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Content="Compact context memory (8-bit)" IsChecked="{Binding CompactCache}"
                                 ToolTip.Tip="{Binding CompactCacheTip}" />
                     </Grid>
-                    <TextBlock Text="Pre-prompt" FontWeight="SemiBold" Margin="0,10,0,4" />
-                    <!-- The grip under the box resizes it (drag up or down) -->
-                    <TextBox x:Name="PrePromptBox" Text="{Binding PrePrompt, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
-                             Height="160" MinHeight="60" VerticalContentAlignment="Top" PlaceholderText="None: the default personality" />
-                    <Thumb Classes="grip" Tag="{Binding #PrePromptBox}" DragDelta="ResizeGrip_DragDelta" />
                   </StackPanel>
-                </Panel>
-                </StackPanel>
+                </Border>
+
+                <!-- Voice: another voice of the selected assistant's language, and how it sounds. Applied with Save. -->
+                <Border Classes="card" IsVisible="{Binding SelectedAssistant, Converter={x:Static ObjectConverters.IsNotNull}}">
+                  <StackPanel DataContext="{Binding SelectedAssistant}" x:DataType="vm:AssistantItemViewModel" Spacing="6">
+                    <TextBlock Classes="section" Text="Voice" />
+                    <TextBlock Classes="muted" TextWrapping="Wrap"
+                               Text="The voices of the assistant's native language. Its picture follows the voice. ▶ plays a sample with these settings." />
+                    <Grid ColumnDefinitions="110,*,Auto">
+                      <TextBlock Text="Voice" VerticalAlignment="Center" />
+                      <ComboBox Grid.Column="1" ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding Voice}" HorizontalAlignment="Stretch"
+                                PlaceholderText="No voice found">
+                        <ComboBox.Styles>
+                          <!-- Group titles (Female, Male) cannot be chosen -->
+                          <Style Selector="ComboBoxItem" x:DataType="vm:VoiceChoice">
+                            <Setter Property="IsEnabled" Value="{Binding !IsHeader}" />
+                          </Style>
+                        </ComboBox.Styles>
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="vm:VoiceChoice">
+                            <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" Classes.groupTitle="{Binding IsHeader}" />
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+                      <Button Grid.Column="2" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
+                              ToolTip.Tip="Play a sample (downloads the voice if needed)" />
+                    </Grid>
+                    <TextBlock Classes="muted" Text="{Binding PreviewStatus}" IsVisible="{Binding PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <!-- Each slider's range comes from the chosen voice; settings it does not have are hidden -->
+                    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="How fast the assistant speaks"
+                          IsVisible="{Binding VoiceTuning.Speed, Converter={x:Static ObjectConverters.IsNotNull}}">
+                      <TextBlock Text="Speed" VerticalAlignment="Center" />
+                      <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Speed.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Speed.Max, FallbackValue=1}"
+                              SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Speed}" />
+                      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding SpeedText}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="110,*,Auto" ToolTip.Tip="Semitones lower or higher than the original voice"
+                          IsVisible="{Binding VoiceTuning.Pitch, Converter={x:Static ObjectConverters.IsNotNull}}">
+                      <TextBlock Text="Pitch" VerticalAlignment="Center" />
+                      <Slider Grid.Column="1" Minimum="{Binding VoiceTuning.Pitch.Min, FallbackValue=0}" Maximum="{Binding VoiceTuning.Pitch.Max, FallbackValue=1}"
+                              SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Pitch}" />
+                      <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" MinWidth="40" VerticalAlignment="Center" Text="{Binding PitchText}" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                      <Button Classes="flat" Padding="8,2" Content="Reset voice settings" Command="{Binding ResetVoiceStyleCommand}"
+                              ToolTip.Tip="Back to the voice's original settings" />
+                      <Button Classes="flat" Padding="8,2" Content="Undo" Command="{Binding RevertVoiceCommand}" IsVisible="{Binding HasVoiceChanges}"
+                              ToolTip.Tip="Back to the saved voice and settings" />
+                      <Button Content="Save voice" Command="{Binding SaveVoiceCommand}" IsEnabled="{Binding HasVoiceChanges}"
+                              ToolTip.Tip="The assistant speaks with this voice from now on" />
+                    </StackPanel>
+                  </StackPanel>
                 </Border>
 
                 <!-- What the selected assistant remembers: its profile note -->
@@ -598,7 +689,7 @@
                   <StackPanel Spacing="6">
                     <TextBlock Classes="section" Text="{Binding SelectedAssistant.Name, StringFormat='What {0} has learned'}" TextTrimming="CharacterEllipsis" />
                     <TextBlock Classes="muted" TextWrapping="Wrap"
-                               Text="Documents the assistant learns: Markdown (.md) and text (.txt) files in its learn folder. Learn reads them all again from scratch and replaces what it learned before; until then, new or changed files are not used." />
+                               Text="Documents the assistant learns: Markdown (.md) and text (.txt) files in its learn folder and its subfolders (a subfolder is shown as one line). Learn reads them all again from scratch and replaces what it learned before; until then, new or changed files are not used." />
                     <ItemsControl ItemsSource="{Binding LearnFiles}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:LearnFileItem">

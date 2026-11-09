@@ -22,13 +22,13 @@
       <StackPanel Spacing="6">
         <TextBlock Text="Name" />
         <TextBox Text="{Binding NewName}" MaxLength="{Binding MaxNameLength}" PlaceholderText="e.g. Nova" />
-        <TextBlock Text="AI style pre-prompt (optional)" Margin="0,8,0,0" />
+        <TextBlock Text="Personality (optional)" Margin="0,8,0,0" />
         <TextBox Text="{Binding NewStyle}" MaxLength="{Binding MaxStyleLength}" AcceptsReturn="True" TextWrapping="Wrap"
                  MinHeight="90" MaxHeight="240"
                  PlaceholderText="Personality, tone and characteristics. e.g. Warm and witty, explains things with analogies, a bit of humor, never verbose." />
         <!-- Its size: it goes into every request, and a long one leaves less room for the conversation -->
         <TextBlock Classes="muted" HorizontalAlignment="Right" Text="{Binding StyleCountText}"
-                   ToolTip.Tip="Sent to the model with every message. Long styles leave less room for the conversation, and small models follow them less well." />
+                   ToolTip.Tip="Sent to the model with every message. Long personalities leave less room for the conversation, and small models follow them less well." />
         <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource WarnBrush}" Text="{Binding StyleWarning}"
                    IsVisible="{Binding StyleWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         <TextBlock Text="Language model" Margin="0,8,0,0" />
@@ -88,15 +88,23 @@
             <DataTemplate x:DataType="vm:LanguageChoice"><TextBlock Text="{Binding Name}" /></DataTemplate>
           </ComboBox.ItemTemplate>
         </ComboBox>
-        <!-- Voice settings: the voice, a sample and how it sounds. Fixed once the assistant is created; ▶ plays the voice
-             with these settings. Each slider's range comes from the chosen voice, and settings it does not have are hidden. -->
+        <!-- Voice settings: the voice, a sample and how it sounds (can be changed later); ▶ plays the voice with these
+             settings. Each slider's range comes from the chosen voice, and settings it does not have are hidden. -->
         <Border Classes="group" Margin="0,8,0,0">
           <StackPanel Spacing="6">
             <TextBlock Text="Voice settings" FontWeight="SemiBold" />
             <Grid ColumnDefinitions="*,Auto">
               <ComboBox ItemsSource="{Binding VoiceChoices}" SelectedItem="{Binding SelectedVoice}" HorizontalAlignment="Stretch">
+                <ComboBox.Styles>
+                  <!-- Group titles (Female, Male) cannot be chosen -->
+                  <Style Selector="ComboBoxItem" x:DataType="vm:VoiceChoice">
+                    <Setter Property="IsEnabled" Value="{Binding !IsHeader}" />
+                  </Style>
+                </ComboBox.Styles>
                 <ComboBox.ItemTemplate>
-                  <DataTemplate x:DataType="vm:VoiceChoice"><TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                  <DataTemplate x:DataType="vm:VoiceChoice">
+                    <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" Classes.groupTitle="{Binding IsHeader}" />
+                  </DataTemplate>
                 </ComboBox.ItemTemplate>
               </ComboBox>
               <Button Grid.Column="1" Classes="flat" Margin="8,0,0,0" Content="▶" Command="{Binding PreviewVoiceCommand}"
@@ -124,7 +132,7 @@
       </StackPanel>
     </Grid>
     <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,4,0,0"
-               Text="The assistant always replies in its native language, with this voice, whatever language you write or paste. Name, style, model, voice and voice settings cannot be changed later (the behavior can); anything not downloaded yet is downloaded after creating." />
+               Text="The assistant always replies in its native language, with this voice, whatever language you write or paste. Name and native language cannot be changed later (the personality, the model, the voice and the behavior can, in Settings › Assistants); anything not downloaded yet is downloaded after creating." />
     <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" Text="{Binding Error}"
                IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,6,0,0">

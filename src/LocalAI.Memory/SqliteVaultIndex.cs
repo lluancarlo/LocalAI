@@ -174,6 +174,19 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
         await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<int> CountDocumentChunksAsync(long assistantId, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM note_chunks k JOIN vault_notes n ON n.id = k.note_id
+            WHERE n.assistant_id = $a AND n.kind = $kind;
+            """;
+        cmd.Parameters.AddWithValue("$a", assistantId);
+        cmd.Parameters.AddWithValue("$kind", nameof(NoteKind.Document));
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public async Task<IReadOnlyList<NoteChunk>> ListChunksAsync(long assistantId, CancellationToken ct = default)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
@@ -192,7 +205,7 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
             {
                 Id = r.GetInt64(0),
                 NoteId = r.GetInt64(1),
-                NoteTitle = Path.GetFileNameWithoutExtension(r.GetString(2)),
+                NoteTitle = VaultLayout.PassageTitle(r.GetString(2)),
                 Heading = r.GetString(3),
                 Text = r.GetString(4),
                 Embedding = r.IsDBNull(5) ? null : MemoryMarshal.Cast<byte, float>((byte[])r.GetValue(5)).ToArray(),

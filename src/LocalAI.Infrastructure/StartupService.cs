@@ -19,7 +19,7 @@ public sealed record SubsystemStatus(string Name, ComponentState State, string? 
 /// <summary>
 /// Brings the app up in the background: the database and the active assistant. The models (language model, voice,
 /// speech recognition, embeddings) load only when an AI turns on (<see cref="AssistantManager.LoadModelAsync"/>), here
-/// only if Settings › Assistants › Startup asks for it. A failure in one never prevents the others.
+/// only if Settings › General › Startup asks for it. A failure in one never prevents the others.
 /// </summary>
 public sealed class StartupService(
     ILanguageModel llm,
@@ -84,7 +84,7 @@ public sealed class StartupService(
             return assistant.Current is { } a ? (ComponentState.Ready, $"assistant {a.Id}") : (ComponentState.Unavailable, "none created yet");
         }).ConfigureAwait(false);
 
-        // The AI stays off until the user turns it on, unless Settings › Assistants › Startup says otherwise.
+        // The AI stays off until the user turns it on, unless Settings › General › Startup says otherwise.
         if (options.Value.Assistant.LoadModelAtStartup && assistant.Current is { } active)
         {
             await RunAsync("AI", async () =>

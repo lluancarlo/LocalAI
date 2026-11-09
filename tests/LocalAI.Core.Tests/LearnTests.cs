@@ -41,6 +41,26 @@ public sealed class LearnTests
     }
 
     [Fact]
+    public async Task Learn_reads_the_subfolders_and_titles_their_passages_by_path()
+    {
+        var nova = await NovaAsync();
+        await _m.Vault.AddLearnFileAsync(nova, "coffee.md", Manual);
+        _m.Storage.Write("nova/learn/unity-md/Manual/index.md", "# Unity Manual\n\n## Welcome\nThe Unity manual.");
+        _m.Storage.Write("nova/learn/godot-md/tutorials/index.md", "# Godot tutorials\n\n## Welcome\nThe Godot tutorials.");
+
+        Assert.Equal(2 + 1 + 1, await _m.Vault.LearnAsync(nova, null));
+        Assert.Equal(3, _m.Index.Notes.Count(n => n.Kind == NoteKind.Document));
+        // Two files named index.md: told apart by their path in the learn folder.
+        Assert.Equal("unity-md/Manual/index", VaultLayout.PassageTitle("nova/learn/unity-md/Manual/index.md"));
+        Assert.Equal("coffee", VaultLayout.PassageTitle("nova/learn/coffee.md"));
+        Assert.Equal("nova-profile", VaultLayout.PassageTitle("nova/nova-profile.md"));
+        Assert.Contains(_m.Index.Chunks, c => c.NoteTitle == "godot-md/tutorials/index");
+
+        var status = await _m.Vault.LearnStatusAsync(nova);
+        Assert.Equal((3, 4, false), (status.LearnedFiles, status.Passages, status.Changed));
+    }
+
+    [Fact]
     public async Task A_failed_learn_keeps_what_was_learned_before()
     {
         var nova = await NovaAsync();
