@@ -15,44 +15,27 @@ public sealed class ModelDownloader : IDisposable
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("LocalAI/1.0");
     }
 
+    /// <summary>Times a download is tried when the network fails; each try goes on from what was received.</summary>
+    public int MaxAttempts { get; init; } = 5;
+    /// <summary>Wait before the second try; doubled for each one after.</summary>
+    public TimeSpan RetryDelay { get; init; } = TimeSpan.FromSeconds(2);
+    /// <summary>A connection that sends nothing for this long is given up (and tried again).</summary>
+    public TimeSpan StallTimeout { get; init; } = TimeSpan.FromSeconds(60);
+
     public async Task DownloadAsync(Uri source, string destination, long expectedBytes, IProgress<double>? progress, CancellationToken ct)
     {
         var partial = destination + ".partial";
-        var existing = File.Exists(partial) ? new FileInfo(partial).Length : 0;
-
-        if (expectedBytes == 0 || existing != expectedBytes)
+        for (var attempt = 1; ; attempt++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, source);
-            if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-            if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            try
             {
-                File.Delete(partial);
-                await DownloadAsync(source, destination, expectedBytes, progress, ct).ConfigureAwait(false);
-                return;
+                await TransferAsync(source, partial, expectedBytes, progress, ct).ConfigureAwait(false);
+                break;
             }
-            response.EnsureSuccessStatusCode();
-
-            var resumed = response.StatusCode == HttpStatusCode.PartialContent;
-            var received = resumed ? existing : 0;
-            var total = expectedBytes > 0 ? expectedBytes : received + (response.Content.Headers.ContentLength ?? 0);
-
-            await using var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            await using var file = new FileStream(partial, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write,
-                FileShare.None, bufferSize: 1 << 20, useAsync: true);
-            var buffer = new byte[1 << 20];
-            var lastReport = DateTime.UtcNow;
-            int read;
-            while ((read = await body.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            catch (Exception ex) when (attempt < MaxAttempts && !ct.IsCancellationRequested && IsTransient(ex))
             {
-                await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                received += read;
-                if (total > 0 && DateTime.UtcNow - lastReport >= ProgressInterval)
-                {
-                    progress?.Report((double)received / total);
-                    lastReport = DateTime.UtcNow;
-                }
+                // A lost or stalled connection: what was received stays in the partial file, the next try resumes it.
+                await Task.Delay(RetryDelay * Math.Pow(2, attempt - 1), ct).ConfigureAwait(false);
             }
         }
 
@@ -64,6 +47,76 @@ public sealed class ModelDownloader : IDisposable
         }
         progress?.Report(1);
         File.Move(partial, destination, overwrite: true);
+    }
+
+    /// <summary>Failures of the network or the server that another try may get past (not a missing file, not a full disk).</summary>
+    private static bool IsTransient(Exception ex) => ex switch
+    {
+        TimeoutException => true,
+        HttpRequestException { StatusCode: null } => true,
+        HttpRequestException { StatusCode: var status } => (int)status!.Value >= 500 || status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests,
+        _ => false,
+    };
+
+    /// <summary>Appends what is missing of <paramref name="source"/> to <paramref name="partial"/>.</summary>
+    private async Task TransferAsync(Uri source, string partial, long expectedBytes, IProgress<double>? progress, CancellationToken ct)
+    {
+        var existing = File.Exists(partial) ? new FileInfo(partial).Length : 0;
+        if (expectedBytes != 0 && existing == expectedBytes) return;
+
+        // Cancelled when nothing arrives for StallTimeout (pushed back at every read).
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        stall.CancelAfter(StallTimeout);
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, source);
+            if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stall.Token).ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+            {
+                File.Delete(partial);
+                await TransferAsync(source, partial, expectedBytes, progress, ct).ConfigureAwait(false);
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+
+            var resumed = response.StatusCode == HttpStatusCode.PartialContent;
+            var received = resumed ? existing : 0;
+            var total = expectedBytes > 0 ? expectedBytes : received + (response.Content.Headers.ContentLength ?? 0);
+
+            await using var body = await response.Content.ReadAsStreamAsync(stall.Token).ConfigureAwait(false);
+            await using var file = new FileStream(partial, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write,
+                FileShare.None, bufferSize: 1 << 20, useAsync: true);
+            var buffer = new byte[1 << 20];
+            var lastReport = DateTime.UtcNow;
+            while (true)
+            {
+                stall.CancelAfter(StallTimeout);
+                int read;
+                try
+                {
+                    read = await body.ReadAsync(buffer, stall.Token).ConfigureAwait(false);
+                }
+                catch (IOException ex)
+                {
+                    // Reading the network failed (writing the file is not in here: a full disk is not tried again).
+                    throw new HttpRequestException("The connection was lost during the download.", ex);
+                }
+                if (read == 0) break;
+                await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                received += read;
+                if (total > 0 && DateTime.UtcNow - lastReport >= ProgressInterval)
+                {
+                    progress?.Report((double)received / total);
+                    lastReport = DateTime.UtcNow;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"The download stalled: nothing was received for {StallTimeout.TotalSeconds:F0} seconds.");
+        }
     }
 
     /// <summary>A small text response (an API page) and the address of the next page, from its <c>Link</c> header.</summary>

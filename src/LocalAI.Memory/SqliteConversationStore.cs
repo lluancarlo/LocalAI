@@ -90,18 +90,19 @@ public sealed class SqliteConversationStore(SqliteDatabase db, AssistantContext 
     }
 
     public Task<IReadOnlyList<StoredMessage>> GetMessagesAsync(long conversationId, CancellationToken ct = default) =>
-        QueryMessagesAsync(conversationId, int.MaxValue, ct);
+        QueryMessagesAsync(conversationId, int.MaxValue, metadata: true, ct);
 
+    // For the prompt: without the metadata (the reply's thinking and statistics), which is never sent to the model.
     public Task<IReadOnlyList<StoredMessage>> GetRecentMessagesAsync(long conversationId, int limit, CancellationToken ct = default) =>
-        QueryMessagesAsync(conversationId, limit, ct);
+        QueryMessagesAsync(conversationId, limit, metadata: false, ct);
 
-    private async Task<IReadOnlyList<StoredMessage>> QueryMessagesAsync(long conversationId, int limit, CancellationToken ct)
+    private async Task<IReadOnlyList<StoredMessage>> QueryMessagesAsync(long conversationId, int limit, bool metadata, CancellationToken ct)
     {
         await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT * FROM (
-                SELECT id, conversation_id, role, content, created_at, language, model, source, metadata, selected_text
+                SELECT id, conversation_id, role, content, created_at, language, model, source, {(metadata ? "metadata" : "NULL")}, selected_text
                 FROM messages WHERE conversation_id = $c ORDER BY id DESC LIMIT $limit
             ) ORDER BY id ASC;
             """;

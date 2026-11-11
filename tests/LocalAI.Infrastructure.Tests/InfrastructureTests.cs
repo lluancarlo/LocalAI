@@ -183,8 +183,14 @@ public sealed class ConfigurationTests
         Assert.Equal(catalog.Llm.OrderByDescending(l => l.MinVramMb).Select(l => l.Id), catalog.Llm.Select(l => l.Id));
         Assert.All(catalog.Llm, l => Assert.True(LocalAI.Models.ModelLibrary.IsHuggingFace(new Uri(l.Url)), l.Url));
         Assert.All(catalog.Llm, l => Assert.True(l.SizeBytes > 0));
+        // Hugging Face files come from a pinned commit: a file its publisher uploads again keeps its size here.
+        Assert.All(catalog.Llm.Select(l => l.Url).Concat(catalog.Whisper.Concat(catalog.Embedding).Select(e => e.Url)),
+            url => Assert.Matches("^https://huggingface\\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/", url));
         Assert.All(catalog.Whisper.Concat(catalog.Vad).Concat(catalog.Embedding), e => Assert.True(e.SizeBytes > 0));
         Assert.NotEmpty(catalog.Runtime.Urls);
+        // Each archive of the runtime has its SHA-256, checked when it is downloaded.
+        Assert.Equal(catalog.Runtime.Urls.Count, catalog.Runtime.Sha256.Count);
+        Assert.All(catalog.Runtime.Sha256, hash => Assert.Matches("^[0-9a-f]{64}$", hash));
 
         // The speech model comes from a pinned revision, so its speaker ids never move.
         Assert.Matches("^[0-9a-f]{40}$", catalog.Tts.Revision);
@@ -418,6 +424,31 @@ public sealed class LlamaServerTests
             Assert.Equal(42, evt!.Stats!.GeneratedTokens);
             Assert.Equal(75.5, evt.Stats.TokensPerSecond);
         }
+    }
+
+    [Fact]
+    public void An_error_of_the_server_is_told_apart_when_the_request_did_not_fit_the_context()
+    {
+        const string overflow =
+            "{\"error\":{\"code\":400,\"message\":\"request (9000 tokens) exceeds the available context size (8192 tokens), try increasing it\"," +
+            "\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":9000,\"n_ctx\":8192}}";
+        Assert.True(SseParser.IsContextOverflow(overflow));
+        Assert.StartsWith("request (9000 tokens) exceeds", SseParser.ErrorMessage(overflow), StringComparison.Ordinal);
+        Assert.False(SseParser.IsContextOverflow("{\"error\":{\"code\":500,\"message\":\"out of memory\",\"type\":\"server_error\"}}"));
+        Assert.Null(SseParser.ErrorMessage("Service Unavailable"));
+
+        // Sent after the stream started, it ends the reply instead of being skipped.
+        Assert.Equal("out of memory", SseParser.Parse("data: {\"error\":{\"code\":500,\"message\":\"out of memory\"}}")!.Error);
+    }
+
+    [Fact]
+    public void The_memory_notes_ask_for_a_json_object_and_the_chat_does_not()
+    {
+        ChatMessage[] messages = [new(ChatRole.User, "Hi")];
+        using var json = JsonDocument.Parse(LlamaCppLanguageModel.BuildRequestBody(messages, new GenerationOptions { Json = true }, 1));
+        Assert.Equal("json_object", json.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+        using var chat = JsonDocument.Parse(LlamaCppLanguageModel.BuildRequestBody(messages, new GenerationOptions(), 1));
+        Assert.False(chat.RootElement.TryGetProperty("response_format", out _));
     }
 
     [Fact]

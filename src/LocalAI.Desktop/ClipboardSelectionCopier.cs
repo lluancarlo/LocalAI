@@ -9,8 +9,10 @@ namespace LocalAI.Desktop;
 /// Fallback for applications that do not share their selection through UI Automation (Notepad++, Unity, VS Code, ...):
 /// sends Ctrl+C to the window in front, reads the copied text and puts the user's clipboard back. To stay harmless it
 /// does nothing when the window in front is a terminal (Ctrl+C would stop the running program), when a key or mouse
-/// button is held (the keys would combine into another shortcut), or when the clipboard holds something other than
-/// text (files, an image), which could not be restored. The restored text is hidden from clipboard history.
+/// button is held (the keys would combine into another shortcut), or when the clipboard holds anything but plain text
+/// (formatted text, files, an image), which could not be put back as it was. The restored text is hidden from
+/// clipboard history; the copy the other application makes is not (the app cannot mark it), which is why the user
+/// turns this on (<c>Voice:CopySelection</c>).
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed partial class ClipboardSelectionCopier(IntPtr owner)
@@ -56,12 +58,14 @@ internal sealed partial class ClipboardSelectionCopier(IntPtr owner)
         }
         try
         {
-            saved = ReadText();
-            if (saved == null && CountClipboardFormats() > 0)
+            // Only plain text can be put back as it was: anything else (formatted text from a browser or Word, files,
+            // an image) stays untouched, so nothing is copied.
+            if (!IsPlainText(Formats(), ExcludeFromHistoryFormat))
             {
-                detail = "clipboard holds files or an image: not copying";
+                detail = "clipboard holds more than plain text: not copying";
                 return null;
             }
+            saved = ReadText();
         }
         finally
         {
@@ -100,6 +104,22 @@ internal sealed partial class ClipboardSelectionCopier(IntPtr owner)
         detail = $"copied {copied?.Length ?? 0} characters";
         return string.IsNullOrEmpty(copied) ? null : copied;
     }
+
+    /// <summary>The formats on the clipboard (it must be open).</summary>
+    private static List<uint> Formats()
+    {
+        var formats = new List<uint>();
+        for (var format = EnumClipboardFormats(0); format != 0; format = EnumClipboardFormats(format)) formats.Add(format);
+        return formats;
+    }
+
+    /// <summary>
+    /// True when the clipboard is empty or holds plain text only: the text formats Windows makes from one another
+    /// (CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT, CF_LOCALE) and <paramref name="marker"/>, which this class adds when it
+    /// puts the text back.
+    /// </summary>
+    internal static bool IsPlainText(IEnumerable<uint> formats, uint marker) =>
+        formats.All(f => f is 1 or 7 or CF_UNICODETEXT or 16 || (marker != 0 && f == marker));
 
     /// <summary>Puts the user's text back (or empties the clipboard if it was empty), hidden from clipboard history.</summary>
     private void Restore(string? text)
@@ -231,7 +251,7 @@ internal sealed partial class ClipboardSelectionCopier(IntPtr owner)
     private static partial bool IsClipboardFormatAvailable(uint format);
 
     [LibraryImport("user32.dll")]
-    private static partial int CountClipboardFormats();
+    private static partial uint EnumClipboardFormats(uint format);
 
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetClipboardData(uint format);

@@ -140,6 +140,50 @@ public sealed class NoteFormatsTests
         Assert.Contains("ON DELETE CASCADE", transcript, StringComparison.Ordinal);
         Assert.DoesNotContain("message 0 ", transcript, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void A_long_conversation_is_read_in_parts_and_a_pasted_document_is_cut()
+    {
+        var messages = Enumerable.Range(0, 200)
+            .Select(i => new StoredMessage { Role = i % 2 == 0 ? ChatRole.User : ChatRole.Assistant, Content = $"message {i} " + new string('x', 100) })
+            .Append(new StoredMessage { Role = ChatRole.User, Content = "Read this: " + new string('y', 100_000) })
+            .ToList();
+
+        var parts = NoteFormats.TranscriptParts(messages);
+
+        Assert.True(parts.Count > 1);
+        Assert.All(parts, p => Assert.True(p.Length <= NoteFormats.MaxTranscriptChars));
+        Assert.StartsWith("USER: message 0 ", parts[0], StringComparison.Ordinal); // oldest first, nothing dropped
+        Assert.Contains("USER: Read this: yyy", parts[^1], StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('y', NoteFormats.MaxUserChars), parts[^1], StringComparison.Ordinal); // cut
+    }
+
+    [Fact]
+    public void Only_the_newest_parts_of_a_very_long_conversation_are_read()
+    {
+        var messages = Enumerable.Range(0, 400)
+            .Select(i => new StoredMessage { Role = ChatRole.User, Content = $"message {i} " + new string('x', 3000) })
+            .ToList();
+
+        var parts = NoteFormats.TranscriptParts(messages);
+
+        Assert.Equal(NoteFormats.MaxTranscriptParts, parts.Count);
+        Assert.Contains("message 399 ", parts[^1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_conversation_note_is_read_back_for_its_next_update()
+    {
+        var written = new ConversationSummary("We built X.", ["Use Y"], ["Test Z"], ["User likes tea."]);
+
+        var read = NoteFormats.ReadConversation(NoteFormats.RenderConversation(written, English), [English]);
+
+        Assert.Equal(written.Summary, read!.Summary);
+        Assert.Equal(written.Decisions, read.Decisions);
+        Assert.Equal(written.OpenItems, read.OpenItems);
+        Assert.Equal(written.Facts, read.Facts);
+        Assert.Null(NoteFormats.ReadConversation("", [English]));
+    }
 }
 
 public sealed class MemoryVaultTests
@@ -220,6 +264,40 @@ public sealed class MemoryVaultTests
 
         Assert.False(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
         Assert.Equal(edited, _m.Storage.Files[ConversationFile]);
+    }
+
+    [Fact]
+    public async Task Updating_a_note_gives_the_model_the_note_so_far_and_only_the_newer_messages()
+    {
+        var id = await ConversationAsync();
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        var written = DateTimeOffset.Now;
+        _m.Index.Notes[0] = _m.Index.Notes[0] with { SourceUpdatedAt = written }; // the note covers the conversation up to here
+        await _m.Conversations.AddMessageAsync(new StoredMessage
+            { ConversationId = id, Role = ChatRole.User, Content = "The tests are written now.", CreatedAt = written.AddMinutes(5) });
+        await _m.Conversations.AddMessageAsync(new StoredMessage
+            { ConversationId = id, Role = ChatRole.Assistant, Content = "Great.", CreatedAt = written.AddMinutes(5) });
+        _m.Conversations.Touch(id, written.AddMinutes(5));
+
+        Assert.True(await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None));
+
+        var request = _m.Llm.Requests[^1];
+        Assert.Contains("note written so far", request[0].Content, StringComparison.Ordinal);
+        Assert.Contains("Use cursor pagination", request[1].Content, StringComparison.Ordinal); // from the note so far
+        Assert.Contains("USER: The tests are written now.", request[1].Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("How do we paginate?", request[1].Content, StringComparison.Ordinal); // already in the note
+    }
+
+    [Fact]
+    public async Task A_timeout_of_the_embedding_model_leaves_recall_to_the_words()
+    {
+        var id = await ConversationAsync();
+        await _m.Vault.WriteConversationNoteAsync(_nova.Id, id, CancellationToken.None);
+        _m.Embeddings.Fail = new TaskCanceledException("The request timed out."); // nobody cancelled: not a stop
+
+        var memory = await _m.Vault.RecallAsync("cursor pagination", CancellationToken.None);
+
+        Assert.Contains(memory.Passages, p => p.Text.Contains("cursor pagination", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -759,5 +837,35 @@ public sealed class MemoryWorkerTests : IAsyncDisposable
         _worker.Start();
         await UntilAsync(() => _m.Index.Chunks.Any(c => c.Text.Contains("search box", StringComparison.Ordinal)));
         Assert.Equal(nova.Id, Assert.Single(_m.Index.Notes, n => n.Path == "nova/ideas.md").AssistantId);
+    }
+}
+
+public sealed class RecallMathTests
+{
+    [Fact]
+    public void The_dot_product_of_normalized_vectors_is_their_cosine()
+    {
+        // Longer than one SIMD register and not a multiple of it, so both the wide loop and the rest are used.
+        var a = Enumerable.Range(0, 37).Select(i => MathF.Sin(i) + 0.3f).ToArray();
+        var b = Enumerable.Range(0, 37).Select(i => MathF.Cos(i * 0.7f) - 0.1f).ToArray();
+
+        var dot = LocalAI.Core.Memory.VectorMath.Dot(LocalAI.Core.Memory.VectorMath.Normalize(a), LocalAI.Core.Memory.VectorMath.Normalize(b));
+
+        Assert.Equal(LocalAI.Core.Memory.VectorMath.Cosine(a, b), dot, 4);
+        Assert.Equal(0, LocalAI.Core.Memory.VectorMath.Dot([1f, 2f], [1f])); // different sizes: not comparable
+        Assert.Equal([0f, 0f], LocalAI.Core.Memory.VectorMath.Normalize([0f, 0f]));
+    }
+
+    [Fact]
+    public void A_note_paragraph_without_blank_lines_is_cut_into_passages_the_embedding_model_can_read()
+    {
+        var note = new VaultNote { Path = "nova/ideas.md" };
+        var text = "# Ideas\n\n## Log\n" + string.Join(' ', Enumerable.Repeat("word", 5000));
+
+        var chunks = MemoryVault.Chunk(note, text);
+
+        Assert.True(chunks.Count > 1);
+        Assert.All(chunks, c => Assert.True(c.Text.Length <= 1200));
+        Assert.All(chunks, c => Assert.Equal("Log", c.Heading));
     }
 }

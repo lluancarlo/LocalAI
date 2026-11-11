@@ -28,18 +28,17 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
     private readonly Lock _gate = new();
     /// <summary>Where the history of the last prompt started: (conversation, message id).</summary>
     private (long ConversationId, long MessageId)? _historyStart;
+    /// <summary>
+    /// A conversation whose text has more tokens than estimated (code, logs, languages without spaces): its history
+    /// budget is divided by the factor, which grows each time the model still rejects the prompt.
+    /// </summary>
+    private (long ConversationId, double Factor)? _dense;
 
-    public static string LanguageName(string? code) => code switch
-    {
-        "pt" => "Brazilian Portuguese",
-        "it" => "Italian",
-        "en" => "English",
-        "es" => "Spanish",
-        "fr" => "French",
-        "de" => "German",
-        null or "" => "",
-        _ => code,
-    };
+    /// <summary>How much smaller the history gets each time the model rejects the prompt as too long.</summary>
+    private const double OverflowFactor = 1.5;
+
+    /// <summary>What the language is called in the model's instructions (languages.json).</summary>
+    public static string LanguageName(string? code) => LanguageData.Default.LanguageName(code);
 
     /// <summary>Rough token estimate (≈3.5 chars/token for European languages); only used for budgeting.</summary>
     public static int EstimateTokens(string text) => (int)Math.Ceiling(text.Length / 3.5) + 4;
@@ -61,6 +60,10 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
     /// <param name="contextTokens">The model's context size (0 = unknown): the history is cut so the prompt and the reply fit.</param>
     /// <param name="replyTokens">Tokens kept free for the reply.</param>
     /// <param name="live">A Live conversation: short replies (<see cref="AssistantOptions.LivePrompt"/>).</param>
+    /// <param name="afterOverflow">
+    /// The model rejected the last prompt of this conversation as longer than its context: the history is cut again,
+    /// shorter, and stays shorter for the conversation's next turns.
+    /// </param>
     public IReadOnlyList<ChatMessage> Build(
         IReadOnlyList<StoredMessage> history,
         string userText,
@@ -71,7 +74,8 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
         string? userLanguage = null,
         int contextTokens = 0,
         int replyTokens = 0,
-        bool live = false)
+        bool live = false,
+        bool afterOverflow = false)
     {
         var system = BuildSystem(memory, spoken, live);
         var userTurn = BuildUserTurn(userText, memory, now, selectedText, LanguageName(userLanguage), LengthHint(live));
@@ -81,7 +85,7 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
         var budget = contextTokens > 0
             ? contextTokens - replyTokens - EstimateTokens(system) - EstimateTokens(userTurn) - ContextMarginTokens
             : _options.HistoryTokenBudget;
-        var selected = SelectHistory(history, Math.Max(0, budget));
+        var selected = SelectHistory(history, Math.Max(0, budget), afterOverflow);
 
         // Chat templates expect alternating roles starting with the user.
         while (selected.Count > 0 && selected[0].Role != ChatRole.User) selected.RemoveAt(0);
@@ -172,7 +176,7 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
     /// after it fits; when it no longer does, the history is cut to three quarters of the budget, so the start then
     /// stays put for the next turns again (a start that moves every turn makes llama-server read the whole history again).
     /// </summary>
-    private List<ChatMessage> SelectHistory(IReadOnlyList<StoredMessage> history, int budget)
+    private List<ChatMessage> SelectHistory(IReadOnlyList<StoredMessage> history, int budget, bool afterOverflow)
     {
         var usable = history.Where(m => m.Role != ChatRole.System && !string.IsNullOrWhiteSpace(m.Content)).ToList();
         var contents = usable.Select(m => m.Role == ChatRole.User ? WithSelection(m.Content, m.SelectedText) : m.Content).ToList();
@@ -181,6 +185,18 @@ public sealed class PromptBuilder(IOptions<LocalAiOptions> options, AssistantCon
         var start = -1;
         lock (_gate)
         {
+            if (usable.Count > 0)
+            {
+                var conversation = usable[0].ConversationId;
+                var factor = _dense is { } dense && dense.ConversationId == conversation ? dense.Factor : 1;
+                if (afterOverflow)
+                {
+                    factor *= OverflowFactor;
+                    _dense = (conversation, factor);
+                    _historyStart = null; // cut again, from the newest message
+                }
+                budget = (int)(budget / factor);
+            }
             if (_historyStart is { } previous && usable.Count > 0 && usable[0].ConversationId == previous.ConversationId &&
                 usable[0].Id <= previous.MessageId)
             {

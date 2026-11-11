@@ -12,14 +12,16 @@ public sealed class NvidiaSmiGpuInfoProvider(ILogger<NvidiaSmiGpuInfoProvider> l
 
     public async Task<GpuInfo?> GetGpuInfoAsync(CancellationToken ct = default)
     {
+        // The CUDA version (asked once) is read while the GPU is queried: each call starts a process.
+        var cuda = _cudaVersion != null ? Task.FromResult<string?>(_cudaVersion) : GetCudaVersionAsync(ct);
         var csv = await RunAsync("--query-gpu=name,memory.total,memory.used,driver_version,compute_cap --format=csv,noheader,nounits", ct)
             .ConfigureAwait(false);
+        _cudaVersion ??= await cuda.ConfigureAwait(false);
         var line = csv?.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
         if (line == null) return null;
 
         var parts = line.Split(',', StringSplitOptions.TrimEntries);
         if (parts.Length < 4) return null;
-        _cudaVersion ??= await GetCudaVersionAsync(ct).ConfigureAwait(false);
         return new GpuInfo(
             parts[0],
             ParseInt(parts[1]),
@@ -58,21 +60,37 @@ public sealed class NvidiaSmiGpuInfoProvider(ILogger<NvidiaSmiGpuInfoProvider> l
         return null;
     }
 
+    /// <summary>nvidia-smi answers in well under a second; a driver in trouble can leave it hanging forever.</summary>
+    internal static TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
+
     private async Task<string?> RunAsync(string args, CancellationToken ct)
     {
         try
         {
+            // Only the output is read: the errors are not redirected, so a full error pipe can never block the tool.
             using var p = Process.Start(new ProcessStartInfo("nvidia-smi", args)
             {
                 RedirectStandardOutput = true,
-                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             });
             if (p == null) return null;
-            var output = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-            await p.WaitForExitAsync(ct).ConfigureAwait(false);
-            return p.ExitCode == 0 ? output : null;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(Timeout);
+            try
+            {
+                var output = await p.StandardOutput.ReadToEndAsync(timeout.Token).ConfigureAwait(false);
+                await p.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                return p.ExitCode == 0 ? output : null;
+            }
+            catch (OperationCanceledException)
+            {
+                try { p.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                if (ct.IsCancellationRequested) throw;
+                // The model then loads as if the GPU's memory were unknown, instead of never loading.
+                logger.LogWarning("nvidia-smi did not answer within {Seconds:F0} s: GPU information is unavailable", Timeout.TotalSeconds);
+                return null;
+            }
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {

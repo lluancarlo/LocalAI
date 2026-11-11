@@ -29,10 +29,19 @@ public sealed record ProfileContent(
 /// </summary>
 public static class NoteFormats
 {
-    /// <summary>Characters of conversation sent to the model for one note (the most recent ones).</summary>
+    /// <summary>Characters of conversation sent to the model at once; a longer conversation is read in parts.</summary>
     public const int MaxTranscriptChars = 12_000;
+    /// <summary>Parts read for one note (the most recent ones): bounds the time a very long conversation takes.</summary>
+    public const int MaxTranscriptParts = 8;
     private const int MaxReplyChars = 800;
+    /// <summary>Longest user message in the transcript: a pasted document is cut, so every part fits the model's context.</summary>
+    internal const int MaxUserChars = 4000;
     private const int MaxSelectionChars = 600;
+
+    private static readonly JsonSerializerOptions PromptJson = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     public static MemoryHeadings Headings(LanguageData languages, string language) =>
         languages.Languages.TryGetValue(language, out var profile) && profile.MemoryHeadings is { } h ? h : new MemoryHeadings();
@@ -50,11 +59,22 @@ public static class NoteFormats
 
     // ---------------- Conversation notes ----------------
 
-    public static IReadOnlyList<ChatMessage> ConversationPrompt(string assistantName, string language, IReadOnlyList<StoredMessage> messages)
+    /// <param name="transcript">The conversation, or the part of it the note does not cover yet (<see cref="TranscriptParts"/>).</param>
+    /// <param name="previous">
+    /// The note so far, when <paramref name="transcript"/> is what came after it: the model returns the note of the
+    /// whole conversation, so what was noted of its start is kept.
+    /// </param>
+    public static IReadOnlyList<ChatMessage> ConversationPrompt(string assistantName, string language, string transcript,
+        ConversationSummary? previous = null)
     {
+        var task = previous == null
+            ? "Read the conversation between the USER and the assistant and output ONLY a JSON object:\n"
+            : "You get the note written so far (JSON) and the messages of the conversation between the USER and the " +
+              "assistant that came after it. Output ONLY a JSON object, the note of the whole conversation: keep what " +
+              "still holds from the note so far, add what the new messages bring, correct what the user corrected, and " +
+              "leave out open items that were done since:\n";
         var system =
-            $"You keep the memory notes of {assistantName}, a personal assistant. Read the conversation between the USER " +
-            "and the assistant and output ONLY a JSON object:\n" +
+            $"You keep the memory notes of {assistantName}, a personal assistant. " + task +
             "{\"summary\": \"...\", \"decisions\": [\"...\"], \"openItems\": [\"...\"], \"facts\": [\"...\"]}\n" +
             "- summary: 2 to 5 sentences on what was discussed and concluded.\n" +
             "- decisions: choices the user made or agreed to.\n" +
@@ -69,31 +89,67 @@ public static class NoteFormats
             "strong as the user said it, never stronger. When in doubt, leave it out: an empty list is better than a " +
             "wrong fact.\n" +
             "Use empty arrays when nothing applies. " + LanguageRule(language);
-        return [new(ChatRole.System, system), new(ChatRole.User, Transcript(messages) + "\n\nJSON object:")];
+        var user = previous == null
+            ? transcript
+            : "Note so far:\n" + JsonSerializer.Serialize(new
+            {
+                summary = previous.Summary,
+                decisions = previous.Decisions,
+                openItems = previous.OpenItems,
+                facts = previous.Facts,
+            }, PromptJson) + "\n\nMessages since then:\n" + transcript;
+        return [new(ChatRole.System, system), new(ChatRole.User, user + "\n\nJSON object:")];
     }
 
-    /// <summary>The conversation as plain text, newest part kept when it is too long.</summary>
-    internal static string Transcript(IReadOnlyList<StoredMessage> messages)
+    /// <summary>The newest part of the conversation as plain text (<see cref="TranscriptParts"/>).</summary>
+    internal static string Transcript(IReadOnlyList<StoredMessage> messages) => TranscriptParts(messages) is { Count: > 0 } parts ? parts[^1] : "";
+
+    /// <summary>
+    /// The conversation as plain text, oldest first, in parts of at most <see cref="MaxTranscriptChars"/> (whole
+    /// messages; long messages are cut). Only the newest <see cref="MaxTranscriptParts"/> parts are kept.
+    /// </summary>
+    internal static IReadOnlyList<string> TranscriptParts(IReadOnlyList<StoredMessage> messages)
     {
         var parts = new List<string>();
-        var length = 0;
-        for (var i = messages.Count - 1; i >= 0; i--)
+        var current = new StringBuilder();
+        foreach (var m in messages)
         {
-            var m = messages[i];
             if (m.Role == ChatRole.System || string.IsNullOrWhiteSpace(m.Content)) continue;
-            var text = m.Role == ChatRole.Assistant && m.Content.Length > MaxReplyChars ? m.Content[..MaxReplyChars] + "…" : m.Content;
+            var max = m.Role == ChatRole.Assistant ? MaxReplyChars : MaxUserChars;
+            var text = m.Content.Length > max ? m.Content[..max] + "…" : m.Content;
             if (m.Role == ChatRole.User && !string.IsNullOrWhiteSpace(m.SelectedText))
             {
                 var selection = m.SelectedText.Length > MaxSelectionChars ? m.SelectedText[..MaxSelectionChars] + "…" : m.SelectedText;
                 text = $"(selected on screen: \"{selection}\")\n{text}";
             }
-            var part = $"{(m.Role == ChatRole.User ? "USER" : "ASSISTANT")}: {text}";
-            if (length + part.Length > MaxTranscriptChars && parts.Count > 0) break;
-            parts.Add(part);
-            length += part.Length;
+            var line = $"{(m.Role == ChatRole.User ? "USER" : "ASSISTANT")}: {text}";
+            if (current.Length > 0 && current.Length + line.Length + 2 > MaxTranscriptChars)
+            {
+                parts.Add(current.ToString());
+                current.Clear();
+            }
+            if (current.Length > 0) current.Append("\n\n");
+            current.Append(line);
         }
-        parts.Reverse();
-        return string.Join("\n\n", parts);
+        if (current.Length > 0) parts.Add(current.ToString());
+        return parts.Count > MaxTranscriptParts ? parts.GetRange(parts.Count - MaxTranscriptParts, MaxTranscriptParts) : parts;
+    }
+
+    /// <summary>
+    /// The note's generated block read back (with the section titles of any language), or null when it says nothing:
+    /// what the next update starts from.
+    /// </summary>
+    public static ConversationSummary? ReadConversation(string? block, IReadOnlyList<MemoryHeadings> headings)
+    {
+        if (string.IsNullOrWhiteSpace(block)) return null;
+        var sections = NoteSections.Parse(block);
+        NoteSection? Find(Func<MemoryHeadings, string> title) => sections.FirstOrDefault(s => headings.Any(h => s.Heading == title(h)));
+        var summary = new ConversationSummary(
+            string.Join(' ', Find(h => h.Summary)?.Items ?? []),
+            Find(h => h.Decisions)?.Items ?? [],
+            Find(h => h.OpenItems)?.Items ?? [],
+            Find(h => h.FactsLearned)?.Items ?? []);
+        return summary.Summary.Length + summary.Decisions.Count + summary.OpenItems.Count + summary.Facts.Count == 0 ? null : summary;
     }
 
     public static ConversationSummary? ParseConversation(string raw) =>

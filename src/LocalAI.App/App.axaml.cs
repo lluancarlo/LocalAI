@@ -57,7 +57,16 @@ public sealed class App : Application
             var hotkeys = _services.GetRequiredService<AssistantHotkeys>();
             _ = Task.Run(async () =>
             {
-                await startup.StartAsync(_startupCts.Token).ConfigureAwait(false);
+                try
+                {
+                    await startup.StartAsync(_startupCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { return; } // the app is closing
+                catch (Exception ex)
+                {
+                    // The window must not stay on "Starting…": what did start is usable, the log says what did not.
+                    logger.LogError(ex, "Startup failed");
+                }
                 await Dispatcher.UIThread.InvokeAsync(vm.OnStartupCompleted);
                 // Shortcuts only once the engines are up: pressing one earlier would race the startup model load.
                 try { await hotkeys.StartAsync(_startupCts.Token).ConfigureAwait(false); }

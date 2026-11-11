@@ -5,7 +5,7 @@
       "id": "qwen3.5-35b-a3b-q4kxl",
       "displayName": "Qwen3.5 35B-A3B",
       "file": "llm/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
-      "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/bc014a17be43adabd7066b7a86075ff935c6a4e2/Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf",
       "sizeBytes": 22241950336,
       "quantization": "UD-Q4_K_XL",
       "parametersB": 35,
@@ -17,7 +17,7 @@
       "id": "gemma-4-26b-a4b-qat-q4kxl",
       "displayName": "Gemma 4 26B-A4B",
       "file": "llm/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
-      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/7b92b5b28818151e8669af2e45e88d6086f490dd/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
       "sizeBytes": 14249047104,
       "quantization": "UD-Q4_K_XL (QAT)",
       "parametersB": 26,
@@ -29,7 +29,7 @@
       "id": "qwen3.5-27b-q4kxl",
       "displayName": "Qwen3.5 27B",
       "file": "llm/Qwen3.5-27B-UD-Q4_K_XL.gguf",
-      "url": "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/main/Qwen3.5-27B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-27B-GGUF/resolve/3221f178a6b842d04f1fb42f1c413534adcc0a6a/Qwen3.5-27B-UD-Q4_K_XL.gguf",
       "sizeBytes": 17621125024,
       "quantization": "UD-Q4_K_XL",
       "parametersB": 27,
@@ -41,7 +41,7 @@
       "id": "gpt-oss-20b-mxfp4",
       "displayName": "gpt-oss 20B",
       "file": "llm/gpt-oss-20b-MXFP4.gguf",
-      "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf",
+      "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/15dcfc7e7c608c6161507211ed43c5b590801b4b/gpt-oss-20b-MXFP4.gguf",
       "sizeBytes": 12109566624,
       "quantization": "MXFP4",
       "parametersB": 21,
@@ -53,7 +53,7 @@
       "id": "gemma-4-12b-qat-q4_0",
       "displayName": "Gemma 4 12B",
       "file": "llm/gemma-4-12b-it-qat-q4_0.gguf",
-      "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
+      "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/29d097773436b69ff9feafd636ab4cf873786537/gemma-4-12b-it-qat-q4_0.gguf",
       "sizeBytes": 6975879296,
       "quantization": "Q4_0 (QAT)",
       "parametersB": 12,
@@ -65,7 +65,7 @@
       "id": "qwen3.5-9b-q4kxl",
       "displayName": "Qwen3.5 9B",
       "file": "llm/Qwen3.5-9B-UD-Q4_K_XL.gguf",
-      "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-UD-Q4_K_XL.gguf",
       "sizeBytes": 5966095584,
       "quantization": "UD-Q4_K_XL",
       "parametersB": 9,
@@ -77,7 +77,7 @@
       "id": "gemma-4-e4b-qat-q4_0",
       "displayName": "Gemma 4 E4B",
       "file": "llm/gemma-4-E4B_q4_0-it.gguf",
-      "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/gemma-4-E4B_q4_0-it.gguf",
+      "url": "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/4b4a2c1d584be7264f87aac328a1bc739ce81b6c/gemma-4-E4B_q4_0-it.gguf",
       "sizeBytes": 5154941280,
       "quantization": "Q4_0 (QAT)",
       "parametersB": 4,
@@ -89,7 +89,7 @@
       "id": "qwen3.5-4b-q4kxl",
       "displayName": "Qwen3.5 4B",
       "file": "llm/Qwen3.5-4B-UD-Q4_K_XL.gguf",
-      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-UD-Q4_K_XL.gguf",
       "sizeBytes": 2912109728,
       "quantization": "UD-Q4_K_XL",
       "parametersB": 4,
@@ -103,7 +103,7 @@
       "id": "embeddinggemma-300m-q8_0",
       "displayName": "EmbeddingGemma 300M",
       "file": "embedding/embeddinggemma-300M-Q8_0.gguf",
-      "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf",
+      "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf",
       "sizeBytes": 333590944
     }
   ],
@@ -112,7 +112,7 @@
       "id": "large-v3-turbo-q8_0",
       "displayName": "Whisper large-v3-turbo (q8_0)",
       "file": "whisper/ggml-large-v3-turbo-q8_0.bin",
-      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q8_0.bin",
       "sizeBytes": 874188075
     }
   ],
@@ -198,6 +198,10 @@
     "urls": [
       "https://github.com/ggml-org/llama.cpp/releases/download/b11381/llama-b11381-bin-win-cuda-13.4-x64.zip",
       "https://github.com/ggml-org/llama.cpp/releases/download/b11381/cudart-llama-bin-win-cuda-13.4-x64.zip"
+    ],
+    "sha256": [
+      "8e3dca4fc1cdd11f3e3ebc770b159483bd8fd7dfeceff396fbb31997495d0b2e",
+      "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668"
     ],
     "sizeBytes": 576540693
   }

@@ -198,7 +198,9 @@ public sealed class SqliteDatabase
             CultureInfo.InvariantCulture.CompareInfo.IndexOf(haystack, needle,
                 CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0);
         await using var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
+        // synchronous = NORMAL: with the write-ahead log, a commit no longer waits for the disk; a power cut can lose
+        // the last commits but never corrupts the database.
+        pragma.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;";
         await pragma.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         return connection;
     }
@@ -218,6 +220,13 @@ public sealed class SqliteDatabase
         await using var versionCmd = connection.CreateCommand();
         versionCmd.CommandText = "PRAGMA user_version;";
         var version = Convert.ToInt32(await versionCmd.ExecuteScalarAsync().ConfigureAwait(false), CultureInfo.InvariantCulture);
+
+        // A database written by a newer version (an older copy of the app on the same data folder) has tables and
+        // columns this version does not know: refuse it rather than write to it.
+        if (version > Migrations.Length)
+            throw new InvalidOperationException(
+                $"The database was written by a newer version of the app (schema v{version}, this version knows v{Migrations.Length}). " +
+                "Use that version, or a newer one.");
 
         for (var v = version; v < Migrations.Length; v++)
         {

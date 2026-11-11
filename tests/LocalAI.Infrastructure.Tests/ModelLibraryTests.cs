@@ -91,6 +91,42 @@ public sealed class ModelLibraryTests : IDisposable
     }
 
     [Fact]
+    public async Task A_download_the_server_fails_for_a_moment_is_tried_again()
+    {
+        var library = new ModelLibrary(Catalog(), _paths, new ModelDownloader(_server) { RetryDelay = TimeSpan.Zero });
+        _server.FailNext = 2; // 503 twice, then the file
+
+        await library.InstallAsync(Llm, null, CancellationToken.None);
+
+        Assert.Equal(_model, await File.ReadAllBytesAsync(Llm.InstallPath));
+        Assert.Equal(3, _server.Requests.Count(r => r == LlmUrl));
+    }
+
+    [Fact]
+    public async Task A_server_that_keeps_failing_ends_the_download_with_its_error()
+    {
+        var library = new ModelLibrary(Catalog(), _paths, new ModelDownloader(_server) { RetryDelay = TimeSpan.Zero, MaxAttempts = 3 });
+        _server.FailNext = 100;
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => library.InstallAsync(Llm, null, CancellationToken.None));
+
+        Assert.Equal(3, _server.Requests.Count(r => r == LlmUrl));
+        Assert.False(library.IsInstalled(Llm));
+    }
+
+    [Fact]
+    public async Task A_model_larger_than_the_free_disk_space_is_not_downloaded()
+    {
+        var huge = new ModelCatalog { Llm = [new LlmCatalogEntry { Id = "huge", DisplayName = "Huge", File = "llm/huge.gguf", Url = LlmUrl, SizeBytes = long.MaxValue / 2 }] };
+        var library = new ModelLibrary(huge, _paths, new ModelDownloader(_server));
+
+        var error = await Assert.ThrowsAsync<IOException>(() => library.InstallAsync(library.Packages.Single(), null, CancellationToken.None));
+
+        Assert.Contains("Not enough disk space for Huge", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(LlmUrl, _server.Requests);
+    }
+
+    [Fact]
     public async Task Incomplete_download_is_rejected()
     {
         _server.Files[LlmUrl] = _model[..1000];
@@ -228,6 +264,8 @@ public sealed class ModelLibraryTests : IDisposable
         public Dictionary<string, (string Body, string? Next)> Pages { get; } = [];
         public List<string> Requests { get; } = [];
         public long? LastRangeStart { get; private set; }
+        /// <summary>The next file requests (this many) are answered with 503 Service Unavailable.</summary>
+        public int FailNext { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -240,6 +278,7 @@ public sealed class ModelLibraryTests : IDisposable
                 return Task.FromResult(listing);
             }
             if (!Files.TryGetValue(url, out var data)) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            if (FailNext-- > 0) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
             LastRangeStart = request.Headers.Range?.Ranges.First().From;
             var start = (int)(LastRangeStart ?? 0);
             var response = new HttpResponseMessage(start > 0 ? HttpStatusCode.PartialContent : HttpStatusCode.OK)

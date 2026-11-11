@@ -95,6 +95,21 @@ public sealed class WasapiAudioPlayer : IAudioPlayer
             var mix = player.DeviceMixFormat;
             var provider = new QueueProvider(mix.SampleRate, mix.Channels, OnQueueDrained);
             player.Init(new SampleToWaveProvider(provider));
+            // The device went away (unplugged, disabled): what was queued is lost, the next clip opens the output
+            // again on whatever device is there, and nothing keeps waiting for audio that will never play.
+            player.PlaybackStopped += (_, e) =>
+            {
+                if (e.Exception == null) return;
+                _logger.LogWarning(e.Exception, "Audio output stopped; it reopens with the next speech");
+                // Not on the player's own thread: closing waits for it.
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_output, player)) CloseOutput();
+                    }
+                });
+            };
             player.Play();
             _output = player;
             _provider = provider;

@@ -1,0 +1,37 @@
+# Every pull request: build the solution and run the unit tests (what the release workflow runs before it publishes).
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same pull request makes an older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build LocalAI.sln -c Release
+
+      # Integration tests need downloaded models and audio hardware; Desktop tests need an interactive session.
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          foreach ($project in 'LocalAI.Core.Tests', 'LocalAI.Memory.Tests', 'LocalAI.Infrastructure.Tests') {
+            dotnet test "tests/$project/$project.csproj" -c Release --no-build --filter "Category!=Desktop"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

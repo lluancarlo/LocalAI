@@ -102,6 +102,8 @@ public sealed record RuntimeCatalogEntry
     public string DisplayName { get; init; } = "";
     public string Dir { get; init; } = "llama.cpp";
     public IReadOnlyList<string> Urls { get; init; } = [];
+    /// <summary>The SHA-256 of each archive of <see cref="Urls"/>, in the same order (scripts\publish.ps1 checks them).</summary>
+    public IReadOnlyList<string> Sha256 { get; init; } = [];
     public long SizeBytes { get; init; }
 }
 

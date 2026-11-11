@@ -34,6 +34,7 @@ public interface IConversationStore
     Task<StoredMessage> AddMessageAsync(StoredMessage message, CancellationToken ct = default);
     Task<IReadOnlyList<StoredMessage>> GetMessagesAsync(long conversationId, CancellationToken ct = default);
     /// <summary>Most recent messages (chronological order).</summary>
+    /// <summary>The newest messages, oldest first, for the prompt: their <see cref="StoredMessage.MetadataJson"/> is not read.</summary>
     Task<IReadOnlyList<StoredMessage>> GetRecentMessagesAsync(long conversationId, int limit, CancellationToken ct = default);
     /// <summary>Case-insensitive search over titles and message content.</summary>
     Task<IReadOnlyList<ConversationSearchHit>> SearchAsync(string query, CancellationToken ct = default);

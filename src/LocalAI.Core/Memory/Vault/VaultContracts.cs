@@ -89,10 +89,18 @@ public interface IVaultIndex
     /// </summary>
     Task ReplaceDocumentsAsync(long assistantId, IReadOnlyList<LearnedDocument> documents, CancellationToken ct = default);
     Task<IReadOnlyList<NoteChunk>> ListChunksAsync(long assistantId, CancellationToken ct = default);
+    /// <summary>
+    /// The assistant's notes with a passage that has no embedding of <paramref name="embeddingModel"/> (none, or
+    /// another model's), without reading the passages: they are embedded again.
+    /// </summary>
+    Task<IReadOnlySet<long>> NotesEmbeddedWithAnotherModelAsync(long assistantId, string embeddingModel, CancellationToken ct = default);
     /// <summary>How many passages the assistant's learned documents have (without reading them).</summary>
     Task<int> CountDocumentChunksAsync(long assistantId, CancellationToken ct = default);
-    /// <summary>Full-text matches among the assistant's sections, best first (chunk ids).</summary>
-    Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, CancellationToken ct = default);
+    /// <summary>
+    /// Full-text matches among the assistant's sections, best first (chunk ids): of its learned documents
+    /// (<paramref name="documents"/>) or of its other notes, so neither takes the other's places in the result.
+    /// </summary>
+    Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, bool documents = false, CancellationToken ct = default);
 
     /// <summary>
     /// Conversations created after <paramref name="since"/>, quiet since <paramref name="idleBefore"/>, with a reply

@@ -43,12 +43,8 @@ public sealed class StartupService(
         var total = Stopwatch.StartNew();
         logger.LogInformation("LocalAI starting (PID {Pid}, .NET {Version})", Environment.ProcessId, Environment.Version);
 
-        Gpu = await gpu.GetGpuInfoAsync(ct).ConfigureAwait(false);
-        if (Gpu != null)
-            logger.LogInformation("GPU: {Name}, {Vram} MB VRAM ({Used} MB in use), driver {Driver}, CUDA {Cuda}, compute {Cc}",
-                Gpu.Name, Gpu.TotalMemoryMb, Gpu.UsedMemoryMb, Gpu.DriverVersion, Gpu.CudaVersion, Gpu.ComputeCapability);
-        else
-            logger.LogWarning("No NVIDIA GPU detected; inference will run on the CPU");
+        // The GPU is asked (nvidia-smi, a few hundred milliseconds) while the database opens and the assistant loads.
+        var gpuInfo = Task.Run(() => gpu.GetGpuInfoAsync(ct), ct);
 
         try
         {
@@ -82,6 +78,17 @@ public sealed class StartupService(
             await assistants.AssignMissingAvatarsAsync(a => AssistantAvatars.ForGender(
                 library.Voices.FirstOrDefault(v => v.Id == a.VoiceId)?.Gender), ct).ConfigureAwait(false);
             return assistant.Current is { } a ? (ComponentState.Ready, $"assistant {a.Id}") : (ComponentState.Unavailable, "none created yet");
+        }).ConfigureAwait(false);
+
+        await RunAsync("GPU", async () =>
+        {
+            Gpu = await gpuInfo.ConfigureAwait(false);
+            if (Gpu != null)
+                logger.LogInformation("GPU: {Name}, {Vram} MB VRAM ({Used} MB in use), driver {Driver}, CUDA {Cuda}, compute {Cc}",
+                    Gpu.Name, Gpu.TotalMemoryMb, Gpu.UsedMemoryMb, Gpu.DriverVersion, Gpu.CudaVersion, Gpu.ComputeCapability);
+            else
+                logger.LogWarning("No NVIDIA GPU detected; inference will run on the CPU");
+            return Gpu != null ? (ComponentState.Ready, Gpu.Name) : (ComponentState.Unavailable, "none detected");
         }).ConfigureAwait(false);
 
         // The AI stays off until the user turns it on, unless Settings › General › Startup says otherwise.

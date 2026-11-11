@@ -58,6 +58,21 @@ public sealed record LanguageData
 
     /// <summary>Keyed by ISO 639-1 code.</summary>
     public IReadOnlyDictionary<string, LanguageProfile> Languages { get; init; } = new Dictionary<string, LanguageProfile>();
+    /// <summary>
+    /// What a language is called in the instructions to the language model ("Always reply in Brazilian Portuguese"),
+    /// by ISO 639-1 code: also languages the user may write or speak that no assistant has as its own.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> LanguageNames { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The name of the language for the model's instructions; the code itself when it has none, "" for none.</summary>
+    public string LanguageName(string? code) =>
+        string.IsNullOrEmpty(code) ? "" : LanguageNames.TryGetValue(code, out var name) ? name : code;
+
+    private static readonly Lazy<LanguageData> DefaultData = new(LoadDefault);
+
+    /// <summary>The shipped languages.json, read once.</summary>
+    public static LanguageData Default => DefaultData.Value;
+
     /// <summary>Whisper output on silence or noise (lower case, matched as substrings).</summary>
     public IReadOnlyList<string> TranscriptNoise { get; init; } = [];
     /// <summary>Lower-case abbreviations whose period does not end a sentence.</summary>

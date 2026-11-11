@@ -60,6 +60,7 @@ public sealed class ModelLibrary
         if (IsInstalled(package)) return;
         var staging = StagingDirectory(package);
         Directory.CreateDirectory(staging);
+        EnsureFreeSpace(package, staging);
         Directory.CreateDirectory(Path.GetDirectoryName(package.InstallPath)!);
 
         if (package.Files is { } files)
@@ -76,6 +77,29 @@ public sealed class ModelLibrary
         }
 
         Directory.Delete(staging, recursive: true);
+    }
+
+    /// <summary>Room kept free on the disk besides the download (the database, logs and notes keep growing).</summary>
+    private const long FreeSpaceMargin = 256L * 1024 * 1024;
+
+    /// <summary>Fails before the download starts when the disk cannot hold what is left of it.</summary>
+    private void EnsureFreeSpace(ModelPackage package, string staging)
+    {
+        long free;
+        try
+        {
+            var received = new DirectoryInfo(staging).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            var needed = package.SizeBytes - received;
+            if (needed <= 0) return;
+            free = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(staging))!).AvailableFreeSpace;
+            if (free >= needed + FreeSpaceMargin) return;
+            throw new IOException(
+                $"Not enough disk space for {package.DisplayName}: {needed / 1e9:F1} GB to download, {free / 1e9:F1} GB free.");
+        }
+        catch (ArgumentException)
+        {
+            // Not a drive (a network share): the free space is unknown, the download finds out.
+        }
     }
 
     /// <summary>Deletes the model's files; a model the user added also leaves the list.</summary>

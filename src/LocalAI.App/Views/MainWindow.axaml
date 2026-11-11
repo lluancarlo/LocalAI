@@ -452,6 +452,10 @@
                   <CheckBox IsChecked="{Binding ReadSelection}" Content="Read selection" />
                   <TextBlock Classes="muted" TextWrapping="Wrap" Margin="28,0,0,0"
                              Text="In Live mode, text you select with the mouse in another application (drag, double-click or triple-click) is sent with your next message as context. Some applications do not share their selected text." />
+                  <CheckBox IsChecked="{Binding CopySelection}" IsEnabled="{Binding ReadSelection}" Margin="28,4,0,0"
+                            Content="Copy the selection when the application does not share it" />
+                  <TextBlock Classes="muted" TextWrapping="Wrap" Margin="56,0,0,0"
+                             Text="Sends Ctrl+C to that application (Notepad++, VS Code and others), reads the copied text and puts your clipboard back. Only when your clipboard is empty or holds plain text. The copied text can appear in Windows' clipboard history (Win+V) and its cloud sync, if you use them." />
                 </StackPanel>
                 </StackPanel>
                 </Border>

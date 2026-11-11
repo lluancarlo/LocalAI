@@ -124,6 +124,12 @@ public sealed class VoiceOptions
     /// with the next message.
     /// </summary>
     public bool ReadSelection { get; set; }
+    /// <summary>
+    /// Read selection may send Ctrl+C to applications that do not share their selection (Notepad++, VS Code, ...) and
+    /// read the clipboard. Off by default: the copied text can show in Windows' clipboard history and its cloud sync,
+    /// which the app cannot prevent (the other application does the copying).
+    /// </summary>
+    public bool CopySelection { get; set; }
     /// <summary>Longest selection sent to the model; longer selections are cut.</summary>
     public int SelectionMaxChars { get; set; } = 8000;
     /// <summary>Silero speech probability threshold.</summary>

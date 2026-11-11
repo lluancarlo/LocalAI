@@ -51,7 +51,9 @@ public sealed class ModelService(
     /// <summary>How far the download of <paramref name="id"/> is (0 to 1), or null when it is not downloading.</summary>
     public double? DownloadProgress(string id) => _downloads.ContainsKey(id) ? _progress.GetValueOrDefault(id) : null;
 
-    /// <summary>Raised (on any thread, a few times a second) while a download advances.</summary>
+    private const int ProgressNotifyMs = 250;
+
+    /// <summary>Raised (on any thread, at most four times a second) while a download advances.</summary>
     public event EventHandler? DownloadProgressChanged;
 
     public bool HasLanguageModel => Packages.Any(p => p.Kind == ModelKind.Llm && IsInstalled(p));
@@ -143,11 +145,17 @@ public sealed class ModelService(
         library.AddPending([package]);
         _progress[package.Id] = 0;
         Changed?.Invoke(this, EventArgs.Empty);
+        var lastNotified = 0L;
         var tracked = new InlineProgress(p =>
         {
             _progress[package.Id] = p;
             progress?.Report(p);
-            DownloadProgressChanged?.Invoke(this, EventArgs.Empty);
+            // Several files download at once and each reports ten times a second: the screen follows four times a second.
+            var now = Environment.TickCount64;
+            var last = Interlocked.Read(ref lastNotified);
+            if (p < 1 && now - last < ProgressNotifyMs) return;
+            if (Interlocked.CompareExchange(ref lastNotified, now, last) == last || p >= 1)
+                DownloadProgressChanged?.Invoke(this, EventArgs.Empty);
         });
         try
         {

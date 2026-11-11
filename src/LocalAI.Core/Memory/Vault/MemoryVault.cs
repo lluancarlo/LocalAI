@@ -66,6 +66,10 @@ public sealed partial class MemoryVault(
     /// for the rest of the note, so the style is never cut.
     /// </summary>
     private const int MaxIdentityChars = AssistantManager.MaxStyleLength + 4000;
+    /// <summary>
+    /// Full-text matches read for one search: more than are ranked, since some are of notes recall does not search.
+    /// </summary>
+    private const int KeywordMatches = 300;
     /// <summary>Passages embedded in one request to the embedding server.</summary>
     private const int EmbedBatchSize = 16;
     private readonly MemoryOptions _options = options.Value.Memory;
@@ -89,7 +93,7 @@ public sealed partial class MemoryVault(
     private MemoryHeadings Headings => NoteFormats.Headings(languages, _options.NotesLanguage);
     private IReadOnlyList<MemoryHeadings> AnyHeadings => NoteFormats.AllHeadings(languages);
 
-    private static readonly GenerationOptions Background = new() { Temperature = 0.2f, MaxTokens = 800, Background = true };
+    private static readonly GenerationOptions Background = new() { Temperature = 0.2f, MaxTokens = 800, Background = true, Json = true };
 
     public string Root => storage.Root;
 
@@ -125,10 +129,27 @@ public sealed partial class MemoryVault(
             return false;
         }
 
-        await StepAsync("Conversation note: the model summarizes the conversation", ct).ConfigureAwait(false);
-        var raw = await llm.GenerateAsync(NoteFormats.ConversationPrompt(assistant.Name, _options.NotesLanguage, messages), Background, ct)
-            .ConfigureAwait(false);
-        var summary = NoteFormats.ParseConversation(raw) ?? throw new InvalidDataException("The conversation summary was not valid JSON.");
+        // A note already written is updated with the messages that came after it, so what it says of the start of a
+        // long conversation stays. A long conversation (or a long new part) is read in parts, each one updating the note.
+        var summary = existing != null ? NoteFormats.ReadConversation(document?.Generated, AnyHeadings) : null;
+        var unread = summary != null && existing?.SourceUpdatedAt is { } covered ? messages.Where(m => m.CreatedAt > covered).ToList() : messages;
+        if (summary != null && !unread.Any(m => m.Role != ChatRole.System && !string.IsNullOrWhiteSpace(m.Content)))
+        {
+            // Nothing newer than the note to read (e.g. clocks changed): the whole conversation, from scratch.
+            summary = null;
+            unread = messages;
+        }
+        var parts = NoteFormats.TranscriptParts(unread);
+        for (var i = 0; i < parts.Count; i++)
+        {
+            await StepAsync(parts.Count == 1
+                ? "Conversation note: the model summarizes the conversation"
+                : $"Conversation note: the model summarizes the conversation (part {i + 1} of {parts.Count})", ct).ConfigureAwait(false);
+            var raw = await llm.GenerateAsync(NoteFormats.ConversationPrompt(assistant.Name, _options.NotesLanguage, parts[i], summary), Background, ct)
+                .ConfigureAwait(false);
+            summary = NoteFormats.ParseConversation(raw) ?? throw new InvalidDataException("The conversation summary was not valid JSON.");
+        }
+        if (summary == null) return false; // nothing to summarize
         var block = NoteFormats.RenderConversation(summary, Headings);
         await StepAsync("Conversation note: saving the note", ct).ConfigureAwait(false);
 
@@ -381,9 +402,8 @@ public sealed partial class MemoryVault(
         var folder = await AssistantFolderAsync(assistant, ct).ConfigureAwait(false);
         var known = (await index.ListNotesAsync(assistantId, ct).ConfigureAwait(false)).ToDictionary(n => n.Path, StringComparer.Ordinal);
         var stale = embeddings.IsAvailable
-            ? (await index.ListChunksAsync(assistantId, ct).ConfigureAwait(false))
-                .Where(c => c.EmbeddingModel != embeddings.ModelId).Select(c => c.NoteId).ToHashSet()
-            : [];
+            ? await index.NotesEmbeddedWithAnotherModelAsync(assistantId, embeddings.ModelId, ct).ConfigureAwait(false)
+            : new HashSet<long>();
         var changed = await ForgetMissingNotesAsync(known.Values, ct).ConfigureAwait(false) > 0;
         await StepAsync("Index: checking the notes for changes", ct).ConfigureAwait(false);
         foreach (var path in storage.ListNotes(folder).Where(p => !VaultLayout.IsLearnPath(p)))
@@ -492,7 +512,7 @@ public sealed partial class MemoryVault(
                     for (var k = 0; k < count; k++)
                         chunks[i + k] = chunks[i + k] with { Embedding = vectors[k], EmbeddingModel = embeddings.ModelId };
                 }
-                catch (OperationCanceledException) { throw; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; } // a timeout is a failure, not a stop
                 catch (Exception ex) { logger.LogWarning(ex, "Embedding note passages failed; they are found by keywords only"); }
             }
         }
@@ -513,7 +533,9 @@ public sealed partial class MemoryVault(
         {
             var content = string.Join('\n', section.Body.Split('\n').Where(l => !l.StartsWith("# ", StringComparison.Ordinal))).Trim();
             if (content.Length == 0) continue;
-            foreach (var piece in SplitLong(content))
+            // A paragraph without blank lines is cut too: a passage longer than the embedding model reads would fail
+            // its whole batch.
+            foreach (var piece in SplitLong(content).SelectMany(HardSplit))
                 chunks.Add(new NoteChunk { NoteId = note.Id, NoteTitle = title, Heading = section.Heading, Text = piece });
         }
         return chunks;
@@ -580,9 +602,9 @@ public sealed partial class MemoryVault(
                 var vector = await queryVector.ConfigureAwait(false);
                 // The learned documents and the conversation notes each get half of what is left: neither crowds out the other.
                 var share = budget / 2;
-                var left = Take(await RankAsync(assistant.Id, searchText, vector, set.Documents, ct).ConfigureAwait(false),
+                var left = Take(await RankAsync(assistant.Id, searchText, vector, set.Documents, documents: true, ct).ConfigureAwait(false),
                     _options.RetrieveTopKDocuments, share, documents);
-                Take(await RankAsync(assistant.Id, searchText, vector, set.Chunks, ct).ConfigureAwait(false),
+                Take(await RankAsync(assistant.Id, searchText, vector, set.Chunks, documents: false, ct).ConfigureAwait(false),
                     _options.RetrieveTopKChunks, budget - share + left, passages);
             }
             if (profile != null || passages.Count + documents.Count > 0)
@@ -590,7 +612,7 @@ public sealed partial class MemoryVault(
                     profile != null, passages.Count, documents.Count);
             return new MemoryContext(profile, passages, identity, documents);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; } // a timeout is a failure, not a stop
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Memory recall failed; continuing without memory");
@@ -623,7 +645,7 @@ public sealed partial class MemoryVault(
         {
             return (await RecallSetAsync(assistant.Id, ct).ConfigureAwait(false)).Conversations;
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; } // a timeout is a failure, not a stop
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not read which conversations are in memory");
@@ -655,7 +677,10 @@ public sealed partial class MemoryVault(
             .Concat(conversationNotes.Select(n => n.Id))
             .ToHashSet();
         var documentNotes = notes.Where(n => n.Kind == NoteKind.Document).Select(n => n.Id).ToHashSet();
-        var all = await index.ListChunksAsync(assistantId, ct).ConfigureAwait(false);
+        // Vectors of length 1: comparing the question with a passage is then one dot product (RankAsync).
+        var all = (await index.ListChunksAsync(assistantId, ct).ConfigureAwait(false))
+            .Select(c => c.Embedding == null ? c : c with { Embedding = VectorMath.Normalize(c.Embedding) })
+            .ToList();
         var chunks = all.Where(c => searched.Contains(c.NoteId)).ToList();
         var withPassages = chunks.Select(c => c.NoteId).ToHashSet();
         var set = new RecallSet(chunks, conversationNotes.Where(n => withPassages.Contains(n.Id)).Select(n => n.ConversationId!.Value).ToHashSet(),
@@ -684,7 +709,7 @@ public sealed partial class MemoryVault(
         {
             return await embeddings.EmbedAsync(query, EmbeddingPurpose.Query, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; } // a timeout is a failure, not a stop
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Semantic note search failed; using words only");
@@ -731,15 +756,18 @@ public sealed partial class MemoryVault(
 
     /// <summary>Reciprocal rank fusion of the semantic and the full-text ranking.</summary>
     private async Task<IReadOnlyList<NoteChunk>> RankAsync(long assistantId, string query, float[]? queryVector,
-        IReadOnlyList<NoteChunk> chunks, CancellationToken ct)
+        IReadOnlyList<NoteChunk> chunks, bool documents, CancellationToken ct)
     {
         const double k = 60;
+        if (chunks.Count == 0) return [];
+        var byId = chunks.ToDictionary(c => c.Id);
         var scores = new Dictionary<long, double>();
         if (queryVector != null)
         {
+            var question = VectorMath.Normalize(queryVector);
             var semantic = chunks
                 .Where(c => c.Embedding != null && c.EmbeddingModel == embeddings.ModelId)
-                .Select(c => (c.Id, Score: VectorMath.Cosine(queryVector, c.Embedding)))
+                .Select(c => (c.Id, Score: VectorMath.Dot(question, c.Embedding)))
                 .Where(s => s.Score >= _options.MinRelevance)
                 .OrderByDescending(s => s.Score)
                 .Take(50)
@@ -749,11 +777,13 @@ public sealed partial class MemoryVault(
         var keywords = Keywords(query);
         if (keywords.Length > 0)
         {
-            var words = await index.SearchChunksAsync(assistantId, keywords, 100, ct).ConfigureAwait(false);
+            // Only passages recall searches count, each at its place among them (the profile, the identity and
+            // conversation notes too old to be searched match too, and would push the others down).
+            var words = (await index.SearchChunksAsync(assistantId, keywords, KeywordMatches, documents, ct).ConfigureAwait(false))
+                .Where(byId.ContainsKey).ToList();
             for (var i = 0; i < words.Count; i++) scores[words[i]] = scores.GetValueOrDefault(words[i]) + 1 / (k + i + 1);
         }
 
-        var byId = chunks.ToDictionary(c => c.Id);
         return scores.OrderByDescending(s => s.Value).Where(s => byId.ContainsKey(s.Key)).Select(s => byId[s.Key]).ToList();
     }
 

@@ -21,6 +21,8 @@ internal sealed class FakeLanguageModel : ILanguageModel
     public IReadOnlyList<string> Thoughts { get; set; } = [];
     public Func<IReadOnlyList<ChatMessage>, IEnumerable<string>> Responder { get; set; } = _ => ["Hello", " there", "."];
     public TimeSpan TokenDelay { get; set; } = TimeSpan.Zero;
+    /// <summary>The next requests are rejected as longer than the context (this many).</summary>
+    public int Overflows { get; set; }
     public LanguageModelState State { get; set; } = LanguageModelState.Ready;
     public ModelInfo? Info { get; set; } = new() { Id = "fake", DisplayName = "Fake", FilePath = "fake.gguf" };
     /// <summary>When set, loading picks this model id (like the real engine reading the assistant's model from the options).</summary>
@@ -72,6 +74,7 @@ internal sealed class FakeLanguageModel : ILanguageModel
             Requests.Add(messages);
             Options.Add(options);
         }
+        if (Overflows-- > 0) throw new ContextOverflowException("request (9000 tokens) exceeds the available context size (8192 tokens)");
         if (options.Thinking)
         {
             foreach (var thought in Thoughts) yield return new LlmChunk("", Reasoning: thought);
@@ -109,6 +112,16 @@ internal sealed class InMemoryConversationStore : IConversationStore
 
     public Task RenameAsync(long id, string title, CancellationToken ct = default) => Task.CompletedTask;
 
+    /// <summary>Sets when the conversation last changed (the real store does it with every message).</summary>
+    public void Touch(long id, DateTimeOffset updatedAt)
+    {
+        lock (_conversations)
+        {
+            var i = _conversations.FindIndex(c => c.Id == id);
+            _conversations[i] = _conversations[i] with { UpdatedAt = updatedAt };
+        }
+    }
+
     public Task DeleteAsync(long id, CancellationToken ct = default)
     {
         _conversations.RemoveAll(c => c.Id == id);
@@ -116,8 +129,12 @@ internal sealed class InMemoryConversationStore : IConversationStore
         return Task.CompletedTask;
     }
 
+    /// <summary>When set, saving a message fails with it (e.g. the database is locked).</summary>
+    public Exception? FailAdd { get; set; }
+
     public Task<StoredMessage> AddMessageAsync(StoredMessage message, CancellationToken ct = default)
     {
+        if (FailAdd != null) throw FailAdd;
         var m = message with { Id = _nextId++ };
         lock (_messages) _messages.Add(m);
         return Task.FromResult(m);
@@ -258,6 +275,16 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlySet<long>> NotesEmbeddedWithAnotherModelAsync(long assistantId, string embeddingModel, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            var notes = Notes.Where(n => n.AssistantId == assistantId).Select(n => n.Id).ToHashSet();
+            return Task.FromResult<IReadOnlySet<long>>(Chunks
+                .Where(c => notes.Contains(c.NoteId) && c.EmbeddingModel != embeddingModel).Select(c => c.NoteId).ToHashSet());
+        }
+    }
+
     public Task<int> CountDocumentChunksAsync(long assistantId, CancellationToken ct = default)
     {
         lock (_gate)
@@ -276,10 +303,13 @@ internal sealed class InMemoryVaultIndex : IVaultIndex
         }
     }
 
-    public async Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, bool documents = false, CancellationToken ct = default)
     {
         var words = query.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length >= 3).ToList();
+        HashSet<long> ofKind;
+        lock (_gate) ofKind = Notes.Where(n => n.Kind == NoteKind.Document == documents).Select(n => n.Id).ToHashSet();
         return (await ListChunksAsync(assistantId, ct))
+            .Where(c => ofKind.Contains(c.NoteId))
             .Select(c => (c.Id, Hits: words.Count(w => c.Text.Contains(w, StringComparison.OrdinalIgnoreCase))))
             .Where(x => x.Hits > 0).OrderByDescending(x => x.Hits).Take(limit).Select(x => x.Id).ToList();
     }
@@ -391,9 +421,12 @@ internal sealed class FakeEmbeddings : IEmbeddingService
     private static readonly string[] Vocabulary = ["c#", "prefers", "python", "coffee", "rome", "user", "software", "likes"];
     public bool IsAvailable { get; set; } = true;
     public string ModelId => "fake-embed";
+    /// <summary>When set, embedding fails with it (e.g. the request to the embedding server timed out).</summary>
+    public Exception? Fail { get; set; }
 
     public Task<float[]> EmbedAsync(string text, EmbeddingPurpose purpose, CancellationToken ct = default)
     {
+        if (Fail != null) return Task.FromException<float[]>(Fail);
         var lower = text.ToLowerInvariant();
         return Task.FromResult(Vocabulary.Select(w => lower.Contains(w) ? 1f : 0f).ToArray());
     }

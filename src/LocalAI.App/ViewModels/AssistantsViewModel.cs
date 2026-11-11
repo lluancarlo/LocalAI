@@ -159,6 +159,7 @@ public sealed partial class AssistantsViewModel : ObservableObject
         _readAloudEnabled = _voice.ReadAloudEnabled;
         _liveEnabled = _voice.LiveEnabled;
         _readSelection = _voice.ReadSelection;
+        _copySelection = _voice.CopySelection;
         _reactionsIndex = (int)_voice.Reactions;
         _waitForUnfinishedSentences = _voice.WaitForUnfinishedSentences;
         _fillerDelayIndex = NearestFillerDelay(_voice.FillerDelayMs);
@@ -581,6 +582,15 @@ public sealed partial class AssistantsViewModel : ObservableObject
         _voice.ReadSelection = value;
         _settings.Set("Voice", "ReadSelection", value);
         _selection.Refresh(); // starts or stops watching right away if live mode is on
+    }
+
+    /// <summary>Read selection may send Ctrl+C to applications that do not share their selection (read at every selection).</summary>
+    [ObservableProperty] private bool _copySelection;
+
+    partial void OnCopySelectionChanged(bool value)
+    {
+        _voice.CopySelection = value;
+        _settings.Set("Voice", "CopySelection", value);
     }
 
     // ---------------- Live conversation ----------------

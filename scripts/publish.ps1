@@ -21,10 +21,19 @@ if (-not (Test-Path (Join-Path $runtime "llama-server.exe"))) {
     Write-Host "Downloading $($catalog.runtime.displayName)..."
     $downloads = Join-Path $root "runtime\_downloads"
     New-Item -ItemType Directory -Force $downloads, $runtime | Out-Null
-    foreach ($url in $catalog.runtime.urls) {
+    for ($i = 0; $i -lt $catalog.runtime.urls.Count; $i++) {
+        $url = $catalog.runtime.urls[$i]
         $zip = Join-Path $downloads (Split-Path $url -Leaf)
         & curl.exe -L --fail --retry 5 -C - -o $zip $url
         if ($LASTEXITCODE -ne 0) { throw "Download failed: $url" }
+        # The archive must be the one the catalog names (its SHA-256, as published with the llama.cpp release):
+        # its programs ship inside the app.
+        $expected = $catalog.runtime.sha256[$i]
+        $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) {
+            Remove-Item -Force $zip
+            throw "Wrong SHA-256 for $url`n  expected $expected`n  got      $actual"
+        }
         Expand-Archive -Force $zip $runtime
     }
     Remove-Item -Recurse -Force $downloads
@@ -34,7 +43,7 @@ if (-not (Test-Path (Join-Path $runtime "llama-server.exe"))) {
 if (Test-Path $out) {
     Get-ChildItem $out | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force
 }
-dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained true -o $out -p:DebugType=none
+dotnet publish (Join-Path $root "src\LocalAI.App\LocalAI.App.csproj") -c Release -r win-x64 --self-contained true -o $out -p:DebugType=none -p:PublishReadyToRun=true
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 Copy-Item (Join-Path $root "THIRD-PARTY-NOTICES.md") $out # bundled components' licenses travel with every copy
 

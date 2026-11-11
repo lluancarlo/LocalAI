@@ -2,8 +2,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading.Channels;
+using LocalAI.Configuration;
 using LocalAI.Core.Desktop;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace LocalAI.Desktop;
 
@@ -12,19 +14,22 @@ namespace LocalAI.Desktop;
 /// a message loop) notices selection gestures: a drag, a double- or triple-click, or a Shift+click. Shortly after the
 /// button is released, Windows UI Automation asks the focused control (else the one under the mouse) for its selected
 /// text, silently. Applications that do not share their selection that way (Notepad++, Unity, VS Code, ...) get a
-/// Ctrl+C instead, and the user's clipboard is put back (<see cref="ClipboardSelectionCopier"/>); not when the mouse was
-/// on a scroll bar, title bar, tab, button or similar control, where the drag was not a text selection. Password
-/// fields and this application are ignored.
+/// Ctrl+C instead when the user allowed it (<see cref="VoiceOptions.CopySelection"/>, off by default), and the user's
+/// clipboard is put back (<see cref="ClipboardSelectionCopier"/>); not when the mouse was on a scroll bar, title bar,
+/// tab, button or similar control, where the drag was not a text selection. Password fields and this application are
+/// ignored.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed partial class Win32TextSelectionMonitor(ILogger<Win32TextSelectionMonitor> logger) : ITextSelectionMonitor
+public sealed partial class Win32TextSelectionMonitor(ILogger<Win32TextSelectionMonitor> logger, IOptionsMonitor<LocalAiOptions> options)
+    : ITextSelectionMonitor
 {
     public bool IsSupported => true;
 
     public IDisposable Start(Action<string> selected)
     {
         ArgumentNullException.ThrowIfNull(selected);
-        return new Watch(selected, logger);
+        // Read at every selection: the setting takes effect at once.
+        return new Watch(selected, () => options.CurrentValue.Voice.CopySelection, logger);
     }
 
     private sealed partial class Watch : IDisposable
@@ -48,6 +53,7 @@ public sealed partial class Win32TextSelectionMonitor(ILogger<Win32TextSelection
         [ThreadStatic] private static Watch? t_current; // the watch whose hook runs on this thread
 
         private readonly Action<string> _selected;
+        private readonly Func<bool> _copyAllowed;
         private readonly ILogger _logger;
         private readonly Thread _thread;
         private readonly ManualResetEventSlim _ready = new();
@@ -66,9 +72,10 @@ public sealed partial class Win32TextSelectionMonitor(ILogger<Win32TextSelection
         private int _clicks;
         private bool _shiftDown;
 
-        public Watch(Action<string> selected, ILogger logger)
+        public Watch(Action<string> selected, Func<bool> copyAllowed, ILogger logger)
         {
             _selected = selected;
+            _copyAllowed = copyAllowed;
             _logger = logger;
             _thread = new Thread(HookLoop) { IsBackground = true, Name = "Text selection hook" };
             _thread.Start();
@@ -166,7 +173,8 @@ public sealed partial class Win32TextSelectionMonitor(ILogger<Win32TextSelection
                         else
                         {
                             text = _automation.ReadSelection(point, out detail, out var typeAtPoint);
-                            if (text == null && _clipboard != null)
+                            if (text == null && !_copyAllowed()) detail += "; copying is off";
+                            else if (text == null && _clipboard != null)
                             {
                                 if (typeAtPoint is { } type && NotTextControlTypes.Contains(type)) detail += "; not a text control: not copying";
                                 else

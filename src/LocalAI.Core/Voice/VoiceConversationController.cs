@@ -55,6 +55,14 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     private Transcription? _held;
     private long _heldUntil;
     private volatile string? _userLanguage;
+    /// <summary>Stops the transcription in progress, if any (see <see cref="ProcessUtteranceAsync"/>).</summary>
+    private CancellationTokenSource? _transcription;
+
+    /// <summary>The transcription in progress is no longer wanted.</summary>
+    private void StopTranscription()
+    {
+        try { Volatile.Read(ref _transcription)?.Cancel(); } catch (ObjectDisposedException) { }
+    }
 
     public VoiceConversationController(
         IAudioCapture capture,
@@ -243,6 +251,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
     {
         Interlocked.Increment(ref _turnGeneration);
         ClearTurn();
+        StopTranscription();
         _session.CancelCurrentTurn();
         if (State is VoiceState.Thinking or VoiceState.Speaking or VoiceState.Transcribing) SetState(IdleState);
     }
@@ -259,24 +268,38 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 
     // ---------- Capture loop ----------
 
+    /// <summary>
+    /// One open or close of the microphone at a time: the level monitor, push-to-talk and Live each open and close it,
+    /// and a close still waiting for its loop must not meet the next open.
+    /// </summary>
+    private readonly SemaphoreSlim _captureGate = new(1, 1);
+
     private async Task<bool> EnsureCaptureAsync()
     {
-        if (_captureSession != null) return true;
+        await _captureGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            _captureSession = _capture.Start(_inputDeviceId);
+            if (_captureSession != null) return true;
+            try
+            {
+                _captureSession = _capture.Start(_inputDeviceId);
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Microphone unavailable: {ex.Message}";
+                _logger.LogError(ex, "Could not open microphone");
+                SetState(VoiceState.Error);
+                return false;
+            }
+            _loopCts = new CancellationTokenSource();
+            var session = _captureSession;
+            var token = _loopCts.Token;
+            _loopTask = Task.Run(() => CaptureLoopAsync(session, token), CancellationToken.None);
         }
-        catch (Exception ex)
+        finally
         {
-            LastError = $"Microphone unavailable: {ex.Message}";
-            _logger.LogError(ex, "Could not open microphone");
-            SetState(VoiceState.Error);
-            return false;
+            _captureGate.Release();
         }
-        _loopCts = new CancellationTokenSource();
-        var session = _captureSession;
-        var token = _loopCts.Token;
-        _loopTask = Task.Run(() => CaptureLoopAsync(session, token), CancellationToken.None);
         CaptureChanged?.Invoke(this, true);
         await Task.Yield();
         return true;
@@ -284,17 +307,26 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
 
     private async Task CloseCaptureAsync()
     {
-        var session = _captureSession;
-        _captureSession = null;
-        if (_loopCts != null) await _loopCts.CancelAsync().ConfigureAwait(false);
-        if (session != null) await session.DisposeAsync().ConfigureAwait(false);
-        if (_loopTask != null)
+        IAudioCaptureSession? session;
+        await _captureGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            try { await _loopTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            session = _captureSession;
+            _captureSession = null;
+            if (_loopCts != null) await _loopCts.CancelAsync().ConfigureAwait(false);
+            if (session != null) await session.DisposeAsync().ConfigureAwait(false);
+            if (_loopTask != null)
+            {
+                try { await _loopTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            }
+            _loopCts?.Dispose();
+            _loopCts = null;
+            _loopTask = null;
         }
-        _loopCts?.Dispose();
-        _loopCts = null;
-        _loopTask = null;
+        finally
+        {
+            _captureGate.Release();
+        }
         if (session != null) CaptureChanged?.Invoke(this, false);
     }
 
@@ -440,7 +472,24 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
         {
             SetState(VoiceState.Transcribing);
             var sw = Stopwatch.StartNew();
-            var transcription = await _stt.TranscribeAsync(samples).ConfigureAwait(false);
+            Transcription transcription;
+            // A transcript nobody waits for any more (the user went on talking, typed or interrupted) is stopped: the
+            // next one would otherwise wait behind it for the speech model.
+            using var stale = new CancellationTokenSource();
+            StopTranscription();
+            Volatile.Write(ref _transcription, stale);
+            try
+            {
+                transcription = await _stt.TranscribeAsync(samples, stale.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _transcription, null, stale);
+            }
             if (generation != Volatile.Read(ref _turnGeneration)) return;
 
             _logger.LogInformation("Transcribed {Seconds:F1}s of audio in {Ms:F0} ms (language {Lang} p={P:F2})",
@@ -537,6 +586,7 @@ public sealed class VoiceConversationController : ILiveVoice, IAsyncDisposable
             if (State != VoiceState.Transcribing) return;
             Interlocked.Increment(ref _turnGeneration);
         }
+        StopTranscription();
         SetState(VoiceState.Listening);
     }
 

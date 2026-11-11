@@ -198,6 +198,7 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
         if (!response.IsSuccessStatusCode)
         {
             var err = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (SseParser.IsContextOverflow(err)) throw new ContextOverflowException(SseParser.ErrorMessage(err) ?? err);
             throw new InvalidOperationException($"Inference request failed ({(int)response.StatusCode}): {err}");
         }
 
@@ -210,6 +211,12 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
             var evt = SseParser.Parse(line);
             if (evt is null) continue;
             if (evt.Done) yield break;
+            // An error after the stream started (the server found it while reading the prompt) ends the reply.
+            if (evt.Error is { } error)
+            {
+                if (SseParser.IsContextOverflow(line)) throw new ContextOverflowException(error);
+                throw new InvalidOperationException($"Inference failed: {error}");
+            }
             if (evt.Reasoning is { Length: > 0 } reasoning)
             {
                 ttft ??= sw.Elapsed.TotalMilliseconds;
@@ -252,6 +259,8 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
             body["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = false };
             body["thinking_budget_tokens"] = 0;
         }
+        // The server's grammar then only lets the model write a JSON object (no prose around it, no broken syntax).
+        if (options.Json) body["response_format"] = new JsonObject { ["type"] = "json_object" };
         // Pin interactive chat to slot 0 and background work to slot 1 so neither evicts the other's prompt cache.
         if (parallelSlots > 1) body["id_slot"] = options.Background ? 1 : 0;
         return body.ToJsonString();
@@ -281,7 +290,34 @@ public sealed class LlamaCppLanguageModel : ILanguageModel
 /// <summary>Parses one SSE line of an OpenAI-compatible chat completion stream from llama-server.</summary>
 internal static class SseParser
 {
-    internal sealed record SseEvent(string? Text, GenerationStats? Stats, bool Done, string? Reasoning = null);
+    internal sealed record SseEvent(string? Text, GenerationStats? Stats, bool Done, string? Reasoning = null, string? Error = null);
+
+    /// <summary>llama-server's error type for a request with more tokens than the context.</summary>
+    private const string ContextOverflowType = "exceed_context_size_error";
+
+    /// <summary>True when an error response (or error event) of llama-server says the request did not fit the context.</summary>
+    public static bool IsContextOverflow(string body) => body.Contains(ContextOverflowType, StringComparison.Ordinal);
+
+    /// <summary>The message of llama-server's error response (<c>{"error": {"message": ...}}</c>), or null.</summary>
+    public static string? ErrorMessage(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("error", out var error)
+                ? ErrorText(error)
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string ErrorText(JsonElement error) =>
+        error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String
+            ? message.GetString() ?? "unknown error"
+            : error.ValueKind == JsonValueKind.String ? error.GetString() ?? "unknown error" : "unknown error";
 
     public static SseEvent? Parse(string line)
     {
@@ -291,6 +327,7 @@ internal static class SseParser
 
         using var doc = JsonDocument.Parse(payload.ToString());
         var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var failure)) return new SseEvent(null, null, false, Error: ErrorText(failure));
 
         string? text = null;
         string? reasoning = null;

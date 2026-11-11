@@ -31,6 +31,9 @@ publish\LocalAI\LocalAI.exe
   `TestPaths.PublishedApp`), so publish first and download the models in the app. CI does not run it.
 - `.github/workflows/release.yml`: every push to `master` runs the unit tests, publishes the app and replaces the
   `latest` GitHub pre-release with `LocalAI-win-x64.zip`.
+- `.github/workflows/ci.yml`: every pull request builds the solution and runs the same unit tests.
+- `scripts\publish.ps1` checks the SHA-256 of the llama.cpp archives (`runtime.sha256` in `catalog.json`, in the order
+  of `urls`) and publishes with ReadyToRun.
 - Package versions are managed centrally in `Directory.Packages.props`. Nullable warnings are errors
   (`Directory.Build.props`).
 
@@ -84,7 +87,9 @@ Main runtime flows:
   profile items the user wrote always survive, and text outside the markers is never touched. The SQLite index
   (`SqliteVaultIndex`: notes, passages with embeddings and FTS5, job queue) can be rebuilt from the files. Recall
   ranks passages by meaning and words (reciprocal rank fusion; common words from `languages.json` are left out of
-  the word search) within `MemoryTokenBudget`. It searches the user's own notes and only the newest
+  the word search) within `MemoryTokenBudget`; a timeout of the embedding model leaves the words. A conversation note
+  is updated from the note so far plus the messages after it (`NoteFormats.ConversationPrompt`), and a long
+  conversation is read in parts (`TranscriptParts`). It searches the user's own notes and only the newest
   `MaxConversationNotes` (100) conversation notes; the passages it searches are cached in memory until the index
   changes. The conversation list marks the conversations whose note is searched.
 - **Learned documents** (`MemoryVault.LearnAsync`): each assistant's `learn` folder and its subfolders hold `.md`/`.txt`
@@ -177,5 +182,18 @@ Code, identifiers, comments, UI text, log messages, examples, tests and document
   catalog's models, the user can pick any GGUF model in the model dialog (`ModelPickerWindow`, `ModelBrowser`) (anonymous Hugging Face API,
   `HuggingFaceApi`); added models are kept in `AddedLanguageModels` (`models\llm\added.json`), come after the catalog's
   and are never the hardware recommendation.
+- Catalog files from Hugging Face are pinned to a commit (`resolve/<40-hex commit>/`), never `resolve/main`: their
+  `sizeBytes` is checked after the download. `Repository_catalog_is_valid` fails otherwise.
+- A turn always ends with `TurnCompleted`, also when it fails before the reply. A prompt llama-server rejects as longer
+  than the context (`ContextOverflowException`) is sent again with less history (`PromptBuilder.Build(afterOverflow)`).
+- The memory's requests to the language model set `GenerationOptions.Json` (llama-server's `response_format`
+  `json_object`), so the answer is always valid JSON.
+- A download is tried again when the network fails or stalls (`ModelDownloader.MaxAttempts`, `StallTimeout`), resuming
+  the partial file; a missing file or a full disk is not. `ModelLibrary` checks the free disk space first.
+- A database with a schema newer than `Migrations` is refused (`SqliteDatabase.MigrateAsync`).
+- Recall compares normalized vectors with `VectorMath.Dot`; the passages are normalized when read (`RecallSetAsync`).
+- Language names in the model's instructions come from `languageNames` in `languages.json` (`LanguageData.LanguageName`).
+- Read selection sends Ctrl+C to other applications only with `Voice:CopySelection` (off by default), and only when the
+  clipboard is empty or holds plain text (`ClipboardSelectionCopier.IsPlainText`).
 - Do not edit repository files with Windows PowerShell 5.1 `Get-Content`/`Set-Content`: it re-encodes UTF-8 as ANSI.
 - Logs record what the app did, never what the user said or typed (no conversation text or audio in log messages).

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <b>Personal AI assistants that run entirely on your Windows PC.</b><br>
+  <b>Personal AI assistants that run entirely on your Windows, totally offline</b><br>
   Chat or talk out loud. Conversations, voice and memories never leave your computer.
 </p>
 

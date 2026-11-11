@@ -97,6 +97,12 @@ public sealed class AssistantSession : IDisposable
     public const string AiOffMessage = "The assistant is offline.";
     public const string LearningMessage = "The assistant is learning its documents. Try again when it is done.";
 
+    public const string ContextOverflowMessage =
+        "The message is too long for the model's context. Shorten it, or choose a larger context in Settings › Assistants.";
+
+    /// <summary>Times a turn's prompt is sent: again with a shorter history each time the model says it does not fit.</summary>
+    private const int MaxPromptAttempts = 3;
+
     /// <summary>Messages read for the prompt; the token budget decides how many go in.</summary>
     private const int MaxHistoryMessages = 200;
 
@@ -187,36 +193,58 @@ public sealed class AssistantSession : IDisposable
         if (language != null) _lastUserLanguage = language;
         var replyLanguage = _context?.Current?.Language is { Length: > 0 } native ? native : language;
 
-        await _activity.StepAsync(WorkKind.Reply, "Saving your message", ct).ConfigureAwait(false);
-        var conversationId = await EnsureConversationAsync(request.Text, ct).ConfigureAwait(false);
-        var history = await _store.GetRecentMessagesAsync(conversationId, MaxHistoryMessages, ct).ConfigureAwait(false);
-
-        var userMessage = await _store.AddMessageAsync(new StoredMessage
-        {
-            ConversationId = conversationId,
-            Role = ChatRole.User,
-            Content = request.Text,
-            CreatedAt = DateTimeOffset.Now,
-            Language = language,
-            Source = request.Source,
-            SelectedText = string.IsNullOrWhiteSpace(request.SelectedText) ? null : request.SelectedText,
-        }, CancellationToken.None).ConfigureAwait(false);
-        UserMessageAdded?.Invoke(this, userMessage);
-
-        // What was selected on screen helps find the right notes too.
-        var query = userMessage.SelectedText is { } selected
-            ? request.Text + "\n" + selected[..Math.Min(selected.Length, 300)]
-            : request.Text;
-        var memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
+        long conversationId;
+        IReadOnlyList<StoredMessage> history;
+        StoredMessage userMessage;
+        MemoryContext memory;
         var speak = request.Speak && _speech.IsAvailable;
         // A Live conversation needs short replies: its own instructions and a cap, and no thinking (it delays the voice).
         var behavior = _context?.Current?.Behavior ?? AssistantBehavior.Default;
         var maxTokens = request.Live ? Math.Min(_options.Assistant.LiveMaxTokens, behavior.ReplyTokens) : behavior.ReplyTokens;
         var thinking = behavior.Thinking && !request.Live;
         var thinkingTokens = thinking ? AssistantBehavior.ThinkingTokens : 0;
-        await _activity.StepAsync(WorkKind.Reply, "Building the prompt", ct).ConfigureAwait(false);
-        var prompt = _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, replyLanguage,
-            _llm.Info?.ContextSize ?? 0, maxTokens + thinkingTokens, request.Live);
+        IReadOnlyList<ChatMessage> prompt;
+        try
+        {
+            await _activity.StepAsync(WorkKind.Reply, "Saving your message", ct).ConfigureAwait(false);
+            conversationId = await EnsureConversationAsync(request.Text, ct).ConfigureAwait(false);
+            history = await _store.GetRecentMessagesAsync(conversationId, MaxHistoryMessages, ct).ConfigureAwait(false);
+
+            userMessage = await _store.AddMessageAsync(new StoredMessage
+            {
+                ConversationId = conversationId,
+                Role = ChatRole.User,
+                Content = request.Text,
+                CreatedAt = DateTimeOffset.Now,
+                Language = language,
+                Source = request.Source,
+                SelectedText = string.IsNullOrWhiteSpace(request.SelectedText) ? null : request.SelectedText,
+            }, CancellationToken.None).ConfigureAwait(false);
+            UserMessageAdded?.Invoke(this, userMessage);
+
+            // What was selected on screen helps find the right notes too.
+            var query = userMessage.SelectedText is { } selected
+                ? request.Text + "\n" + selected[..Math.Min(selected.Length, 300)]
+                : request.Text;
+            memory = await _memory.RecallAsync(query, ct).ConfigureAwait(false);
+            await _activity.StepAsync(WorkKind.Reply, "Building the prompt", ct).ConfigureAwait(false);
+            prompt = BuildPrompt(afterOverflow: false);
+        }
+        catch (Exception ex)
+        {
+            // Nothing was generated yet. The turn still ends like any other (the chat shows why): stopped by the
+            // user or a newer message, or failed (e.g. the database could not be written).
+            var stopped = ex is OperationCanceledException && ct.IsCancellationRequested;
+            if (!stopped) _logger.LogError(ex, "The turn failed before the reply");
+            _speech.StopAll();
+            var ended = new TurnResult(stopped ? TurnOutcome.Cancelled : TurnOutcome.Failed, null, null, stopped ? null : ex.Message);
+            TurnCompleted?.Invoke(this, ended);
+            return ended;
+        }
+
+        IReadOnlyList<ChatMessage> BuildPrompt(bool afterOverflow) =>
+            _promptBuilder.Build(history, request.Text, memory, speak, DateTimeOffset.Now, userMessage.SelectedText, replyLanguage,
+                _llm.Info?.ContextSize ?? 0, maxTokens + thinkingTokens, request.Live, afterOverflow);
 
         var options = new GenerationOptions
         {
@@ -239,23 +267,37 @@ public sealed class AssistantSession : IDisposable
         {
             await _activity.StepAsync(WorkKind.Reply, speak ? "Generating the reply and speaking it" : "Generating the reply", ct)
                 .ConfigureAwait(false);
-            await foreach (var chunk in _llm.StreamAsync(prompt, options, ct).ConfigureAwait(false))
+            for (var attempt = 1; ; attempt++)
             {
-                if (chunk.Stats != null) stats = chunk.Stats;
-                if (chunk.Reasoning is { Length: > 0 } thought)
+                try
                 {
-                    if (reasoning.Length == 0) await _activity.StepAsync(WorkKind.Reply, "Thinking", ct).ConfigureAwait(false);
-                    reasoning.Append(thought);
-                    AssistantDelta?.Invoke(this, new AssistantDeltaEventArgs(conversationId, thought, reasoning: true));
-                    continue;
+                    await foreach (var chunk in _llm.StreamAsync(prompt, options, ct).ConfigureAwait(false))
+                    {
+                        if (chunk.Stats != null) stats = chunk.Stats;
+                        if (chunk.Reasoning is { Length: > 0 } thought)
+                        {
+                            if (reasoning.Length == 0) await _activity.StepAsync(WorkKind.Reply, "Thinking", ct).ConfigureAwait(false);
+                            reasoning.Append(thought);
+                            AssistantDelta?.Invoke(this, new AssistantDeltaEventArgs(conversationId, thought, reasoning: true));
+                            continue;
+                        }
+                        if (chunk.Text.Length == 0) continue;
+                        if (reply.Length == 0 && reasoning.Length > 0)
+                            await _activity.StepAsync(WorkKind.Reply, speak ? "Generating the reply and speaking it" : "Generating the reply", ct)
+                                .ConfigureAwait(false);
+                        reply.Append(chunk.Text);
+                        utterance?.Append(chunk.Text);
+                        AssistantDelta?.Invoke(this, new AssistantDeltaEventArgs(conversationId, chunk.Text));
+                    }
+                    break;
                 }
-                if (chunk.Text.Length == 0) continue;
-                if (reply.Length == 0 && reasoning.Length > 0)
-                    await _activity.StepAsync(WorkKind.Reply, speak ? "Generating the reply and speaking it" : "Generating the reply", ct)
-                        .ConfigureAwait(false);
-                reply.Append(chunk.Text);
-                utterance?.Append(chunk.Text);
-                AssistantDelta?.Invoke(this, new AssistantDeltaEventArgs(conversationId, chunk.Text));
+                catch (ContextOverflowException) when (attempt < MaxPromptAttempts && reply.Length == 0 && reasoning.Length == 0)
+                {
+                    // The text has more tokens than estimated (code, logs): the same turn again with less history.
+                    _logger.LogWarning("The prompt did not fit the model's context: trying again with a shorter history");
+                    await _activity.StepAsync(WorkKind.Reply, "Shortening the history to fit the model", ct).ConfigureAwait(false);
+                    prompt = BuildPrompt(afterOverflow: true);
+                }
             }
             // A reply cut by the cap ends at its last full sentence: the unfinished one is neither spoken nor kept.
             var capped = request.Live && stats?.GeneratedTokens >= maxTokens;
@@ -272,12 +314,19 @@ public sealed class AssistantSession : IDisposable
             }
             if (ct.IsCancellationRequested) outcome = TurnOutcome.Cancelled;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             outcome = TurnOutcome.Cancelled;
         }
+        catch (ContextOverflowException ex)
+        {
+            outcome = TurnOutcome.Failed;
+            error = ContextOverflowMessage;
+            _logger.LogError(ex, "The prompt does not fit the model's context");
+        }
         catch (Exception ex)
         {
+            // Includes a timeout (an OperationCanceledException nobody asked for): a failure, not a Stop.
             outcome = TurnOutcome.Failed;
             error = ex.Message;
             _logger.LogError(ex, "Generation failed");

@@ -199,8 +199,12 @@ public sealed class SqliteVaultIndexTests : IDisposable
         Assert.Equal(["nova/conversations/2026-10-22-chat.md", "nova/learn/a.md"], notes.Select(n => n.Path).Order());
         var chunks = await _index.ListChunksAsync(Nova);
         Assert.Equal(["Talked about Rome.", "descaling with vinegar"], chunks.Select(c => c.Text).Order(StringComparer.Ordinal));
-        Assert.Single(await _index.SearchChunksAsync(Nova, "vinegar", 10)); // the full-text search follows
-        Assert.Empty(await _index.SearchChunksAsync(Nova, "citric", 10));
+        Assert.Single(await _index.SearchChunksAsync(Nova, "vinegar", 10, documents: true)); // the full-text search follows
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "citric", 10, documents: true));
+        // Documents and notes are searched apart, so many matching documents never take the notes' places.
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "vinegar", 10));
+        Assert.Empty(await _index.SearchChunksAsync(Nova, "rome", 10, documents: true));
+        Assert.Single(await _index.SearchChunksAsync(Nova, "rome", 10));
         Assert.Equal(1, await _index.CountDocumentChunksAsync(Nova)); // the conversation's passage is not a document's
     }
 
@@ -309,5 +313,33 @@ public sealed class SqliteVaultIndexTests : IDisposable
         await _index.SetStateAsync("notes-since", "a");
         await _index.SetStateAsync("notes-since", "b");
         Assert.Equal("b", await new SqliteVaultIndex(_fx.Reopen()).GetStateAsync("notes-since"));
+    }
+}
+
+public sealed class SqliteDatabaseTests
+{
+    [Fact]
+    public async Task A_database_written_by_a_newer_version_is_refused()
+    {
+        var path = Path.Combine(TestPaths.New("newer"), "localai.db");
+        try
+        {
+            await using (var connection = await new SqliteDatabase(path, NullLogger<SqliteDatabase>.Instance).OpenAsync())
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "PRAGMA user_version = 9999;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new SqliteDatabase(path, NullLogger<SqliteDatabase>.Instance).OpenAsync());
+
+            Assert.Contains("newer version", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
     }
 }

@@ -386,7 +386,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         VoiceAvailable = _stt.State == ComponentState.Ready && Settings.Microphones.Count > 0;
         if (_voice.State is VoiceState.Off or VoiceState.Ready or VoiceState.Error) OnVoiceState(_voice.State);
-        DiagnosticsText = BuildDiagnostics();
+        RefreshDiagnostics();
     }
 
     /// <summary>The AI's state: a warning or an error is shown on the AI line above the conversations, not in the status bar.</summary>
@@ -568,7 +568,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ScrollToEndRequested?.Invoke(this, EventArgs.Empty);
         }
         if (result.Stats != null) _lastStats = result.Stats;
-        DiagnosticsText = BuildDiagnostics();
+        RefreshDiagnostics();
 
         var current = Conversations.FirstOrDefault(c => c.Id == _session.CurrentConversationId);
         if (current != null)
@@ -1048,7 +1048,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             var jobs = await Task.Run(() => _memoryWorker.UpdateMemoryAsync(current.Id, progress));
-            UpdateMemoryStatus = jobs == 0 ? "Nothing to update" : $"Updated ({jobs} {(jobs == 1 ? "step" : "steps")})";
+            var failed = _memoryWorker.LastUpdateFailures;
+            UpdateMemoryStatus = failed > 0
+                ? $"{jobs} {(jobs == 1 ? "step" : "steps")} done, {failed} failed (see the logs); they are tried again at the next update"
+                : jobs == 0 ? "Nothing to update" : $"Updated ({jobs} {(jobs == 1 ? "step" : "steps")})";
         }
         catch (Exception ex)
         {
@@ -1126,7 +1129,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 _ = LoadMemoriesAsync();
                 break;
             case AppPage.Diagnostics:
-                DiagnosticsText = BuildDiagnostics();
+                RefreshDiagnostics();
                 break;
         }
     }
@@ -1147,7 +1150,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var notes = await _memory.ListNotesAsync();
             _memoryNoteCount = notes.Count(n => n.Kind == NoteKind.Conversation);
             _hasMemoryProfile = notes.Any(n => n.Kind == NoteKind.Profile);
-            DiagnosticsText = BuildDiagnostics();
+            RefreshDiagnostics();
         }
         catch (Exception ex)
         {
@@ -1157,6 +1160,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private int _memoryNoteCount;
     private bool _hasMemoryProfile;
+
+    /// <summary>The Diagnostics page's text, written only while that page is shown (it is built again when it opens).</summary>
+    private void RefreshDiagnostics()
+    {
+        if (IsDiagnosticsPage) DiagnosticsText = BuildDiagnostics();
+    }
 
     private string BuildDiagnostics()
     {

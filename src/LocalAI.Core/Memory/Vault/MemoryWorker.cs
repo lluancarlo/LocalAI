@@ -207,14 +207,10 @@ public sealed class MemoryWorker : IAsyncDisposable
     }
 
     /// <summary>
-    /// Does all the memory work left for <paramref name="assistantId"/> now, without waiting for idle time: the notes
-    /// of its conversations, then its profile, its identity note and the index. Used before its AI is turned off
-    /// (the language model writes the notes) and before the app exits. Cancelling stops the running job and leaves
-    /// the rest queued. Returns the number of jobs that ran.
-    /// </summary>
-    /// <summary>
-    /// Update memory (the sidebar button): all the memory work left for the assistant now, like <see cref="FinishAsync"/>,
-    /// with the chat blocked meanwhile and each step reported. Notes already up to date are skipped. Needs its AI on.
+    /// Update memory (the sidebar button): all the memory work left for the assistant now, like
+    /// <see cref="FinishAsync(long, CancellationToken)"/>, with the chat blocked meanwhile and each step reported. Notes
+    /// already up to date are skipped. Needs its AI on. Returns the number of jobs done; the ones that failed are in
+    /// <see cref="LastUpdateFailures"/>.
     /// </summary>
     public async Task<int> UpdateMemoryAsync(long assistantId, IProgress<string>? progress, CancellationToken ct = default)
     {
@@ -242,6 +238,14 @@ public sealed class MemoryWorker : IAsyncDisposable
         _ => "Moving the old memory",
     };
 
+    /// <summary>Jobs of the last update that failed (they are tried again later; the log says why).</summary>
+    public int LastUpdateFailures { get; private set; }
+
+    /// <summary>
+    /// Does all the memory work left for <paramref name="assistantId"/> now, without waiting for idle time: the notes
+    /// of its conversations, then its profile, its identity note and the index. Cancelling stops the running job and
+    /// leaves the rest queued. Returns the number of jobs done (not the ones that failed or gave way to the user).
+    /// </summary>
     public async Task<int> FinishAsync(long assistantId, CancellationToken ct) => await FinishAsync(assistantId, ct, null).ConfigureAwait(false);
 
     private async Task<int> FinishAsync(long assistantId, CancellationToken ct, IProgress<string>? progress)
@@ -269,6 +273,8 @@ public sealed class MemoryWorker : IAsyncDisposable
                 await _index.EnqueueAsync(MemoryJobKind.WriteIdentity, assistantId, null, null, now.AddMilliseconds(2), ct).ConfigureAwait(false);
 
                 var ran = 0;
+                var failed = 0;
+                LastUpdateFailures = 0;
                 // The conversations without an up-to-date note; the current one is checked too (skipped when up to date).
                 var stale = conversations.Where(c => c.AssistantId == assistantId).Select(c => c.ConversationId).ToHashSet();
                 var summary = 0;
@@ -280,9 +286,10 @@ public sealed class MemoryWorker : IAsyncDisposable
                         : job.ConversationId is { } id && stale.Contains(id) ? $"Summarizing conversation {++summary} of {stale.Count}"
                         : "Checking the current conversation";
                     progress?.Report(step);
-                    await RunJobAsync(job, linked.Token).ConfigureAwait(false);
+                    var outcome = await RunJobAsync(job, linked.Token).ConfigureAwait(false);
                     ct.ThrowIfCancellationRequested();
-                    ran++;
+                    if (outcome == JobDone) ran++;
+                    else if (outcome is JobFailed or JobGivenUp) LastUpdateFailures = ++failed;
                 }
                 return ran;
             }
@@ -460,7 +467,10 @@ public sealed class MemoryWorker : IAsyncDisposable
         return since;
     }
 
-    private async Task RunJobAsync(MemoryJob job, CancellationToken stop)
+    private const string JobDone = "done", JobFailed = "failed", JobGivenUp = "given up", JobPreempted = "pre-empted", JobPostponed = "postponed";
+
+    /// <returns>How the job ended: one of the Job constants.</returns>
+    private async Task<string> RunJobAsync(MemoryJob job, CancellationToken stop)
     {
         // Notes are written by the language model and indexed with the embedding model, which runs only with the AI:
         // indexed without it, the passages would have no embeddings.
@@ -469,7 +479,7 @@ public sealed class MemoryWorker : IAsyncDisposable
         if ((needsAi && _llm.State != LanguageModelState.Ready) || (_vault.IsLearning && !_updating))
         {
             await _index.PostponeJobAsync(job.Id, _time.GetUtcNow() + TimeSpan.FromSeconds(30), failed: false, stop).ConfigureAwait(false);
-            return;
+            return JobPostponed;
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
@@ -483,13 +493,13 @@ public sealed class MemoryWorker : IAsyncDisposable
         {
             await ExecuteAsync(job, cts.Token).ConfigureAwait(false);
             await _index.CompleteJobAsync(job.Id, stop).ConfigureAwait(false);
-            outcome = "done";
+            outcome = JobDone;
         }
         catch (OperationCanceledException) when (!_stop.IsCancellationRequested)
         {
             // Pre-empted by the user (or the update was stopped), the app still running: back in the queue, not a failure.
             await _index.PostponeJobAsync(job.Id, _time.GetUtcNow(), failed: false, _stop.Token).ConfigureAwait(false);
-            outcome = "pre-empted";
+            outcome = JobPreempted;
             _logger.LogDebug("Memory job {Kind} paused: the assistant is busy", job.Kind);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -498,14 +508,14 @@ public sealed class MemoryWorker : IAsyncDisposable
             {
                 await _index.CompleteJobAsync(job.Id, stop).ConfigureAwait(false);
                 _logger.LogWarning(ex, "Memory job {Kind} gave up after {Attempts} attempts", job.Kind, MaxAttempts);
-                outcome = "given up";
+                outcome = JobGivenUp;
             }
             else
             {
                 var retry = _time.GetUtcNow() + TimeSpan.FromMinutes(Math.Pow(2, job.Attempts));
                 await _index.PostponeJobAsync(job.Id, retry, failed: true, stop).ConfigureAwait(false);
                 _logger.LogWarning(ex, "Memory job {Kind} failed; retrying later", job.Kind);
-                outcome = "failed";
+                outcome = JobFailed;
             }
         }
         finally
@@ -516,6 +526,7 @@ public sealed class MemoryWorker : IAsyncDisposable
             SetWorking(false);
         }
         JobFinished?.Invoke(this, (job, outcome));
+        return outcome;
     }
 
     private async Task ExecuteAsync(MemoryJob job, CancellationToken ct)

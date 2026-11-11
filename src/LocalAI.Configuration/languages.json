@@ -1,5 +1,5 @@
 {
-  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, section titles of the memory notes, the reactions and wait phrases spoken in Live mode, words an unfinished sentence ends with, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
+  "$comment": "Language data used by the app: text language detection (common words, word endings, distinctive letters), the voice sample played in Settings, section titles of the memory notes, the reactions and wait phrases spoken in Live mode, words an unfinished sentence ends with, the names of the languages in the instructions to the language model, Whisper transcripts to ignore and abbreviations that do not end a sentence. Copied next to the executable.",
   "languages": {
     "pt": {
       "name": "Portuguese (Brazil)",
@@ -95,6 +95,9 @@
       "fillers": ["Hmm, let me see...", "Hmm, one moment...", "Let me think..."],
       "unfinishedEndings": ["and", "or", "but", "because", "that", "the", "a", "an", "to", "of", "in", "on", "at", "for", "with", "about", "from", "if", "when", "my", "your", "our", "their", "which", "into", "than", "um", "uh", "umm", "uhh", "er"]
     }
+  },
+  "languageNames": {
+    "pt": "Brazilian Portuguese", "it": "Italian", "en": "English", "es": "Spanish", "fr": "French", "de": "German"
   },
   "transcriptNoise": [
     "amara.org", "legendas pela comunidade", "sottotitoli creati dalla comunità", "sottotitoli a cura di",

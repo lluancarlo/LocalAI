@@ -145,6 +145,58 @@ public sealed class AssistantSessionTests
     }
 
     [Fact]
+    public async Task A_failure_before_the_reply_ends_the_turn_with_an_error_instead_of_throwing()
+    {
+        using var session = CreateSession();
+        _store.FailAdd = new IOException("The database is locked.");
+        TurnResult? completed = null;
+        session.TurnCompleted += (_, r) => completed = r;
+
+        var result = await session.SubmitAsync(new TurnRequest("Hi", InputSource.Text));
+
+        Assert.Equal(TurnOutcome.Failed, result.Outcome);
+        Assert.Equal("The database is locked.", result.Error);
+        Assert.Same(result, completed); // the chat shows the error
+        Assert.False(session.IsBusy);
+        Assert.Empty(_llm.Requests);
+    }
+
+    [Fact]
+    public async Task A_prompt_the_model_rejects_as_too_long_is_sent_again_with_less_history()
+    {
+        using var session = CreateSession(o => o.Assistant.HistoryTokenBudget = 200);
+        _llm.Info = _llm.Info! with { ContextSize = 0 }; // unknown context: the fixed history budget
+        _llm.Responder = _ => [new string('x', 140)];
+        for (var i = 0; i < 3; i++) await session.SubmitAsync(new TurnRequest($"Question {i}?", InputSource.Text));
+
+        _llm.Overflows = 1;
+        var result = await session.SubmitAsync(new TurnRequest("And now?", InputSource.Text));
+
+        Assert.Equal(TurnOutcome.Completed, result.Outcome);
+        var rejected = _llm.Requests[^2];
+        Assert.True(_llm.Requests[^1].Count < rejected.Count, "the second attempt carries less history");
+        Assert.Contains("And now?", _llm.Requests[^1][^1].Content, StringComparison.Ordinal);
+
+        // The conversation's text is denser than estimated: its next turns keep the shorter history.
+        await session.SubmitAsync(new TurnRequest("One more?", InputSource.Text));
+        Assert.True(_llm.Requests[^1].Count < rejected.Count);
+    }
+
+    [Fact]
+    public async Task A_message_too_long_for_the_context_fails_with_a_clear_error()
+    {
+        using var session = CreateSession();
+        _llm.Overflows = 10;
+
+        var result = await session.SubmitAsync(new TurnRequest("A very long pasted document.", InputSource.Text));
+
+        Assert.Equal(TurnOutcome.Failed, result.Outcome);
+        Assert.Equal(AssistantSession.ContextOverflowMessage, result.Error);
+        Assert.Equal(3, _llm.Requests.Count); // tried again twice, then gave up
+        Assert.Null(result.AssistantMessage);
+    }
+
+    [Fact]
     public async Task Spoken_turn_streams_sentences_to_tts()
     {
         using var session = CreateSession();

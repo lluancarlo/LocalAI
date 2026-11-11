@@ -16,6 +16,8 @@ public sealed record GenerationOptions
     /// reply starts at once. Models that cannot reason ignore it.
     /// </summary>
     public bool Thinking { get; init; }
+    /// <summary>The reply must be one JSON object: the engine only lets the model write valid JSON (the memory notes).</summary>
+    public bool Json { get; init; }
 }
 
 /// <summary>Performance numbers for one generation, as reported by the engine plus client-side latency.</summary>
@@ -88,3 +90,6 @@ public static class LanguageModelExtensions
 }
 
 public sealed class ModelNotAvailableException(string message, Exception? inner = null) : Exception(message, inner);
+
+/// <summary>The request has more tokens than the model's context holds: nothing was generated.</summary>
+public sealed class ContextOverflowException(string message, Exception? inner = null) : Exception(message, inner);

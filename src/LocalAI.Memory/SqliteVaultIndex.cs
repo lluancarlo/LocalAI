@@ -113,19 +113,58 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
             delete.Parameters.AddWithValue("$n", noteId);
             await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
-        foreach (var chunk in chunks)
-        {
-            await using var insert = c.CreateCommand();
-            insert.Transaction = tx;
-            insert.CommandText = "INSERT INTO note_chunks(note_id, heading, text, embedding, embedding_model) VALUES ($n, $h, $t, $e, $m);";
-            insert.Parameters.AddWithValue("$n", noteId);
-            insert.Parameters.AddWithValue("$h", chunk.Heading);
-            insert.Parameters.AddWithValue("$t", chunk.Text);
-            insert.Parameters.AddWithValue("$e", chunk.Embedding is { } e ? MemoryMarshal.AsBytes(e.AsSpan()).ToArray() : DBNull.Value);
-            insert.Parameters.AddWithValue("$m", (object?)chunk.EmbeddingModel ?? DBNull.Value);
-            await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        }
+        await using (var insert = new ChunkInsert(c, tx))
+            foreach (var chunk in chunks) await insert.AddAsync(noteId, chunk, ct).ConfigureAwait(false);
         await tx.CommitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Inserts passages with one statement, compiled once and run for each passage (a learn folder has thousands).
+    /// </summary>
+    private sealed class ChunkInsert : IAsyncDisposable
+    {
+        private readonly SqliteCommand _command;
+        private readonly SqliteParameter _note, _heading, _text, _embedding, _model;
+
+        public ChunkInsert(SqliteConnection connection, SqliteTransaction transaction)
+        {
+            _command = connection.CreateCommand();
+            _command.Transaction = transaction;
+            _command.CommandText = "INSERT INTO note_chunks(note_id, heading, text, embedding, embedding_model) VALUES ($n, $h, $t, $e, $m);";
+            _note = _command.Parameters.Add("$n", SqliteType.Integer);
+            _heading = _command.Parameters.Add("$h", SqliteType.Text);
+            _text = _command.Parameters.Add("$t", SqliteType.Text);
+            _embedding = _command.Parameters.Add("$e", SqliteType.Blob);
+            _model = _command.Parameters.Add("$m", SqliteType.Text);
+        }
+
+        public Task AddAsync(long noteId, NoteChunk chunk, CancellationToken ct)
+        {
+            _note.Value = noteId;
+            _heading.Value = chunk.Heading;
+            _text.Value = chunk.Text;
+            _embedding.Value = chunk.Embedding is { } e ? MemoryMarshal.AsBytes(e.AsSpan()).ToArray() : DBNull.Value;
+            _model.Value = (object?)chunk.EmbeddingModel ?? DBNull.Value;
+            return _command.ExecuteNonQueryAsync(ct);
+        }
+
+        public ValueTask DisposeAsync() => _command.DisposeAsync();
+    }
+
+    public async Task<IReadOnlySet<long>> NotesEmbeddedWithAnotherModelAsync(long assistantId, string embeddingModel, CancellationToken ct = default)
+    {
+        await using var c = await db.OpenAsync(ct).ConfigureAwait(false);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT DISTINCT k.note_id FROM note_chunks k JOIN vault_notes n ON n.id = k.note_id
+            WHERE n.assistant_id = $a AND k.embedding_model IS NOT $m;
+            """;
+        cmd.Parameters.AddWithValue("$a", assistantId);
+        cmd.Parameters.AddWithValue("$m", embeddingModel);
+        await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        var ids = new HashSet<long>();
+        while (await r.ReadAsync(ct).ConfigureAwait(false)) ids.Add(r.GetInt64(0));
+        return ids;
     }
 
     public async Task ReplaceDocumentsAsync(long assistantId, IReadOnlyList<LearnedDocument> documents, CancellationToken ct = default)
@@ -140,6 +179,7 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
             delete.Parameters.AddWithValue("$k", nameof(NoteKind.Document));
             await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
+        await using var chunkInsert = new ChunkInsert(c, tx);
         foreach (var (note, chunks) in documents)
         {
             long noteId;
@@ -158,18 +198,7 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
                 insert.Parameters.AddWithValue("$u", ToUnixMs(note.UpdatedAt));
                 noteId = (long)(await insert.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
             }
-            foreach (var chunk in chunks)
-            {
-                await using var insert = c.CreateCommand();
-                insert.Transaction = tx;
-                insert.CommandText = "INSERT INTO note_chunks(note_id, heading, text, embedding, embedding_model) VALUES ($n, $h, $t, $e, $m);";
-                insert.Parameters.AddWithValue("$n", noteId);
-                insert.Parameters.AddWithValue("$h", chunk.Heading);
-                insert.Parameters.AddWithValue("$t", chunk.Text);
-                insert.Parameters.AddWithValue("$e", chunk.Embedding is { } e ? MemoryMarshal.AsBytes(e.AsSpan()).ToArray() : DBNull.Value);
-                insert.Parameters.AddWithValue("$m", (object?)chunk.EmbeddingModel ?? DBNull.Value);
-                await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            }
+            foreach (var chunk in chunks) await chunkInsert.AddAsync(noteId, chunk, ct).ConfigureAwait(false);
         }
         await tx.CommitAsync(ct).ConfigureAwait(false);
     }
@@ -215,7 +244,7 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
         return list;
     }
 
-    public async Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<long>> SearchChunksAsync(long assistantId, string query, int limit, bool documents = false, CancellationToken ct = default)
     {
         // Each word as a quoted term, any of them may match: user text never reaches FTS5 syntax.
         var terms = Word().Matches(query).Select(m => "\"" + m.Value + "\"").Distinct().Take(20).ToList();
@@ -226,11 +255,13 @@ public sealed partial class SqliteVaultIndex(SqliteDatabase db) : IVaultIndex
             SELECT k.id FROM note_chunks_fts f
             JOIN note_chunks k ON k.id = f.rowid
             JOIN vault_notes n ON n.id = k.note_id
-            WHERE note_chunks_fts MATCH $q AND n.assistant_id = $a
+            WHERE note_chunks_fts MATCH $q AND n.assistant_id = $a AND (n.kind = $document) = $documents
             ORDER BY bm25(note_chunks_fts) LIMIT $l;
             """;
         cmd.Parameters.AddWithValue("$q", string.Join(" OR ", terms));
         cmd.Parameters.AddWithValue("$a", assistantId);
+        cmd.Parameters.AddWithValue("$document", nameof(NoteKind.Document));
+        cmd.Parameters.AddWithValue("$documents", documents ? 1 : 0);
         cmd.Parameters.AddWithValue("$l", limit);
         await using var r = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         var ids = new List<long>();

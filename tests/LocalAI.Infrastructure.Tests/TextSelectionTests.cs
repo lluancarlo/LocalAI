@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using LocalAI.Configuration;
 using LocalAI.Desktop;
 
 namespace LocalAI.Infrastructure.Tests;
@@ -27,13 +28,38 @@ public sealed class TextSelectionTests
     [Trait("Category", "Desktop")]
     public void The_mouse_hook_starts_and_stops_cleanly()
     {
-        var monitor = new Win32TextSelectionMonitor(Microsoft.Extensions.Logging.Abstractions.NullLogger<Win32TextSelectionMonitor>.Instance);
+        var monitor = new Win32TextSelectionMonitor(Microsoft.Extensions.Logging.Abstractions.NullLogger<Win32TextSelectionMonitor>.Instance,
+            new FixedMonitor(new LocalAiOptions()));
         for (var i = 0; i < 3; i++)
         {
             var watch = monitor.Start(_ => { });
             watch.Dispose();
             watch.Dispose(); // twice is harmless
         }
+    }
+
+    [Fact]
+    public void Copying_is_off_until_the_user_turns_it_on() => Assert.False(new LocalAiOptions().Voice.CopySelection);
+
+    [Theory]
+    [InlineData(new uint[0], true)]                      // empty clipboard
+    [InlineData(new uint[] { 13, 16, 1, 7 }, true)]      // plain text, as Notepad copies it
+    [InlineData(new uint[] { 13, 16, 1, 7, 49999 }, true)] // plain text this app put back (its history marker)
+    [InlineData(new uint[] { 49500, 13, 16, 1, 7 }, false)] // formatted text (a browser's HTML format)
+    [InlineData(new uint[] { 15 }, false)]               // files
+    [InlineData(new uint[] { 8, 2, 17 }, false)]         // an image
+    public void Ctrl_C_is_only_sent_when_the_clipboard_can_be_put_back_as_it_was(uint[] formats, bool plainText) =>
+        Assert.Equal(plainText, ClipboardSelectionCopier.IsPlainText(formats, marker: 49999));
+
+    [Fact]
+    public void Without_a_history_marker_no_registered_format_counts_as_plain_text() =>
+        Assert.False(ClipboardSelectionCopier.IsPlainText([13, 0], marker: 0));
+
+    private sealed class FixedMonitor(LocalAiOptions options) : Microsoft.Extensions.Options.IOptionsMonitor<LocalAiOptions>
+    {
+        public LocalAiOptions CurrentValue => options;
+        public LocalAiOptions Get(string? name) => options;
+        public IDisposable? OnChange(Action<LocalAiOptions, string?> listener) => null;
     }
 
     [Fact]
